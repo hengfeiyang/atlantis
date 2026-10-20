@@ -1,0 +1,39 @@
+props (banners / braziers / fire / urns / lamps / bougainvillea / lotus) — slot conventions are stable.
+Producers push into engine.slots.* BEFORE the props module runs (MODULE_ORDER). Coordinates in world metres.
+
+banner : { pos:[x,y,z] top-centre attach point (cloth hangs below, keep pos ~5 cm in front of the wall face),
+           facing: compass deg the banner front faces, size: height m or [width, height],
+           tag: contains 'pole' → free-standing vexillum (pos = ground point);
+                'pronaos' | 'porch' | 'free' | 'columns' → hangs free between columns (pos = under the beam);
+                else wall-mounted on a gold rod with brackets.
+           optional style: 'V' (V point) | 'S' (straight hem) | 'L' (long, gold side bands) | 'P' (loops + swags) }
+brazier: { pos: point the brazier stands on (top of a pier / pedestal / deck), facing, size: bowl diameter m,
+           tag: 'tripod' → bronze lion-foot tripod; 'ground' → props adds its own marble pier; else short foot.
+           optional pierHeight (with 'ground'), flame (multiplier) }
+urn    : { pos: base point, size: urn height m, tag: 'marble'|'krater' → marble krater, 'gold'|'bronze' → gilt urn,
+           + 'lotus' → planted with white water lilies, 'bougainvillea' → magenta bougainvillea spilling out,
+           'empty' → no plant }
+planter: { pos: soil-top centre of an existing box, facing, size: [length, depth]; tag 'trough' → props builds the trough;
+           'bougainvillea' → magenta bougainvillea instead of the default flowers }
+lamp   : { pos, size } size < 1 → only a flame at pos (producer built the bowl); size ≥ 1 → gilt lamp standard of that height
+flowers: { pos, facing, size, tag }
+           tag 'bougainvillea' (default): curtain spilling over an edge — pos = point on the TOP OUTER EDGE of the wall /
+               balustrade, facing = compass deg pointing outward (the side it hangs down), size = [length along edge, drop m]
+           tag 'bush'  : bougainvillea mound standing at pos, size = [radius, height] m
+           (a SCALAR size with no 'curtain'/'edge'/'climb'/'lotus' in the tag = a bush of ≈ that diameter at pos)
+           tag 'climb' : bougainvillea climbing a column / pier — pos = base on the axis, size = [radius, height]
+           tag 'lotus' : water lilies / lotus floating on a basin — pos = water surface centre, size = radius m
+
+Sunken era: no cloth, fire or plants; braziers / urns / lamps are toppled onto the ground (heightAt / sand) or
+left standing dulled; coral slots are pushed on them.
+
+Reusable API (src/props/*):
+  trident.js  drawTridentEmblem(ctx, cx, top, h, {mode:'color'|'height'|'mask', palette, spray, waves})
+              makeTridentEmblemCanvas(sizePx, {mode, palette, background, spray, waves})   PALETTES.gold|bronze|navy
+  banner.js   BannerSet(engine).add({pos, facing, width, height, style, mount}).build()
+  brazier.js  BrazierSet(engine, fire).add({pos, diameter, stand:'foot'|'tripod'|'pier'}).build()
+  fire.js     FireSystem(engine).addFire([x,y,z], flameHeight, seed01, opts).build()
+  urn.js      UrnSet(engine).add({pos, height, kind:'urn'|'krater'|'planter'|'bed', plant:'flowers'|'lotus'|'bougainvillea'|'none'}).build()
+  lamp.js     LampSet(engine, fire).add({pos, height, kind:'flame'|'finial'}).build()
+  bougainvillea.js  BougainvilleaSet(engine).curtain({...}) / .bush({...}) / .climb({...}).build()
+  lotus.js    LotusSet(engine).pond({center, radius, y}).build()

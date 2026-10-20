@@ -1,0 +1,19 @@
+props (banners / braziers / fire / urns / lamps) — API ready, signatures will stay backward-compatible.
+
+src/props/owl.js  (pure Canvas2D, no three.js import)
+  drawOwlEmblem(ctx, cx, topY, owlH, { mode:'color'|'height'|'mask', palette: PALETTES.gold|bronze|marble, text:bool|string, wreath:bool, sprig:bool })
+      owl (tetradrachm style) + laurel wreath (+ ΑΘΗΝΑ). Emblem ≈ 0.96·owlH wide, 1.42·owlH tall (1.85·owlH with text).
+  drawOwl(ctx, opts)               owl alone in owl units (head top y=0, toes y≈1; set your own transform)
+  drawLaurelWreath(ctx, opts)      open laurel wreath ({cx, cy, r, squash, gap, pairs, leafLen, leafW})
+  drawGreekText(ctx, 'ΑΘΗΝΑ', cx, baselineY, capHeight, { mode, palette })   procedural serif capitals (Α Θ Η Ν)
+  makeOwlEmblemCanvas(sizePx, { mode, palette, text, background })            → OffscreenCanvas
+  'height' mode = relief (raised bright, engraved lines dark) → good for shield/coin normal maps.
+
+src/props/fire.js      FireSystem(engine).addFire([x,y,z], flameHeight, seed01, opts).build()   (1 draw call)
+src/props/brazier.js   BrazierSet(engine, fire).add({ pos, diameter, stand:'foot'|'tripod'|'pier' }).build()
+src/props/banner.js    BannerSet(engine).add({ pos, facing, width, height, style:'V'|'S'|'L'|'P', mount:'wall'|'free'|'pole' }).build()
+src/props/urn.js       UrnSet(engine).add({ pos, height, kind:'urn'|'krater'|'planter'|'bed' }).build()
+src/props/lamp.js      LampSet(engine, fire).add({ pos, height, kind:'flame'|'finial' }).build()
+src/props/metals.js    goldMaterial(), bronzeMaterial(), propMarbleMaterial()
+
+Slot conventions consumed by src/modules/banners.js: see the header comment of that file.

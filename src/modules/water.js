@@ -1,0 +1,266 @@
+// WATER: every water surface of ATLANTIS. OWNER: water agent.
+// adapted from athenaion/src/modules/water.js + waterfalls.js
+//
+// golden: the sea-level surface (y = 0) over the 3 water rings, the canal and the open sea (one plane,
+//   depth-tinted turquoise rings → cobalt sea, waves / whitecaps / surf at sea, mirror-calm rings, planar
+//   reflections, sun glitter, foam lines at quays / moles / islets, ship wakes), the cascades of the
+//   citadel hill (traced over the real terrain + architecture) with mist / churn, fountain jets + steam.
+// sunken: the sea surface at L.SUNKEN.surface seen from above (dusk sea, ref 9) and from below (bright
+//   rippled ceiling, Snell's window, total internal reflection; refs 6, 7). The medium itself (absorption,
+//   in-scatter, rays, caustics) is the underwater core's.
+//
+// registry.water = {
+//   level            surface height for this era (0 golden, L.SUNKEN.surface sunken)
+//   addWake(w)       w = { pos:[x,z] or [x,y,z] of the BOW, heading (compass deg of travel), length, beam,
+//                    speed (m/s), oars (bool) } → handle { update(partial), remove() }   (golden)
+//   setWakes(list), wakes
+//   addImpact(im)    extra splash / foam source { x, z, radius, strength 0..1, dir:[dx,dz] }
+//   depthAt(x, z)    water depth (m) from the captured terrain;  shoreDist(x, z) → m to the nearest land
+//   waves            shared wave uniforms (tWaves, uWaveScale/Amp/Ang, uSwellA/B, uTime) for WAVES_GLSL
+//   WAVES_GLSL       GLSL: wWaves(p, amp4) → (slope, var), wSwellH(p, t), wSwellSlope(p, t)
+//   surfaceHeight(x, z, t)   exact analytic swell height (m) around `level` (meniscus, floating things)
+//   cascades         [{ id, kind, lip, impact, width, drop }] ; spouts: wall spout points for the rings agent
+//   fountains        basins in use
+//   maps, shore, surface, uniforms, underside (sunken)
+// }
+import * as THREE from 'three';
+import * as L from '../world/layout.js';
+import { isSunken } from '../world/era.js';
+import { captureHeightMap, defaultTerrainFilter } from '../water/heightmap.js';
+import { buildShoreField } from '../water/shore.js';
+import { OceanTile } from '../water/ocean.js';
+import { PlanarReflection } from '../water/reflection.js';
+import { createWaterSurface, setU } from '../water/surface.js';
+import { createUnderside } from '../water/underside.js';
+import { waveUniforms, swellFromUniforms, swellHeight, WAVES_GLSL } from '../water/waves.js';
+import { makeGround } from '../water/trace.js';
+import { planCascades, traceCascades, cascadeFootprints, buildCascadeMeshes, SPOUT_R, SPOUT_Y } from '../water/cascades.js';
+import { buildFountains } from '../water/fountains.js';
+import { LOOKS } from '../world/looks.js';
+import { UW } from '../core/underwater.js';
+
+export const NEAR_BOUNDS = [-1100, -1000, 1100, 1400];
+export const FAR_BOUNDS = [-7000, -7000, 7000, 7000];
+
+export function captureMaps(engine) {
+  const q = engine.quality;
+  const near = captureHeightMap(engine, { bounds: NEAR_BOUNDS, res: q.detail >= 1 ? 2048 : 1536 });
+  const far = captureHeightMap(engine, { bounds: FAR_BOUNDS, res: q.detail >= 1 ? 1536 : 1024 });
+  return { near, far };
+}
+
+export async function build(engine) {
+  const t0 = performance.now();
+  const sunken = isSunken(engine);
+  const level = sunken ? L.SUNKEN.surface : L.SEA_LEVEL;
+  const q = engine.quality;
+
+  // ---- terrain capture + distance-to-land fields
+  const maps = captureMaps(engine);
+  const shore = { near: buildShoreField(maps.near, level, 80), far: buildShoreField(maps.far, level, 400) };
+  const ground = makeGround([maps.near, maps.far]);
+  const depthAt = (x, z) => level - ground.H(x, z);
+  const shoreDist = (x, z) => { const d = shore.near.sample(x, z); return d < shore.near.maxDist ? d : shore.far.sample(x, z); };
+  const t1 = performance.now();
+
+  // ---- waves: FFT ripple tile + analytic swell
+  const ocean = new OceanTile({ n: 256, size: 24, wind: sunken ? 5.5 : 4.4, windDir: 0.9, seed: 11 });
+  const waves = sunken
+    ? waveUniforms(ocean, {
+      scale: [41.0, 12.3, 3.9, 1.21], amp: [0.08, 0.075, 0.04, 0.006],
+      swell: [],   // the long waves are the underwater core's (UW.uUwWaves): one surface for ripples, caustics, rays, meniscus
+    })
+    : waveUniforms(ocean, {
+      swell: [{ amp: 0.35, len: 62, dir: 10, phase: 0.0 }, { amp: 0.18, len: 31, dir: 340, phase: 2.0 }, { amp: 0.08, len: 14, dir: 35, phase: 4.0 }, { amp: 0, len: 10, dir: 0 }],
+    });
+  const reflection = new PlanarReflection(engine, { level, scale: q.name === 'preview' ? 0.5 : 0.75 });
+
+  // ---- the surface seen from above
+  const look = sunken ? {
+    uSea: [-10, 0, -1000, -1e5], uBodyK: 0, uSeaWave: [1.0, 1.0, 1.0, 0.02], uShoreK: [0.5, 10, 0.6, 0.5],
+    uSkyReflSea: [0.55, 0.5, 0.5], uGlint: [0.16, 0.8, 1.0, 1.0], uRingCalm: 1.0,
+  } : {};
+  const water = createWaterSurface(engine, { maps, shore, waves, reflection, level, absorb: !sunken, look });
+  engine.add(water.group, { castShadow: false, receiveShadow: true });
+
+  let underside = null;
+  if (sunken) {
+    underside = createUnderside(engine, { waves, level });
+    engine.add(underside.mesh, { castShadow: false, receiveShadow: false });
+    reflection.hidden.push(underside.mesh);
+  }
+
+  // ---- cascades: trace on the bare terrain now (corridor footprints before the architecture is placed)
+  let cascades = [], late = null;
+  const specs = sunken ? [] : planCascades();
+  if (specs.length) {
+    cascades = traceCascades(engine, ground, specs, level);
+    cascadeFootprints(engine, cascades);
+    water.setImpacts(cascades.map((f) => f.impact).filter(Boolean));
+  }
+
+  engine.onUpdate((t) => {
+    ocean.update(t);
+    waves.uTime.value = t;
+    late?.update(t);
+  });
+
+  // ---- late stage (first applyShot, after every module has built): re-trace the cascades over the real
+  //      architecture (citadel wall, ledge buildings), build sheets / mist / churn, fountains in the basins
+  //      published by the temple agent
+  const finalize = () => {
+    if (late || sunken) return late;
+    const tl = performance.now();
+    late = { groups: [], update: () => {}, sync: () => {} };
+    try {
+      let archMap = null, g2 = ground;
+      try {
+        const SOLID = ['terrain', 'temple', 'rings', 'bridges', 'city', 'sets'];
+        let allow = null;
+        if (engine.moduleRoots) { allow = new Set(); for (const n of SOLID) for (const r of engine.moduleRoots[n] || []) r.traverse((o) => allow.add(o)); }
+        const R = SPOUT_R + 60;
+        archMap = captureHeightMap(engine, { bounds: [-R, -R, R, R], res: 1600, filter: (o) => defaultTerrainFilter(o) && !o.userData.isWater && (!allow || allow.has(o)) });
+        g2 = makeGround([archMap, maps.near, maps.far]);
+      } catch (e) { console.warn('[water] architecture capture failed:', e.message); }
+      const falls = traceCascades(engine, g2, specs, level);
+      const cm = buildCascadeMeshes(engine, falls, { maps, ground: g2, shadowMap: archMap, level });
+      engine.add(cm.group, { castShadow: false, receiveShadow: false });
+      late.groups.push(cm.group);
+      const imps = falls.map((f) => f.impact).filter(Boolean);
+      water.setImpacts([...imps, ...extraImpacts]);
+      const fn = buildFountains(engine, { maps, basins: engine.registry.fountains });
+      if (fn) { engine.add(fn.group, { castShadow: false, receiveShadow: true }); late.groups.push(fn.group); }
+      late.update = (t) => { cm.update(t); fn?.update(t); };
+      late.sync = cm.sync;
+      late.update(engine.time);
+      reg.cascades = falls.map((f) => ({ id: f.id, kind: f.kind, lip: f.lip, impact: f.impact, width: f.width, drop: f.drop }));
+      reg.fountains = fn?.basins || [];
+      console.log(`[water] late build ${Math.round(performance.now() - tl)} ms: ${falls.length} cascades (${imps.length} impacts, ${Math.round(cm.tris)} sheet tris, ${cm.puffs} mist puffs${archMap ? ', arch capture ' + archMap.ms + ' ms / ' + archMap.meshes + ' meshes' : ''}), ${fn ? fn.basins.length + ' fountains' : 'no fountains'}`);
+    } catch (e) { console.error('[water] late build failed:', e.stack || e); }
+    return late;
+  };
+
+  // look-dev: a shot may carry { waterDebug: n, waterTune: { uniform: value }, underTune: {...} }
+  const debug0 = water.uniforms.uDebug.value;
+  let ptune = {};
+  try { ptune = JSON.parse(engine.params?.get?.('waterTune') || '{}'); } catch (e) { console.warn('[water] bad waterTune param'); }
+  engine.onShot((shot) => {
+    finalize();
+    late?.sync();
+    const U = water.uniforms;
+    U.uDebug.value = shot.waterDebug ?? debug0;
+    for (const [k, v] of Object.entries({ ...ptune, ...(shot.waterTune || {}) })) setU(U, k, v);
+    if (underside) for (const [k, v] of Object.entries(shot.underTune || {})) setU(underside.uniforms, k, v);
+    const sky = engine.registry.skyEnvScale;
+    if (sky) U.uEnvBoost.value = 1 / sky;
+  });
+
+  const extraImpacts = [];
+  const reg = engine.registry.water = {
+    level, era: engine.era, maps, shore, ground, depthAt, shoreDist,
+    addWake: water.addWake, setWakes: water.setWakes, wakes: water.wakes,
+    addImpact: (im) => { extraImpacts.push(im); return water.addImpact(im); },
+    surface: water.surface, uniforms: water.uniforms, reflection, ocean, waves, WAVES_GLSL,
+    surfaceHeight: (x, z, t = engine.time) => {
+      if (!sunken) return level + swellHeight(swellFromUniforms(waves), x, z, t);
+      let h = 0;   // mirror of uwWaveH() (core/underwater.js)
+      for (const w of UW.uUwWaves?.value || []) h += w.z * Math.sin(w.x * x + w.y * z - Math.sqrt(9.81 * Math.hypot(w.x, w.y)) * t + w.w);
+      return level + h;
+    },
+    underside: underside?.mesh || null, undersideUniforms: underside?.uniforms || null,
+    cascades: cascades.map((f) => ({ id: f.id, kind: f.kind, lip: f.lip, impact: f.impact, width: f.width, drop: f.drop })),
+    spouts: specs.filter((s) => s.kind === 'spout').map((s) => ({ id: s.id, pos: s.from, bearing: s.bearing, width: s.width })),
+    spoutR: SPOUT_R, spoutY: SPOUT_Y,
+    finalize,
+    heightTexture: maps.near.tex, heightBounds: maps.near.bounds,
+  };
+  const ms = Math.round(performance.now() - t0);
+  console.log(`[water] built in ${ms} ms (${engine.era}, level ${level}; capture ${Math.round(t1 - t0)} ms: near ${maps.near.W}x${maps.near.H} ${maps.near.meshes} meshes${maps.near.analyticFill ? ' analytic fill ' + maps.near.analyticFill : ''}, shore ${shore.near.ms}+${shore.far.ms} ms; ${cascades.length} cascades traced)`);
+}
+
+// ------------------------------------------------------------------ isolated test
+// views (golden unless noted): 0 aerial over the canal mouth (ref 1), 1 inner ring water level (ref 4),
+// 2 canal water level (ref 2), 3 cascades close-up, 4 fountains, 5 sunken from below (era=sunken),
+// 6 sunken from just above at dusk (era=sunken), 7 sea wakes close
+const lk = (id) => { const l = LOOKS[id] || {}; return { sun: l.sun, sky: l.sky, grade: l.grade, atmo: l.atmo, envIntensity: l.envIntensity }; };
+export const TEST_VIEWS = [
+  { ...lk(1), pos: [0, 430, 1750], target: [0, 10, 80], fov: 42 },
+  { ...lk(4), pos: [505, 1.8, 140], target: [455, 16, -160], fov: 42 },
+  { ...lk(2), pos: [-8, 2.6, 905], target: [0, 24, 600], fov: 44 },
+  { ...lk(5), pos: [118, 3.5, 252], target: [30, 22, 150], fov: 50 },
+  { ...lk(3), pos: [-6, 50, 104], target: [-22, 46, 78], fov: 50 },
+  { ...lk(6), pos: [34, 49, 150], target: [0, 62, 10], fov: 60 },
+  { ...lk(9), pos: [0, 64.4, 125], target: [-60, 62, 0], fov: 62 },
+  { ...lk(1), pos: [120, 60, 1150], target: [0, 0, 950], fov: 40 },
+];
+
+export async function buildTestTerrain(engine) {
+  for (const o of engine.scene.children) if (o.name === 'testGround') o.visible = false;
+  try {
+    const terrain = await import('./terrain.js');
+    await terrain.build(engine);
+    return 'terrain module';
+  } catch (e) {
+    console.warn('[water test] terrain module unavailable, using a heightAt mesh:', e.message);
+    const { heightAt } = await import('../world/heightfield.js');
+    const { proceduralMaterial } = await import('../core/materials.js');
+    const mat = proceduralMaterial({
+      name: 'waterTestGround', params: { color: 0xffffff, roughness: 0.95 },
+      color: `float h = cgP.y; float s = 1.0 - cgN.y;
+        vec3 sand = vec3(0.62, 0.58, 0.48), rock = vec3(0.42, 0.40, 0.36), grass = vec3(0.12, 0.16, 0.07);
+        vec3 c = h < 0.5 ? sand : mix(grass, rock, smoothstep(0.15, 0.4, s));
+        diffuseColor.rgb = c * (0.8 + 0.3 * cgVnoise2(cgP.xz * 0.3));`,
+    });
+    mat.userData.sunken = 'stone';
+    const mk = (x0, z0, x1, z1, nx, nz) => {
+      const geo = new THREE.PlaneGeometry(x1 - x0, z1 - z0, nx, nz).rotateX(-Math.PI / 2);
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++) { const x = p.getX(i) + (x0 + x1) / 2, z = p.getZ(i) + (z0 + z1) / 2; p.setXYZ(i, x, heightAt(x, z), z); }
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, mat); m.name = 'terrain';
+      engine.add(m);
+    };
+    mk(-1100, -1000, 1100, 1400, 1100, 1200);
+    // coarse far field (outer ring of tiles, skipping the near box)
+    for (const [x0, z0, x1, z1] of [[-7000, -7000, 7000, -1000], [-7000, 1400, 7000, 7000], [-7000, -1000, -1100, 1400], [1100, -1000, 7000, 1400]]) mk(x0, z0, x1, z1, Math.round((x1 - x0) / 40), Math.round((z1 - z0) / 40));
+    return 'analytic';
+  }
+}
+
+/** simple stand-ins for the architecture the water touches (walls, a hull) in the isolated test */
+function testProps(engine, sunken) {
+  const g = new THREE.Group(); g.name = 'waterTestProps';
+  const stone = new THREE.MeshStandardMaterial({ color: 0xc9b9a0, roughness: 0.8 });
+  stone.userData.sunken = 'stone';
+  const wall = new THREE.Mesh(new THREE.CylinderGeometry(L.CITADEL.wall.r + 1, L.CITADEL.wall.r + 1, L.CITADEL.wall.height, 160, 1, true), stone);
+  wall.position.y = L.CITADEL.quayY + L.CITADEL.wall.height / 2; wall.material.side = THREE.DoubleSide;
+  g.add(wall);
+  // two lighthouse towers on the moles
+  for (const m of L.MOLES) { const t = new THREE.Mesh(new THREE.CylinderGeometry(7, 9, 46, 24), stone); t.position.set(m.lighthouse[0], 23, m.lighthouse[1]); g.add(t); }
+  if (!sunken) {
+    const wood = new THREE.MeshStandardMaterial({ color: 0x3a2618, roughness: 0.7 }); wood.userData.sunken = 'wood';
+    const hulls = [[0, 980, 0, 4.5], [-30, 1250, 20, 5], [160, 1400, 345, 3], [-210, 1300, 15, 4]];
+    for (const [x, z, hd, sp] of hulls) {
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 34), wood);
+      const a = (hd * Math.PI) / 180;
+      hull.position.set(x - Math.sin(a) * 17, 0.6, z + Math.cos(a) * 17);
+      hull.rotation.y = -a;
+      g.add(hull);
+      engine.registry.water.addWake({ pos: [x, z], heading: hd, length: 34, beam: 5, speed: sp, oars: sp > 4 });
+    }
+  }
+  engine.add(g);
+}
+
+export async function test(engine) {
+  const src = await buildTestTerrain(engine);
+  engine.params.get('era') && (engine.era = engine.params.get('era'));
+  await build(engine);
+  testProps(engine, isSunken(engine));
+  // (the clouds module points ATMO.uSunDir at the art-directed visible sun in the world build; mimic it here)
+  const { SKY } = await import('../core/sky.js');
+  const { ATMO } = await import('../core/atmosphere.js');
+  engine.onShot(() => { if (SKY.uSunDiskMode.value > 0.5) ATMO.uSunDir.value.copy(SKY.uSunDiskDir.value).normalize(); });
+  console.log('[water test] terrain: ' + src);
+  return { views: TEST_VIEWS };
+}

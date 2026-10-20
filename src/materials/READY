@@ -1,0 +1,4 @@
+stone.js + metal.js API stable (temple agent). See the header comment of each file.
+stone.js: stoneMaterial({kind}), whiteStone, redStone, blackStone, limestone, bandedStone, checkerFloor, mosaicFloor, marbleMaterial, STONE_SRGB, stoneLinear, noiseTexture, aoUniforms, setMaterialAO, BOUNCE
+metal.js: metalMaterial({kind}), orichalcumMaterial, goldMaterial, giltMaterial, bronzeMaterial, tinMaterial, silverMaterial, patinaBronzeMaterial, METAL_SRGB
+All materials tagged userData.sunken ('stone' | 'metal' | 'gold').

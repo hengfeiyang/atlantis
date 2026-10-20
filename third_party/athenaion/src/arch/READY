@@ -1,0 +1,5 @@
+Architecture kit is usable. Import: import * as ARCH from '../arch/index.js'  (see the header of src/arch/index.js for the full API).
+Key entry points: columnGeometry, brokenColumnGeometry, drumGeometry, roughBlockGeometry, entablatureFragmentGeometry,
+capitalGeometry, pedestalGeometry, balustradeGeometry, peripteralTemple, prostyleTemple, tholos, stoa, propylon (Building → .finalize()),
+marbleMaterial({variant:'weathered'|'polished'|'ruined'|'mossy'}), goldMaterial, bronzeMaterial, patinaBronzeMaterial.
+Signatures are kept backward-compatible; quality keeps improving.

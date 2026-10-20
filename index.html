@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>Atlantis</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0d0f12; overflow: hidden; }
+    canvas { display: block; }
+    body.interactive canvas { width: 100vw; height: 100vh; object-fit: contain; }
+    #hud { position: fixed; left: 12px; bottom: 10px; color: #e8e2d4; font: 12px/1.4 ui-monospace, Consolas, monospace;
+           background: rgba(10, 12, 16, 0.55); padding: 8px 10px; border-radius: 6px; pointer-events: none; white-space: pre; }
+    #loading { position: fixed; inset: 0; display: grid; place-items: center; color: #e8e2d4; font: 15px ui-monospace, Consolas, monospace; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/node_modules/three/build/three.module.js",
+        "three/addons/": "/node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="loading">building the world…</div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

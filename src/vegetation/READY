@@ -1,0 +1,7 @@
+vegetation API (stable, golden era only; sunken build() is a no-op)
+src/modules/vegetation.js   build(engine) / test(engine)  (?test=vegetation views 0-6; vegLod=n, vegDensity=x, vegNoShadow=1, atlas=1|2)
+src/vegetation/palm.js      buildPalm(seed, style) -> { H, R, Ht, lods, skel }  styles: tall|medium|young|leaning|garden
+src/vegetation/library.js   buildLibrary(sys, engine) -> { palm[], cypress[], olive[], broad[], pine[], shrub[], thicket[] }
+src/vegetation/instances.js VegSystem.add(variant, x, y, z, yaw, scale, {tint, width, up}) ; engine.registry.vegetation = VegSystem
+Inputs consumed: engine.slots.palm [{pos, size (m), tag: palm style}], engine.slots.tree [{pos, tag: palm|cypress|olive|broad|pine|shrub, size}],
+  engine.registry.cypressRows, engine.registry.city.gardens, engine.footprints (all tags block), SHOTS (golden foregrounds kept clear).

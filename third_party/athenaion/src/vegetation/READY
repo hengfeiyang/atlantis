@@ -1,0 +1,20 @@
+vegetation API (stable)
+
+src/modules/vegetation.js        build(engine) / test(engine)
+src/vegetation/library.js        buildLibrary(sys, engine) -> { cypress[], olive[], broad[], pine[], shrub[], thicket[] } variants
+src/vegetation/instances.js      VegSystem: addVariant(def), add(variant, x, y, z, yaw, scale, {tint, width, up:[x,y,z] | tilt}), finalize() (also patches every variant material: atmosphere + CSM + program key), update(camera)
+src/vegetation/cypress.js        buildCypress(seed, style) -> { H, R, lods:[{blob,card},...] }  (LOD0/1: explicit tufts of spray cards; LOD2 lumpy lathe + a shell of big tuft cards; LOD3 replaced by an impostor in library.js)
+src/vegetation/trees.js          buildTree(species, seed) -> { H, R, lods:[{bark,blob,card},...] }  species: olive|broad|pine|shrub|thicket
+src/vegetation/atlas.js          cypressAtlas(), leafAtlas() (canvas-drawn foliage atlases, coverage-preserving mips)
+src/materials/foliage.js         foliageMaterials(species, atlas) -> {blob, card}; billboardMaterial(species, atlas) (far impostor); barkMaterial(species); windDepthMaterial(card); WIND uniforms
+src/vegetation/util.js           GeoBuilder, addBlob, addCard, addTube, billboardQuad(H, R, rect)
+
+Inputs read from other modules (all optional):
+  engine.registry.cypressRows = [{ points: [[x,z] | [x,y,z], ...], spacing?, height? }]
+  engine.registry.city.gardens = [{ x, z, hw, hd, rot }]
+  engine.slots.tree = [{ pos:[x,y,z], tag:'cypress'|'olive'|'broad'|'pine'|'shrub', size: height_m }]
+  engine.footprints (respected, with tag exemptions for rows/heroes: acro-wall, acro-way, acro-plaza; 'waterfall'
+    corridors only block their central 80% width, so falls are framed by vegetation on both banks)
+Output: engine.registry.vegetation = VegSystem (variants[].inst = placed instances)
+Debug URL params: vegNoAtmo=1, vegLod=n, vegNoShadow=1, vegNoCards=1, vegDensity=x (override quality density; sessions at preview use 0.45),
+  vegDebug=1 (logs placement rejections per stage/reason and where each hero tree landed)

@@ -1,0 +1,10 @@
+import * as L from '../../world/layout.js';
+const { frame8 } = await import('../fallenhead.js');
+const { frame5 } = await import('../terrace.js');
+const { sunkenGround } = await import('../../terrain/sand.js');
+const P = L.FALLEN_HEAD.pos;
+const r = (a) => a.map((v) => +v.toFixed(2));
+const s8 = frame8({ groundY: sunkenGround(P[0], P[2]) }).shot();
+const s5 = frame5().shot();
+console.log(JSON.stringify({ pos: r(s8.pos), target: r(s8.target), fov: 44 }));
+console.log(JSON.stringify({ pos: r(s5.pos), target: r(s5.target), fov: 44 }));

@@ -1,0 +1,230 @@
+// Ship-sheds (ref 4): rows of arched openings cut into the rock faces of the land rings at water level,
+// each a vaulted, lamp-lit dock with a slipway for one trireme. The rock-cut block projects SHED.depth m
+// in front of the ring face; its top is a planted ledge below the curtain wall. Merged chunked geometry
+// (every bay has its own rock displacement — world-space noise, nothing repeats).
+import { Frame, chamferBox, box, FACES, AUX_ASHLAR, mul3 } from './geo.js';
+import { polarXZ, SHED } from './plan.js';
+import { noiseA, noiseB } from '../core/noise.js';
+import { ruined, ruinRand } from '../world/era.js';
+
+const D2R = Math.PI / 180;
+
+/** radial rock displacement (m, toward the water) at a world point */
+function rockDisp(x, y, z) {
+  // big rounded rock masses (karst limestone), vertical joints, strata ledges, fine roughness
+  const big = noiseA.fbm3(x * 0.055, y * 0.09, z * 0.055, 3);
+  const mass = Math.max(0, big + 0.15) * 2.2;
+  const joint = Math.abs(noiseB.noise2((x + z) * 0.11, y * 0.02)) < 0.08 ? -0.5 : 0;
+  const n = noiseA.fbm3(x * 0.22, y * 0.3, z * 0.22, 3) * 0.45 + noiseB.noise3(x * 0.9, y * 0.9, z * 0.9) * 0.1;
+  const ledge = Math.max(0, Math.sin(y * 0.75 + noiseB.noise2(x * 0.04, z * 0.04) * 3)) * 0.3;
+  return mass + n + ledge + joint;
+}
+
+/**
+ * Build one shed bay (or a solid pier filler if opts.solid).
+ * sh: plan shed { bearing, faceR, frontR, crown, width, landY } ; e: edge; halfDeg: half the bay angle
+ */
+function shedBay(ctx, e, sh, halfDeg, opts) {
+  const { S, rng } = ctx;
+  const b = sh.bearing, side = e.side, R0 = e.faceR, Rf = R0 + side * SHED.depth;
+  const yB = e.floor - 1.0, yT = e.landY;
+  const ra = SHED.clear / 2, ys = sh.crown - ra;
+  const br = b * D2R;
+  const [ox, oz] = polarXZ(R0, b);
+  const Fb = new Frame([ox, 0, oz], [Math.cos(br), 0, Math.sin(br)], [0, 1, 0], [Math.sin(br) * side, 0, -Math.cos(br) * side]);
+  const W = (u, y, rr) => { const [x, z] = polarXZ(rr, b + u); return [x, y, z]; };
+  const mid = W(0, 0, Rf);
+  const lod = ctx.lodAt(mid[0], mid[2]);
+  const Rk = S.get('rock', mid[0], mid[2]);
+  const label = `rings:shed:${e.id}:${Math.round(b * 100)}`;
+  const broken = ctx.sunken && ruined(label, 0.25);
+  // ---- front rock face: grid with the arch opening removed, radially displaced
+  const cs = lod === 0 ? 0.75 : lod === 1 ? 1.2 : 2.2;
+  const nu = Math.max(4, Math.ceil((2 * halfDeg * D2R * Rf) / cs)), ny = Math.max(4, Math.ceil((yT - yB) / cs));
+  const m = 0.3;
+  const inOpen = (sv, y) => !opts.solid && Math.abs(sv) < ra + m && (y < ys || Math.hypot(sv, y - ys) < ra + m);
+  // snap vertices that fall inside the opening onto its outline so the rock hugs the arch
+  const snap = (sv, y) => {
+    if (!inOpen(sv, y)) return [sv, y, false];
+    if (y <= ys) return [Math.sign(sv || 1) * (ra + m), y, true];
+    const dx = sv, dy = y - ys, l = Math.hypot(dx, dy) || 1;
+    return [(dx / l) * (ra + m), ys + (dy / l) * (ra + m), true];
+  };
+  const vert = [];
+  const sE = Rf * Math.sin(halfDeg * D2R);
+  for (let j = 0; j <= ny; j++) {
+    const row = [];
+    const y = yB + ((yT - yB) * j) / ny;
+    for (let i = 0; i <= nu; i++) {
+      const u = -halfDeg + (2 * halfDeg * i) / nu;
+      let sv = Rf * Math.sin(u * D2R), yy = y, snapped = false;
+      if (i > 0 && i < nu) [sv, yy, snapped] = snap(sv, y);
+      const uu = Math.asin(Math.max(-1, Math.min(1, sv / Rf))) / D2R;
+      const p0 = W(uu, yy, Rf);
+      let d = rockDisp(p0[0], yy, p0[2]);
+      if (j === ny) d = Math.min(d, 0.15);       // top edge: meets the ledge
+      if (yy < 0.4) d *= 0.6;
+      if (j === 0) d = Math.min(d, 0.3);
+      // near the dressed arch the rock stays behind the archivolt
+      if (!opts.solid) {
+        const dOpen = yy <= ys ? Math.abs(Math.abs(sv) - ra) : Math.abs(Math.hypot(sv, yy - ys) - ra);
+        if (dOpen < 3.0) d = Math.min(d, -0.2 + 0.45 * dOpen);
+      }
+      row.push(W(uu, yy, Rf + side * d));
+      void sE; void snapped;
+    }
+    vert.push(row);
+  }
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nu; i++) {
+    const uc = -halfDeg + (2 * halfDeg * (i + 0.5)) / nu, yc = yB + ((yT - yB) * (j + 0.5)) / ny;
+    if (inOpen(Rf * Math.sin(uc * D2R), yc)) continue;
+    Rk.aux = [0, 0, 0, 0];
+    Rk.quadToward(vert[j][i], vert[j][i + 1], vert[j + 1][i + 1], vert[j + 1][i], [1, 1, 1], Fb.az);
+  }
+  // ---- top ledge (soil + rock) from the front edge back to the curtain wall
+  const back = R0 - side * (Math.abs(e.faceR - e.wallR) + 0.2);
+  const nl = 4;
+  for (let k = 0; k < nl; k++) {
+    const r0 = Rf + (back - Rf) * (k / nl), r1 = Rf + (back - Rf) * ((k + 1) / nl);
+    const yy0 = yT + (k === 0 ? 0.0 : 0.12 + 0.18 * noiseA.noise2(r0 * 0.3, b)), yy1 = yT + 0.12 + 0.18 * noiseA.noise2(r1 * 0.3, b);
+    for (let i = 0; i < 3; i++) {
+      const u0 = -halfDeg + (2 * halfDeg * i) / 3, u1 = -halfDeg + (2 * halfDeg * (i + 1)) / 3;
+      Rk.quadToward(W(u0, yy0, r0), W(u1, yy0, r0), W(u1, yy1, r1), W(u0, yy1, r1), [1, 1, 1], [0, 1, 0]);
+    }
+  }
+  // group ends: radial side faces
+  for (const [flag, u] of [[opts.endA, -halfDeg], [opts.endB, halfDeg]]) {
+    if (!flag) continue;
+    const dir = u < 0 ? mul3(Fb.ax, -1) : Fb.ax;
+    const nr = 6, nyy = 6;
+    for (let j = 0; j < nyy; j++) for (let k = 0; k < nr; k++) {
+      const y0 = yB + ((yT - yB) * j) / nyy, y1 = yB + ((yT - yB) * (j + 1)) / nyy;
+      const r0 = R0 + (Rf - R0) * (k / nr), r1 = R0 + (Rf - R0) * ((k + 1) / nr);
+      const dp = (r, y) => { const p = W(u, y, r); const dd = rockDisp(p[0], y, p[2]) * 0.8; return W(u + (u < 0 ? -1 : 1) * (dd / r) / D2R, y, r); };
+      Rk.quadToward(dp(r0, y0), dp(r1, y0), dp(r1, y1), dp(r0, y1), [1, 1, 1], dir);
+    }
+  }
+  if (opts.solid) return;
+  // ---- dressed arch: jambs, voussoirs, gilt keystone
+  const Ff = Fb.at(0, 0, SHED.depth);
+  const Wt = S.get('white', mid[0], mid[2]), G = S.get('gilt', mid[0], mid[2]);
+  const ring = 0.85;
+  Wt.aux = [0, 0.4, 0, AUX_ASHLAR(0.6)];
+  let y = -0.8, k = 0;
+  while (y < ys - 0.02) {
+    const hh = Math.min(ys - y, k % 2 ? 0.55 : 0.8);
+    for (const sx of [-1, 1]) {
+      const wide = (k + (sx > 0 ? 1 : 0)) % 2 ? ring * 1.2 : ring * 0.8;
+      const a = sx < 0 ? -ra - wide : ra, c = sx < 0 ? -ra : ra + wide;
+      chamferBox(Wt, Ff, a, c, y, y + hh, -1.2, 0.35, lod <= 1 ? 0.04 : 0, [0.92 + 0.06 * rng.random(), 0.9, 0.86], FACES.pz | FACES.px | FACES.nx | FACES.py | FACES.ny);
+    }
+    y += hh; k++;
+  }
+  for (const sx of [-1, 1]) chamferBox(G, Ff, sx < 0 ? -ra - ring * 1.3 : ra - 0.1, sx < 0 ? -ra + 0.1 : ra + ring * 1.3, ys - 0.25, ys, -1.2, 0.45, 0.03, [1, 1, 1]);
+  const nv = lod === 0 ? 17 : 11;
+  for (let i = 0; i < nv; i++) {
+    const a0 = Math.PI - (Math.PI * i) / nv, a1 = Math.PI - (Math.PI * (i + 1)) / nv;
+    const key = i === (nv - 1) / 2;
+    const B = key ? G : Wt;
+    const R1 = ra + ring * (key ? 1.35 : 1), dF = key ? 0.55 : 0.35;
+    const g = 0.012;
+    const P = (a, rr, d) => Ff.p(Math.cos(a) * rr, ys + Math.sin(a) * rr, d);
+    const c = key ? [1, 1, 1] : [0.92 + 0.06 * rng.random(), 0.9, 0.86];
+    const ctr = Ff.p(Math.cos((a0 + a1) / 2) * (ra + R1) / 2, ys + Math.sin((a0 + a1) / 2) * (ra + R1) / 2, -0.4);
+    B.quadOut(P(a0 - g, ra, dF), P(a1 + g, ra, dF), P(a1 + g, R1, dF), P(a0 - g, R1, dF), c, ctr);
+    B.quadOut(P(a0 - g, R1, dF), P(a1 + g, R1, dF), P(a1 + g, R1, -1.2), P(a0 - g, R1, -1.2), c, ctr);
+    B.quadOut(P(a0 - g, ra, -1.2), P(a1 + g, ra, -1.2), P(a1 + g, ra, dF), P(a0 - g, ra, dF), [0.75, 0.73, 0.7], Ff.p(0, ys, 0));
+    B.quadOut(P(a0 - g, ra, dF), P(a0 - g, R1, dF), P(a0 - g, R1, -1.2), P(a0 - g, ra, -1.2), c, ctr);
+    B.quadOut(P(a1 + g, R1, dF), P(a1 + g, ra, dF), P(a1 + g, ra, -1.2), P(a1 + g, R1, -1.2), c, ctr);
+  }
+  Wt.aux = [0, 0, 0, 0];
+  // ---- interior: side walls, vault, back wall, slipway (lamp glow baked in aux.z)
+  const I = S.get('interior', mid[0], mid[2]);
+  const dBack = -SHED.back, dFront = SHED.depth - 1.2;
+  const lamps = [];
+  for (const dl of [SHED.depth - 4.5, 2.5, -9]) for (const sx of [-1, 1]) lamps.push([sx * (ra - 0.4), ys - 0.6, dl]);
+  const glow = (p) => { let g = 0; for (const l of lamps) { const d2 = (p[0] - l[0]) ** 2 + (p[1] - l[1]) ** 2 + (p[2] - l[2]) ** 2; g += 2.2 / (1 + d2 * 0.35); } return g; };
+  const nd = lod === 0 ? 12 : 6;
+  const IQ = (a, b2, c, d, n) => {
+    // local points → world, aux.z from the glow at each vertex (one quad = constant aux; subdivided enough)
+    const mc = [(a[0] + b2[0] + c[0] + d[0]) / 4, (a[1] + b2[1] + c[1] + d[1]) / 4, (a[2] + b2[2] + c[2] + d[2]) / 4];
+    I.aux = [0, 0, broken ? 0 : glow(mc), 0];
+    I.quadToward(Fb.p(...a), Fb.p(...b2), Fb.p(...c), Fb.p(...d), [1, 1, 1], Fb.dir(...n));
+  };
+  for (let q = 0; q < nd; q++) {
+    const d0 = dBack + (dFront - dBack) * (q / nd), d1 = dBack + (dFront - dBack) * ((q + 1) / nd);
+    for (const sx of [-1, 1]) {
+      const yw = [yB, 0, ys * 0.5, ys];
+      for (let j = 0; j < 3; j++) IQ([sx * ra, yw[j], d0], [sx * ra, yw[j], d1], [sx * ra, yw[j + 1], d1], [sx * ra, yw[j + 1], d0], [-sx, 0, 0]);
+    }
+    const na = lod === 0 ? 10 : 6;
+    for (let i = 0; i < na; i++) {
+      const a0 = (Math.PI * i) / na, a1 = (Math.PI * (i + 1)) / na;
+      const c0 = Math.cos(a0) * ra, s0 = ys + Math.sin(a0) * ra, c1 = Math.cos(a1) * ra, s1 = ys + Math.sin(a1) * ra;
+      const am = (a0 + a1) / 2;
+      IQ([c0, s0, d0], [c1, s1, d0], [c1, s1, d1], [c0, s0, d1], [-Math.cos(am), -Math.sin(am), 0]);
+    }
+  }
+  // back wall (dark, a few glowing niches)
+  const V = S.get('void', mid[0], mid[2]);
+  V.quadToward(Fb.p(-ra, yB, dBack), Fb.p(ra, yB, dBack), Fb.p(ra, sh.crown, dBack), Fb.p(-ra, sh.crown, dBack), [1, 1, 1], Fb.az);
+  // slipway ramp + timber rails
+  const Lm = S.get('lime', mid[0], mid[2]);
+  Lm.aux = [0.3, 0, 0, 0];
+  Lm.quadToward(Fb.p(-ra, -1.4, dFront + 1.2), Fb.p(ra, -1.4, dFront + 1.2), Fb.p(ra, 1.2, dBack), Fb.p(-ra, 1.2, dBack), [0.55, 0.55, 0.5], [0, 1, 0]);
+  Lm.aux = [0, 0, 0, 0];
+  if (!ctx.sunken) {
+    const Wd = S.get('wood', mid[0], mid[2]);
+    for (const sx of [-1.6, 1.6]) {
+      const run = dFront + 1.2 - dBack, rise = 2.6;
+      const Fr = new Frame(Fb.p(sx, 1.22, dBack), Fb.ax, Fb.ay, Fb.az).tilted(0, -Math.atan2(rise, run));
+      box(Wd, Fr, -0.18, 0.18, 0, 0.22, 0, Math.hypot(rise, run), [1, 1, 1], FACES.py | FACES.px | FACES.nx);
+    }
+    // tie beams across the dock
+    if (lod <= 1) for (const dd of [-14, -6, 1.5, 6.5, 11]) box(Wd, Fb, -ra, ra, ys - 0.35, ys - 0.05, dd - 0.15, dd + 0.15, [0.9, 0.9, 0.9], FACES.py | FACES.ny | FACES.pz | FACES.nz);
+    // lamps (emissive) on iron brackets
+    const Lp = S.get('lamp', mid[0], mid[2]);
+    for (const l of lamps) {
+      const Fl = Fb.at(l[0], l[1], l[2]);
+      box(Lp, Fl, -0.14, 0.14, -0.2, 0.14, -0.14, 0.14, [1, 1, 1]);
+      if (lod === 0) ctx.slots.lamp.push({ pos: Fl.p(0, 0.15, 0), size: 0.22, tag: 'rings-shed' });
+    }
+  }
+  // ---- slots + registry
+  sh.slotPos = Fb.p(0, 0, SHED.depth - 0.5);
+  if (!ctx.sunken) {
+    // banners between the arches (on the rock, hung from iron rods)
+    if (sh.index % 2 === 0) ctx.slots.banner.push({ pos: W(halfDeg, sh.crown + 0.6, Rf + side * 0.45), facing: sh.facing, size: [1.6, 4.4], tag: 'rings-shed' });
+    if (sh.index % 3 === 0) ctx.slots.ivy.push({ pos: W(halfDeg * 0.6, yT - 0.2, Rf + side * 0.3), facing: sh.facing, size: 4 + 3 * rng.random(), tag: 'rings-shed-rock' });
+  } else {
+    ctx.slots.coral.push({ pos: W(halfDeg * 0.9, ys + 1, Rf + side * 0.4), normal: Fb.az, size: 1.5, tag: 'rings-shed' });
+    ctx.slots.coral.push({ pos: W(0, yT + 0.2, (Rf + R0) / 2), normal: [0, 1, 0], size: 2.5, tag: 'rings-shed-top' });
+  }
+}
+
+/** build all ship-sheds and the solid piers between their groups: returns { count, ledges } */
+export function buildSheds(ctx) {
+  const { plan } = ctx;
+  let count = 0;
+  const ledges = [];
+  for (const e of plan.edges) {
+    const list = plan.sheds.filter((s) => s.edge === e.id);
+    if (!list.length) continue;
+    const fill = plan.shedFillers.filter((f) => f.edge === e.id);
+    // every bay (shed or filler) sorted by bearing; caps where the neighbour is missing
+    const all = [...list.map((s) => ({ s, b: s.bearing, h: s.halfDeg })), ...fill.map((f) => ({ f, b: f.bearing, h: f.halfDeg }))].sort((a, b) => a.b - b.b);
+    for (let i = 0; i < all.length; i++) {
+      const it = all[i], prev = all[i - 1], next = all[i + 1];
+      const endA = !prev || Math.abs(prev.b + prev.h - (it.b - it.h)) > 1e-3;
+      const endB = !next || Math.abs(it.b + it.h - (next.b - next.h)) > 1e-3;
+      if (it.s) {
+        shedBay(ctx, e, it.s, it.h, { endA, endB });
+        count++;
+        ledges.push({ edge: e.id, bearing: it.s.bearing, r0: Math.min(it.s.faceR, it.s.frontR), r1: Math.max(it.s.faceR, it.s.frontR), y: e.landY });
+      } else {
+        shedBay(ctx, e, { bearing: it.b, faceR: e.faceR, crown: 0, index: -1, facing: 0 }, it.h, { solid: true, endA, endB });
+      }
+    }
+  }
+  return { count, ledges };
+}

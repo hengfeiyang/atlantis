@@ -1,0 +1,13 @@
+node_modules/
+out/
+snapshots/
+audio/
+*.log
+.DS_Store
+
+# baked geometry is regenerable: node tools/bake.mjs terrain|statues|sets
+generated/
+
+# codex generation logs and the throwaway test image
+refs/_log/
+refs/_test/

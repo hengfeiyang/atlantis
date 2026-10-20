@@ -1,0 +1,5 @@
+bridges — stable importable API:
+  src/bridges/plan.js  bridgePlan() → ring crossings [{id, ring, bearing, deck, rotY, x0, x1 (radius), halfWidth, towers:[{x0,x1,halfW,top}], special}]
+                       GATE (gate bridge: z 690, deck 30, towers x ∈ ±[28, 47], z ± 12, viaduct to ±104, stairs to ±156)
+  engine.registry.bridges = { gate: {...GATE, towers:[{pos, tip}]}, ring:[{id, towers}], plan }
+Slots: banner (golden), statue / brazier (both eras), coral + kelp (sunken). Footprints tagged 'bridge-*'.

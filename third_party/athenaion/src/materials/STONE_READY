@@ -1,0 +1,6 @@
+stone.js API stable (terrain agent):
+  rockMaterial(opts)      natural limestone rock (cliffs, boulders, outcrops)
+  limestoneMaterial(opts) dressed / cut limestone (ruins blocks, walls, paving)
+  createRock(rng, opts)   procedural boulder BufferGeometry (position, normal, aCavity), shapes: boulder|block|slab|pillar|mass|pebble
+  STONE_GLSL              shared GLSL (stShade / stBumpNormal) for custom materials
+opts: tint, scale, moss, lichen, streaks, strata, ochre, wetBelow, bump, variation, roughness, side
