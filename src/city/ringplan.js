@@ -19,9 +19,13 @@ export function districts() {
   const w1b = L.RING_BRIDGES.find((b) => b.ring === 'w1').bearings, w2b = L.RING_BRIDGES.find((b) => b.ring === 'w2').bearings, w3b = L.RING_BRIDGES.find((b) => b.ring === 'w3').bearings;
   return [
     { id: 'l1', r0: l1.r0 + 15, r1: l1.r1 - 15, streets: [{ r: (l1.r0 + l1.r1) / 2, hw: 7, avenue: true }], spacing: 46,
-      main: [...new Set([...w1b, ...w2b])].filter((b) => b !== 180), style: { flat: 0.72, storeys: [2, 3], big: 1.12, classical: 1.9, kiosk: 0.24 }, lot: { w: [10, 18], d: [14, 21] }, keep: 1.0 },
+      main: [...new Set([...w1b, ...w2b])].filter((b) => b !== 180), style: { flat: 0.42, storeys: [2, 3], big: 1.18, classical: 1.9, kiosk: 0.3 }, lot: { w: [12, 20], d: [14, 21] }, keep: 1.0,
+      // r4 (citadel): ≈ 50 % of l1 is garden (ref 1: palaces among green gardens, vegetation fills) — avenue-facing rows mostly
+      // built, water-facing rows mostly gardens, with a slow bearing noise so whole stretches become parks
+      gardenKeep: { avenue: 0.78, water: 0.24 } },
     { id: 'l2', r0: l2.r0 + 15, r1: l2.r1 - 15, streets: [{ r: 634, hw: 3.2 }, { r: 690, hw: 7, avenue: true }, { r: 748, hw: 3.2 }], spacing: 44,
-      main: [...new Set([...w2b, ...w3b])], style: { flat: 0.72, storeys: [2, 3], big: 1.0, classical: 1.3, kiosk: 0.18 }, lot: { w: [9, 17], d: [13, 21] }, keep: 1.0 },
+      main: [...new Set([...w2b, ...w3b])], style: { flat: 0.5, storeys: [2, 3], big: 1.06, classical: 1.3, kiosk: 0.22 }, lot: { w: [10, 18], d: [13, 21] }, keep: 1.0,
+      gardenKeep: { avenue: 0.9, water: 0.6 } },
     { id: 'outer', r0: L.OUTER_CITY.r0 + 16, r1: L.OUTER_CITY.r1 - 20, every: 66, spacing: 56, main: [...w3b, 30, 330, 60, 300, 90, 270],
       sector: [L.SEA_SECTOR[1] + 9, L.SEA_SECTOR[0] + 360 - 9], style: { flat: 0.55, storeys: [1, 2], big: 0.95, classical: 0.7, kiosk: 0.06 }, lot: { w: [10, 20], d: [13, 22] }, keep: 0.85 },
   ];
@@ -268,12 +272,24 @@ export class CityPlan {
         const rc = side === 'in' ? rs + d / 2 : rs - d / 2;
         const [x, z] = L.polar(rc, bc);
         const rot = side === 'in' ? -bc * D2R : Math.PI - bc * D2R;   // front faces the street at rs
-        const keep = D.keep * (D.id === 'outer' ? outerKeep(Math.hypot(x, z) - D.r0, x, z) : 1);
+        let keep = D.keep * (D.id === 'outer' ? outerKeep(Math.hypot(x, z) - D.r0, x, z) : 1);
+        // r4: land-ring gardens (refs 1 / 5: green between the palaces) — the row facing the avenue stays mostly built
+        let gardenLot = false;
+        if (D.gardenKeep) {
+          const faceR = rs, ave = this.streets.find((q) => q.kind === 'arc' && q.district === D.id && q.avenue);
+          const onAve = ave ? Math.abs(faceR - ave.r) < ave.hw + 1.5 : false;
+          const park = 0.5 + 0.5 * Math.sin(bc * D2R * 5 + 1.7) * Math.sin(bc * D2R * 3 - 0.6);   // slow: parks a few blocks long
+          keep *= Math.min(1, (onAve ? D.gardenKeep.avenue : D.gardenKeep.water) * (0.55 + 0.9 * park));
+          gardenLot = true;
+        }
         if (rng.random() < keep && this.rectFree(D, x, z, w / 2 - 0.1, d / 2 - 0.1, rot)) {
           const lot = { x, z, w: w - 0.3, d, rot, seed: rng.random(), row, district: D.id, side, bearing: wrap(bc), r: rc, block: { seed: rng.random(), uniform: false } };
           this.occ.add(x, z, w / 2 - 0.1, d / 2 - 0.1, rot, 'lot');
           this.lots.push(lot);
           if (side === 'in') maxIn = Math.max(maxIn, d); else maxOut = Math.max(maxOut, d);
+        } else if (gardenLot && this.rectFree(D, x, z, w / 2 - 0.1, d / 2 - 0.1, rot)) {
+          // unbuilt land-ring lot: a garden (vegetation fills it; the city adds low walls / paths / a fountain sometimes)
+          this.gardens.push({ x, z, hw: w / 2 - 0.8, hd: d / 2 - 0.8, rot, kind: 'park', district: D.id });
         } else if (D.id === 'outer' && Math.hypot(x, z) < 1500 && rng.chance(0.35) && this.inDistrict(D, x, z) && !this.reservedAt(x, z, 4)) {
           // unbuilt outer-city lots: orchards / fields (vegetation)
           this.gardens.push({ x, z, hw: w / 2 - 1, hd: d / 2 - 1, rot, kind: 'orchard' });

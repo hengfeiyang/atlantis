@@ -121,7 +121,7 @@ export function scatterWorld(engine, sys, lib) {
     // so they do not hide the red rampart tiers in shots 1 / 3 / 5
     const cap = heightCap(kind, x, z);
     if (cap && v.H * s > cap) s = cap / v.H;
-    const tint = kind === 'palm' ? [rng.range(0.92, 1.08), rng.range(0.95, 1.06), rng.range(0.88, 1.02)] : [rng.range(0.9, 1.08), rng.range(0.92, 1.05), rng.range(0.88, 1.0)];
+    const tint = o.tint ? o.tint : kind === 'palm' ? [rng.range(0.92, 1.08), rng.range(0.95, 1.06), rng.range(0.88, 1.02)] : [rng.range(0.9, 1.08), rng.range(0.92, 1.05), rng.range(0.88, 1.0)];
     sys.add(v, x, y, z, o.yaw ?? rng.random() * Math.PI * 2, s, { tint, width: rng.range(0.92, 1.08), up: o.up });
     occ.add(x, z, rOcc);
     st[kind]++;
@@ -147,10 +147,11 @@ export function scatterWorld(engine, sys, lib) {
       const f = [tx - px, tz - pz], fl = Math.hypot(...f); f[0] /= fl; f[1] /= fl;
       const rt = [-f[1], f[0]];
       // crown ≈ 3.5 m above the lens, trunk just outside the right edge of the frame
-      const v = PSTYLE.garden[0] || lib.palm[0];
+      const v = lib.palmHero || PSTYLE.garden[0] || lib.palm[0];
       // r3: closer + lower + fuller so the fronds hang into the top-right corner (ref 5: x > 1150, y < 260)
       const x = px + rt[0] * 4.7 + f[0] * 4.3, z = pz + rt[1] * 4.7 + f[1] * 4.3;
-      place('palm', x, z, { rng, variant: v, s: 1.15, y: py + 4.3 - v.Ht * 1.15, yaw: 2.6, noFp: true, occK: 0.3, hero: true });
+      // r4: lit golden-green like ref 5 (was dark against the sky): per-instance tint
+      place('palm', x, z, { rng, variant: v, s: 1.3, y: py + 4.6 - v.Ht * 1.3, yaw: 2.6, noFp: true, occK: 0.3, hero: true, tint: [1.55, 1.5, 1.05] });
     }
     // shot 3 (ref 3): palms flanking the plaza between the fountains and the stair balustrades
     // (r3: the stair-top palms / cypress of ref 3 now come from the sets module's slots.palm ('date set3', 'cypress set3'))
@@ -206,8 +207,11 @@ export function scatterWorld(engine, sys, lib) {
         if (orchard) { const cols = Math.max(1, Math.round(Math.sqrt(n * g.hw / g.hd))); lx = -g.hw + (2 * g.hw) * ((i % cols) + 0.5) / cols; lz = -g.hd + (2 * g.hd) * (Math.floor(i / cols) + 0.5) / Math.ceil(n / cols); }
         else { lx = rng.range(-g.hw, g.hw) * 0.9; lz = rng.range(-g.hd, g.hd) * 0.9; }
         const x = g.x + lx * c + lz * sn, z = g.z - lx * sn + lz * c;
-        const kind = orchard ? (grove ? 'palm' : 'olive') : choose({ palm: 3, cypress: 2.2, olive: 1.2, broad: 0.8, shrub: 3 }, rng);
-        place(kind, x, z, { rng, style: grove ? ['medium', 'tall'] : PALMY, edge: 3, occK: 0.7 });
+        // r4: more shade-tree canopy (broadleaf / umbrella pine / olive) in the courts: from the shot-1 aerial (1-1.5 km)
+        // palms read as dark specks between the houses, the ref-1 rings read as lit green masses overtopping the roofs
+        const kind = orchard ? (grove ? 'palm' : 'olive') : choose({ palm: 1.7, cypress: 1.8, olive: 1.4, broad: 2.6, pine: 0.9, shrub: 1.6 }, rng);
+        const big = kind === 'broad' || kind === 'olive' || kind === 'pine' ? 1.3 : kind === 'cypress' ? 1.2 : 1;
+        place(kind, x, z, { rng, s: rng.range(...SCALE[kind]) * big, style: grove ? ['medium', 'tall'] : PALMY, edge: 3, occK: 0.7 });
       }
     }
   }
@@ -237,7 +241,8 @@ export function scatterWorld(engine, sys, lib) {
       if (grad > maxGrad) { rej.slope++; return null; }
       return { y: g0, grad };
     };
-    const SPEC = { palm: [0.5, 0.8], cypress: [0.5, 1.3], olive: [0.7, 1.4], broad: [0.7, 2.6], pine: [0.8, 1.1], shrub: [0.45, 4.0], thicket: [0.7, 3.4] };   // [trunk probe radius, max gradient]
+    // r4: maquis / thickets also root in the steep 60-80° rock (ref 1 / 4: green clinging to the cliffs between the tiers)
+    const SPEC = { palm: [0.5, 0.8], cypress: [0.5, 1.3], olive: [0.7, 1.8], broad: [0.7, 3.4], pine: [0.8, 1.1], shrub: [0.45, 6.5], thicket: [0.7, 5.5] };   // [trunk probe radius, max gradient]
     const plant = (kind, x, z, o = {}) => {
       const [pr, mg] = SPEC[kind];
       const st0 = site(x, z, pr * (o.sc ?? 1), o.maxGrad ?? mg);
@@ -313,18 +318,21 @@ export function scatterWorld(engine, sys, lib) {
     }
     // (d) rock slopes (r 160-178 and 198-214, 48-50°): maquis masses, rounded trees and cypress in soil pockets — the
     //     ref-4 / ref-5 hill reads green with rock between, not bare rock
+    stage('cit-slopes');
     for (const [ra, rb] of [[t1.r1 - 1, t2.r0 + 0.5], [t2.r1 - 1, 214]]) {
-      for (let r = ra; r < rb; r += 1.7) {
-        const step = 2.0 / r / D2R;
+      // r4: denser (ref 1 / 4: the hill reads green with rock showing between, not rock with a few bushes)
+      for (let r = ra; r < rb; r += 1.45) {
+        const step = 1.8 / r / D2R;
         for (let b = rng.random() * step; b < 360; b += step * rng.range(0.8, 1.25)) {
           const [x, z] = L.polar(r + rng.range(-1.0, 1.0), b);
           const m = noiseB.fbm2(x * 0.025 + 11, z * 0.025, 3) + 0.25 * noiseC.noise2(x * 0.11, z * 0.11);
-          if (m < -0.5 || !rng.chance(0.95 * Math.sqrt(D) * smoothstep(-0.5, 0.0, m))) continue;
-          const k = mixPick({ shrub: 3.2, thicket: 2.8, broad: 3.0, cypress: 1.1, olive: 0.6, palm: 0.4, pine: 0.3 });
-          plant(k, x, z, { style: ['leaning', 'medium'], occK: 0.75, noFp: false, k: k === 'shrub' ? 1.45 : k === 'thicket' ? 1.3 : 1 });
+          if (m < -0.7 || !rng.chance(0.97 * Math.sqrt(D) * smoothstep(-0.7, -0.1, m))) continue;
+          const k = mixPick({ shrub: 1.8, thicket: 3.4, broad: 3.6, cypress: 1.2, olive: 0.8, palm: 0.4, pine: 0.4 });
+          plant(k, x, z, { style: ['leaning', 'medium'], occK: 0.6, noFp: false, k: k === 'shrub' ? 1.45 : k === 'thicket' ? 1.3 : 1 });
         }
       }
     }
+    stage('cit-quay');
     // (e) the shore quay band: a palm promenade
     for (let r = 216.5; r < 221; r += 4) {
       const step = 13 / r / D2R;
@@ -374,9 +382,9 @@ export function scatterWorld(engine, sys, lib) {
           const [x, z] = L.polar(r + rng.range(-2.2, 2.2), b + rng.range(-0.35, 0.35) * step);
           const mask = noiseA.fbm2(x * 0.012 + 7, z * 0.012, 3);
           if (mask < -0.6 || !rng.chance((g.id === 'l1' ? 1.0 : 0.85) * Math.sqrt(D) * smoothstep(-0.6, 0.1, mask))) continue;
-          const k = choose({ palm: 3, cypress: 2.4, olive: 1.6, broad: 2.8, shrub: 1.6, pine: 0.4 }, rng);
-          // larger crowns: at 1-1.4 km (shot 1) the ring gardens must read as green masses, not dots
-          place(k, x, z, { rng, s: rng.range(...SCALE[k]) * (k === 'broad' || k === 'olive' || k === 'pine' ? 1.25 : 1), style: PALMY, edge: 7, fpK: 0.7 });
+          const k = choose({ palm: 2.2, cypress: 2.4, olive: 1.6, broad: 3.4, shrub: 1.2, pine: 0.9 }, rng);
+          // larger crowns: at 1-1.4 km (shot 1) the ring gardens must read as green masses, not dots (r4: cypress overtop roofs)
+          place(k, x, z, { rng, s: rng.range(...SCALE[k]) * (k === 'broad' || k === 'olive' || k === 'pine' ? 1.35 : k === 'cypress' ? 1.25 : 1), style: PALMY, edge: 7, fpK: 0.7 });
         }
       }
     }
@@ -387,9 +395,11 @@ export function scatterWorld(engine, sys, lib) {
   {
     const rng = new RNG('veg-canal');
     const K = L.SEA_CANAL;
-    for (const sx of [-1, 1]) for (const off of [8, 14]) {
+    for (const sx of [-1, 1]) for (const off of [8, 14, 21, 28]) {
       for (let z = 445; z < K.z1 + 10; z += off === 8 ? 11 : 9) {
         const x = K.x + sx * (K.width / 2 + off + rng.range(-1, 1));
+        // r4: the quay buildings fill the first 15 m: tall date palms behind them crown above the roofline (ref 2)
+        if (off > 14) { place('palm', x, z + rng.range(-2, 2), { rng, style: ['tall'], s: rng.range(1.1, 1.35), edge: 5, occK: 0.8, minH: 2 }); continue; }
         place(off === 8 ? 'palm' : rng.chance(0.5) ? 'cypress' : 'palm', x, z + rng.range(-1.5, 1.5), { rng, style: ['tall', 'medium'], edge: 5, occK: 0.8, minH: 2 });
       }
     }

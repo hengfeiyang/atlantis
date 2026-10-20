@@ -17,6 +17,7 @@ import { buildSheet, buildStrands, createFallMaterial, mergeAll } from './fallMe
 import { MistSystem } from './mist.js';
 import { createChurn } from './churn.js';
 import { SHOTS } from '../world/shots.js';
+import { molePlan } from '../rings/mole.js';
 
 // hill falls: bearing (deg), width (m), flow (0..1), start: 'plateau' | 'ledge1' | 'ledge2'
 // (keep clear of the grand stair at 180 and of the w1 bridges at 0 / 90 / 270)
@@ -58,7 +59,18 @@ export const OUTLET_Y = L.CITADEL.terraces[0].y + 13.5;
 export function planCascades() {
   const C = L.CITADEL, [t1, t2] = C.terraces;
   const specs = [];
-  for (const h of HILL) {
+  // r4 (arch-a): keep every fall + spout clear of the shed-mole bridge landing on the citadel quay (its gate tower straddles
+  // the curtain at registry.rings.gates[mole]): a fall whose pour would touch the gate block moves away from it
+  let gate = null;
+  try { gate = molePlan()?.gate || null; } catch (e) { gate = null; }
+  const clearOf = (b, w) => {
+    if (!gate) return b;
+    const r = L.CITADEL.wall.r, d = ((b - gate.bearing + 540) % 360) - 180;
+    const need = ((gate.half + 6 + w * 0.5 + 4) / r) * (180 / Math.PI);   // gate half + tower + half pour + margin (deg)
+    return Math.abs(d) >= need ? b : gate.bearing + Math.sign(d || 1) * need;
+  };
+  for (const h0 of HILL) {
+    const h = { ...h0, b: clearOf(h0.b, h0.w) };
     if (h.start === 'plateau') {
       // r3: the plateau falls pour out of arched OUTLETS in the red tier-1 rampart face (citadel agent: the red band stays
       // continuous, ref 5) — `outlet` = the opening the temple module cuts: { r (face), y (sill), width, height }
@@ -133,6 +145,15 @@ export function buildCascadeMeshes(engine, falls, { maps, ground, shadowMap = nu
   const fm = createFallMaterial({ hTex: (shadowMap || maps.near).tex, hBounds: (shadowMap || maps.near).bounds });
   fm.material.userData.sunken = 'none';
   fm.uniforms.uDebug.value = Number(engine.params?.get?.('wfDebug') || 0);
+  // r4: guard — a degenerate trace (zero-length segment) must never put NaN vertices into the merged sheet mesh
+  let dropped = 0;
+  for (let i = geos.length - 1; i >= 0; i--) {
+    const a = geos[i].attributes.position.array;
+    let ok = true;
+    for (let j = 0; j < a.length; j++) if (!Number.isFinite(a[j])) { ok = false; break; }
+    if (!ok) { geos.splice(i, 1); dropped++; }
+  }
+  if (dropped) console.warn(`[water] dropped ${dropped} cascade sheet(s) with non-finite vertices`);
   const merged = mergeAll(geos);
   if (merged) {
     merged.computeBoundingSphere();

@@ -14,8 +14,8 @@ import { RNG } from '../core/rng.js';
 import { GeoBuilder, Frame } from '../city/geobuilder.js';
 import { stoneBox, column, setRuin, quadFacing, triFacing } from '../city/house.js';
 import { buildHouse, STYLE, STATS as HOUSE_STATS } from '../city/buildings.js';
-import { temple, palace } from '../city/landmarks.js';
-import { tholos, goldTower, domedHall, gymnasium, arcade } from '../city/monuments.js';
+import { temple, palace, ring } from '../city/landmarks.js';
+import { tholos, goldTower, domedHall, gymnasium, arcade, goldDome } from '../city/monuments.js';
 import { hippodrome } from '../city/hippodrome.js';
 import { CityPlan, districts, FORUM } from '../city/ringplan.js';
 import { SHOTS } from '../world/shots.js';
@@ -25,7 +25,7 @@ import { cityStoneMaterial, cityGoldMaterial, STONE_ATTRS } from '../city/mats/c
 import { cityWoodMaterial, WOOD_ATTRS } from '../city/mats/wood.js';
 
 const D2R = Math.PI / 180;
-const PAVING = 1, STREET = 6, MARBLE = 7;
+const PAVING = 1, STREET = 6, MARBLE = 7, BLACK_STONE = 14;
 
 class ChunkSet {
   constructor(size) { this.size = size; this.m = new Map(); }
@@ -336,6 +336,42 @@ export async function build(engine) {
       nHouses++;
     }
     lap('houses');
+    // r4: furniture of the land-ring parks (unbuilt lots, ring plan 'park'): kerbed beds, a few gold-domed garden kiosks
+    // and round basins — gold glints among the green from the air (ref 1), real objects for the shot-5 foreground
+    {
+      const pr = rng.fork('parks');
+      let nK = 0, nB = 0;
+      for (const gd of plan.gardens) {
+        if (gd.kind !== 'park' || gd.hw < 3 || gd.hd < 3) continue;
+        const F = new Frame(gd.x, 0, gd.z, gd.rot), B = chunks.get(gd.x, gd.z);
+        const g = heightAt(gd.x, gd.z);
+        const seed = pr.random();
+        const u = pr.random();
+        const R = Math.min(gd.hw, gd.hd);
+        if (u < 0.26 && R > 4.2 && !sunken) {
+          // garden kiosk: 8 slender columns, entablature ring, ribbed gold dome + finial
+          const kr = Math.min(R - 1.4, pr.range(2.6, 3.6)), kh = pr.range(3.4, 4.2), y0 = g + 0.45;
+          ring(B, F, kr + 0.7, g - 0.3, y0, 16, seed, MARBLE);
+          for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; column(B, F, Math.cos(a) * kr, Math.sin(a) * kr, 0.17, 0.14, y0, y0 + kh, 8, seed, MARBLE); }
+          ring(B, F, kr + 0.3, y0 + kh, y0 + kh + 0.45, 16, seed, MARBLE);
+          const top = goldDome(B.gold, F.p(0, y0 + kh + 0.42, 0), kr + 0.2, 0.95, 18, 6, 8);
+          goldDome(B.gold, [gd.x, top - 0.05, gd.z], 0.28, 1.6, 8, 3, 0);
+          engine.footprints.addCircle(gd.x, gd.z, kr + 1.2, 'city');
+          nK++;
+        } else if (u < 0.5 && R > 3.4) {
+          // round basin with a gilt bowl on a stem (no water: the reflections of the bowl read as a fountain from afar)
+          const br = Math.min(R - 1.2, pr.range(1.8, 2.8));
+          ring(B, F, br, g - 0.2, g + 0.55, 20, seed, MARBLE);
+          ring(B, F, br - 0.3, g - 0.2, g + 0.32, 20, seed, BLACK_STONE);
+          if (!sunken) { column(B, F, 0, 0, 0.2, 0.16, g + 0.32, g + 1.5, 8, seed, MARBLE); goldDome(B.gold, F.p(0, g + 1.5, 0), 0.65, 0.45, 12, 3, 0); }
+          engine.footprints.addCircle(gd.x, gd.z, br + 0.8, 'city');
+          nB++;
+        }
+        // kerbed border (low marble kerb) along the street side
+        stoneBox(B, F, 0, gd.hd + 0.35, gd.hw + 0.4, 0.18, g - 0.2, g + 0.32, MARBLE, seed, 1 | 16);
+      }
+      T.parks = { kiosks: nK, basins: nB };
+    }
     // streets + colonnades
     const hc = Math.cos(hRot), hs = Math.sin(hRot);
     const inRace = (x, z) => { const dx = x - hx, dz = z - hz; return Math.abs(dx * hc - dz * hs) < hHW && Math.abs(dx * hs + dz * hc) < hHD; };

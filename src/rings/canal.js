@@ -8,6 +8,7 @@ import * as L from '../world/layout.js';
 import { heightAt } from '../world/heightfield.js';
 import { ruined, ruinRand } from '../world/era.js';
 import { noiseA } from '../core/noise.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const D2R = Math.PI / 180;
 const tone = (rng, k = 0.05) => { const v = 1 - k + 2 * k * rng.random(); return [v, v, v * (0.985 + 0.03 * rng.random())]; };
@@ -325,7 +326,9 @@ function stoa(ctx, sx, xFront, z0, z1, y0) {
 // ------------------------------------------------------------------ moles + lighthouses
 /** rip-rap boulder geometry variants (displaced icosahedra) */
 function boulderGeo(seed) {
-  const g = new THREE.IcosahedronGeometry(1, 2);
+  // r4: detail 2 → 3 and welded vertices (the non-indexed icosahedron gave flat-shaded, crumpled-paper boulders)
+  const g0 = new THREE.IcosahedronGeometry(1, 3); g0.deleteAttribute('normal'); g0.deleteAttribute('uv');
+  const g = mergeVertices(g0);
   const p = g.attributes.position;
   const v = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
@@ -334,10 +337,14 @@ function boulderGeo(seed) {
     v.multiplyScalar(n);
     v.y *= 0.7;
     // flatten facets a little (quarried blocks)
-    v.x = Math.sign(v.x) * Math.pow(Math.abs(v.x), 0.85); v.z = Math.sign(v.z) * Math.pow(Math.abs(v.z), 0.85);
+    v.y = v.y > 0 ? v.y * 1.15 : v.y;   // r4: rounder sea-worn boulders (ref 1), domed tops
     p.setXYZ(i, v.x, v.y, v.z);
   }
   g.computeVertexNormals();
+  // r4: the rock material uses vertex colours — without a colour attribute WebGL fed black (shot 1: ink-black rip-rap)
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) { const t = 0.86 + 0.14 * (0.5 + 0.5 * noiseA.noise3(p.getX(i) * 2.1 + seed, p.getY(i) * 2.1, p.getZ(i) * 2.1)); col[i * 3] = t; col[i * 3 + 1] = t * 0.97; col[i * 3 + 2] = t * 0.93; }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
 
@@ -370,11 +377,16 @@ export function buildMoles(ctx, M) {
         if (sea) {
           W.aux = [0, 0.3, 0, AUX_ASHLAR(0.5)];
           box(W, F, s0, s1, yT, yT + 1.1, -0.7, 0.0, tone(rng, 0.03), FACES.pz | FACES.py | FACES.nz);
-          const nM = Math.floor(bl / 1.8);
-          for (let i = 0; i < nM; i++) {
-            if (ctx.sunken && ruined(`rings:mole:${x}:${k}:${i}`, 0.5)) continue;
-            const sc = s0 + (i + 0.5) * (bl / nM);
-            chamferBox(W, F, sc - 0.5, sc + 0.5, yT + 1.1, yT + 2.1, -0.7, 0, 0.04, tone(rng, 0.05));
+          // r4: moulded coping + gilt string instead of merlons (they read medieval from the air, shot 1)
+          box(W, F, s0, s1, yT + 1.1, yT + 1.3, -0.8, 0.1, tone(rng, 0.02), FACES.pz | FACES.py | FACES.ny | FACES.nz);
+          box(S.get('gilt', p[0], p[2]), F, s0, s1, yT - 0.9, yT - 0.75, 0, 0.06, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);
+          if (k % 2 === 0) {
+            // statue pedestal on the parapet every ≈ 16 m (ref 1: gilt figures along the moles)
+            const sc = (s0 + s1) / 2;
+            chamferBox(W, F, sc - 0.9, sc + 0.9, yT, yT + 2.4, -1.4, 0.25, 0.05, tone(rng, 0.02));
+            box(W, F, sc - 1.05, sc + 1.05, yT + 2.4, yT + 2.6, -1.55, 0.4, tone(rng, 0.02), FACES.pz | FACES.py | FACES.ny | FACES.px | FACES.nx | FACES.nz);
+            const q = F.p(sc, yT + 2.6, -0.58);
+            if (!ctx.sunken || !ruined(`rings:mole-statue:${x}:${k}`, 0.5)) engine.slots.statue.push({ pos: q, facing: side > 0 ? 90 : 270, size: 3.0, tag: 'pinnacle', source: 'rings-mole-parapet' });
           }
           W.aux = [0, 0, 0, 0];
         } else if (lod <= 1 && k % 1 === 0) {
@@ -428,9 +440,10 @@ function lighthouse(ctx, m, rocks) {
   const broken = ctx.sunken;               // sunken: lantern + upper tier gone
   const Fc = new Frame([x, 0, z], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
   // rock base (boulders around)
-  for (let i = 0; i < 56; i++) {
-    const a = (i / 56) * Math.PI * 2 + rng.random() * 0.1, rr = 16.5 + rng.random() * 9;
-    rocks.push([x + Math.cos(a) * rr, -2.0 + rng.random() * 3.5 - (rr - 16.5) * 0.3, z + Math.sin(a) * rr, 2.6 + rng.random() * 3.2, rng.random() * 6.28, i % 3]);
+  // r4 (ref 1): a heaped boulder skirt that clearly breaks the surface (r3 rocks sat just under the water line)
+  for (let i = 0; i < 44; i++) {
+    const ring = i % 2, a = (i / 44) * Math.PI * 2 + rng.random() * 0.12, rr = 15.0 + ring * 6.5 + rng.random() * 2.5;
+    rocks.push([x + Math.cos(a) * rr, (ring ? -1.4 : -0.2) + rng.random() * 1.6, z + Math.sin(a) * rr, (ring ? 2.6 : 3.4) + rng.random() * 1.8, rng.random() * 6.28, i % 3]);
   }
   const faces = [];
   for (let i = 0; i < 4; i++) faces.push(Fc.yawed((i * Math.PI) / 2));
@@ -462,17 +475,32 @@ function lighthouse(ctx, m, rocks) {
     W.aux = [0, 0, 0, 0];
     const Rr = S.get('red', x, z);
     Rr.aux = [0, 0.2, 0, AUX_ASHLAR(0.6)];
-    for (const yb of [yP + 2.2, y1 - 3.2]) if (yb + 0.7 < yTop1) box(Rr, F, -h1 + 1.0, h1 - 1.0, yb, yb + 0.7, -0.1, 0.03, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);
+    for (const yb of [yP + 2.2, yP + 9.4, yP + 15.6, y1 - 3.2]) if (yb + 0.7 < yTop1) box(Rr, F, -h1 + 1.0, h1 - 1.0, yb, yb + 0.7, -0.1, 0.03, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);   // r4: 4 red courses (ref 1 banded)
     Rr.aux = [0, 0, 0, 0];
     W.aux = [0, 0.5, 0, AUX_ASHLAR(0.7)];
     chamferBox(W, F, h1 - 1.0, h1 + 0.001, yP, yTop1, -0.02, 0.18, 0.05, [0.97, 0.96, 0.94], FACES.pz | FACES.px | FACES.nx);
     W.aux = [0, 0, 0, 0];
     if (broken) continue;
-    for (const yy of [13, 19.5, 26]) {
-      const V = S.get('void', x, z);
+    const V = S.get('void', x, z);
+    for (const yy of [13, 19.5]) {
       V.quadToward(F.p(-0.6, yy, 0.03), F.p(0.6, yy, 0.03), F.p(0.6, yy + 2.0, 0.03), F.p(-0.6, yy + 2.0, 0.03), [1, 1, 1], F.az);
       box(Gt, F, -0.8, 0.8, yy - 0.18, yy, 0, 0.12, [1, 1, 1], FACES.pz | FACES.py);
     }
+    // r4 (ref 1): open loggia of 3 arches under the top cornice (dark voids, white piers, gilt imposts)
+    const yA0 = y1 - 7.6, yA1 = y1 - 3.7, aw = 3.0;
+    for (const sa of [-4.0, 0, 4.0]) {
+      const r = aw / 2, ys = yA1 - r;
+      V.quadToward(F.p(sa - r, yA0, 0.04), F.p(sa + r, yA0, 0.04), F.p(sa + r, ys, 0.04), F.p(sa - r, ys, 0.04), [1, 1, 1], F.az);
+      for (let i = 0; i < 6; i++) {
+        const a0 = Math.PI * (i / 6), a1 = Math.PI * ((i + 1) / 6);
+        V.polyToward([F.p(sa, ys, 0.04), F.p(sa + Math.cos(a0) * r, ys + Math.sin(a0) * r, 0.04), F.p(sa + Math.cos(a1) * r, ys + Math.sin(a1) * r, 0.04)], [1, 1, 1], F.az);
+      }
+      box(Gt, F, sa - r - 0.18, sa + r + 0.18, ys - 0.15, ys + 0.05, 0, 0.14, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);
+      box(W, F, sa - r - 0.2, sa + r + 0.2, yA0 - 0.3, yA0, 0, 0.3, [0.96, 0.95, 0.93], FACES.pz | FACES.py);
+    }
+    // gilt medallion between the windows
+    const Fm = new Frame(F.p(0, 16.6, 0.03), F.ax, F.az, mul3(F.ay, -1));
+    lathe(G, Fm, 0, 0, 0, [[1.0, 0], [0.97, 0.07], [0.8, 0.12], [0.55, 0.1], [0.3, 0.18], [0, 0.2]], 16, [1, 1, 1]);
     W.aux = [0, 0.25, 0, 0];
     sweep(W, F, -h1 - 0.6, h1 + 0.6, [[0, y1], [0.1, y1], [0.25, y1 + 0.2], [0.45, y1 + 0.45], [0.6, y1 + 0.55], [0.6, y1 + 0.85]], [0.95, 0.94, 0.92], true);
     box(Gt, F, -h1 - 0.6, h1 + 0.6, y1 - 0.5, y1 - 0.25, 0, 0.1, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);
@@ -480,12 +508,23 @@ function lighthouse(ctx, m, rocks) {
   if (!broken) {
     Pv.quadToward(Fc.p(-h1 - 0.6, y1 + 0.85, -h1 - 0.6), Fc.p(h1 + 0.6, y1 + 0.85, -h1 - 0.6), Fc.p(h1 + 0.6, y1 + 0.85, h1 + 0.6), Fc.p(-h1 - 0.6, y1 + 0.85, h1 + 0.6), [0.95, 0.93, 0.9], [0, 1, 0]);
     // gilt acroteria at the tier-1 corners
-    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) lathe(Gt, Fc, sx * (h1 + 0.1), y1 + 0.85, sz * (h1 + 0.1), [[0, 0], [0.45, 0], [0.48, 0.18], [0.28, 0.35], [0.36, 0.8], [0.14, 1.3], [0.04, 1.9], [0, 2.0]], 8, [1, 1, 1]);
+    // r4 (ref 1): gilt statues on the tier-1 corners (statues module, tag pinnacle = gold figure) on small plinths
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      chamferBox(W, Fc, sx * (h1 + 0.1) - 0.8, sx * (h1 + 0.1) + 0.8, y1 + 0.85, y1 + 1.8, sz * (h1 + 0.1) - 0.8, sz * (h1 + 0.1) + 0.8, 0.05, [0.95, 0.94, 0.92]);
+      engine.slots.statue.push({ pos: [x + sx * (h1 + 0.1), y1 + 1.8, z + sz * (h1 + 0.1)], facing: (Math.atan2(sx, -sz) * 180 / Math.PI + 360) % 360, size: 3.4, tag: 'pinnacle', source: 'rings-lighthouse-corner' });
+    }
     // tier 2: octagonal shaft to y = 38
     const r2 = 5.4, y2 = 48;
     lathe(W, Fc, 0, 0, 0, [[0, y1 + 0.85], [r2 + 0.3, y1 + 0.85], [r2 + 0.3, y1 + 1.4], [r2, y1 + 1.6], [r2, y2], [r2 + 0.5, y2 + 0.3], [r2 + 0.6, y2 + 0.7], [0, y2 + 0.7]], 8, [0.96, 0.95, 0.93]);
     lathe(S.get('red', x, z), Fc, 0, 0, 0, [[r2 + 0.02, y1 + 4.0], [r2 + 0.02, y1 + 4.7]], 8, [1, 1, 1]);
     lathe(S.get('red', x, z), Fc, 0, 0, 0, [[r2 + 0.02, y2 - 2.0], [r2 + 0.02, y2 - 1.3]], 8, [1, 1, 1]);
+    // r4: engaged colonnade around the octagonal tier (8 columns at the corners, gilt capitals)
+    for (let c = 0; c < 8; c++) {
+      const a = (c / 8) * Math.PI * 2 + Math.PI / 8, rc = r2 + 0.25;
+      const cxp = Math.cos(a) * rc, czp = Math.sin(a) * rc, hC = y2 - (y1 + 1.6) - 0.9;
+      lathe(W, Fc, cxp, y1 + 1.6, czp, [[0, 0], [0.55, 0], [0.55, 0.25], [0.45, 0.4], [0.42, hC], [0, hC]], 10, [0.97, 0.96, 0.94]);
+      lathe(Gt, Fc, cxp, y1 + 1.6 + hC, czp, [[0, 0], [0.44, 0], [0.6, 0.45], [0.66, 0.9], [0, 0.9]], 10, [1, 1, 1]);
+    }
     // lantern: 8 gold columns around a glowing core, gold dome, finial
     const yL = y2 + 0.7, hL = 5.2, rL = 3.9;
     lathe(S.get('lamp', x, z), Fc, 0, 0, 0, [[0, yL], [1.5, yL], [1.7, yL + 1.2], [1.2, yL + 2.6], [0, yL + 3.1]], 12, [1, 1, 1]);

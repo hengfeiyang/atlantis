@@ -35,6 +35,12 @@ export async function build(engine) {
   const st = scatterWorld(engine, sys, lib);
   sys.finalize();
   hookSystem(engine, sys);
+  // r4: hanging ivy curtains on slots.ivy (ship-shed rock crests, buildings)
+  try {
+    const { buildIvy } = await import('../vegetation/ivy.js');
+    const iv = buildIvy(engine);
+    if (iv.mesh) { engine.add(iv.mesh, { castShadow: true, receiveShadow: true }); st.ivy = iv.curtains; console.log(`[vegetation] ivy: ${iv.curtains} curtains, ${iv.tris} tris`); }
+  } catch (e) { console.error('[vegetation] ivy failed', e.stack || e); }
   console.log(`[vegetation] built ${sys.stats.instances} instances (${Object.entries(st).map(([k, v]) => `${k} ${v}`).join(', ')}) in ${Math.round(performance.now() - t0)} ms`);
 }
 

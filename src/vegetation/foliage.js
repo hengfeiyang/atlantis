@@ -58,6 +58,7 @@ uniform float uRelief;
 uniform float uAmb;
 uniform float uUpBias;
 uniform float uGain;
+uniform float uFarLift;
 // (uGain: per-species albedo factor; effective linear albedo ≈ atlas × color × gain: cypress ≈ 0.034 (r5b),
 //  olive ≈ 0.053, broadleaf ≈ 0.048, pine ≈ 0.041, shrubs ≈ 0.041 green channel (crown AO darkens further))
 // leaf-cluster micro relief (object space, so it sticks to each instance)
@@ -117,6 +118,15 @@ const FOL_EMISSIVE = /* glsl */ `
 }
 #ifdef USE_FOG
 {
+  // r4: aerial crowns (≳ 150 m: LOD2 clumps / LOD3 impostors, a few px). Sun light that scatters through and between
+  // the leaves of a real crown is lost in the coarse clumps and their shadow-map self-shadowing, so distant trees
+  // read black against sunlit stone (shot 1, ref 1: lit olive-green masses). Add it back, fading in with distance
+  // (near / hero trees are untouched).
+  float vgFar = smoothstep(150.0, 900.0, length(cameraPosition - cgP));
+  float vgUp = clamp(0.5 + 0.5 * normalize(vCgWorldNormal).y, 0.0, 1.0);
+  totalEmissiveRadiance += diffuseColor.rgb * uSunColor * vgFar * uFarLift * (0.35 + 0.65 * vgUp) * mix(0.55, 1.0, clamp(vFol.x, 0.0, 1.0)) * smoothstep(-0.02, 0.12, uSunDir.y) * 12.0;
+}
+{
   float vgBack = pow(max(dot(-cgV, uSunDir), 0.0), 4.0);
   float vgEdge = 1.0 - abs(dot(normalize(vCgWorldNormal), cgV));
   totalEmissiveRadiance += diffuseColor.rgb * uSunColor * (vgBack * (0.35 + 0.65 * vgEdge) * uTransl * (0.3 + 0.7 * vFol.y) * vFol.x);
@@ -146,7 +156,7 @@ function folUniforms(sp) {
     uDeepTint: { value: new THREE.Vector3(...sp.deep) },
     uDryTint: { value: new THREE.Vector3(...sp.dry) },
     uTipAmt: { value: sp.tipAmt }, uDeep: { value: sp.deepK },
-    uTransl: { value: sp.transl }, uVar: { value: sp.vari }, uRelief: { value: 0 }, uAmb: { value: sp.amb ?? 1.0 }, uUpBias: { value: sp.up ?? 0.5 }, uGain: { value: sp.gain ?? 1.0 },
+    uTransl: { value: sp.transl }, uVar: { value: sp.vari }, uRelief: { value: 0 }, uAmb: { value: sp.amb ?? 1.0 }, uUpBias: { value: sp.up ?? 0.5 }, uGain: { value: sp.gain ?? 1.0 }, uFarLift: { value: sp.farLift ?? 1.0 },
   };
 }
 
@@ -205,7 +215,7 @@ vec3 vgRight = vec3(vgD.y, 0.0, -vgD.x);
 transformed = vec3(0.0, position.y, 0.0) + vgRight * position.x;
 float vgU = aAux.x, vgV = aAux.y;
 float vgCv = uBBShape > 3.5 ? 0.8 : uBBShape > 1.5 ? 0.82 : uBBShape > 0.5 ? 0.6 : 0.5;          // crown centre height
-vec3 vgN = normalize(vgRight * vgU * 0.85 + vec3(0.0, 0.25 + 1.1 * (vgV - vgCv), 0.0) + vec3(vgD.x, 0.0, vgD.y) * 0.55);
+vec3 vgN = normalize(vgRight * vgU * 0.85 + vec3(0.0, 0.25 + 1.1 * (vgV - vgCv), 0.0) + vec3(vgD.x, 0.0, vgD.y) * (uBBShape > 0.5 && uBBShape < 3.5 ? 0.3 : 0.55));
 objectNormal = vgN;
 transformedNormal = vgN;
 #ifdef USE_INSTANCING
@@ -227,6 +237,9 @@ const BB_SHAPE = /* glsl */ `
   float n = cgVnoise2(vec2(u * 2.6, v * (uBBShape < 0.5 ? 9.0 : 4.0)) + cgSeed * 37.0);
   float a = diffuseColor.a;
   if (uBBShape > 3.5) {            // painted impostor (palms): keep the atlas alpha
+    // r4: at 6-16 px the painted crown averages to a bright lime puff (shot 1 citadel): darker, less yellow,
+    // closer to the LOD2 fronds it replaces
+    diffuseColor.rgb *= vec3(0.66, 0.68, 0.74);
   } else if (uBBShape < 0.5) {            // cypress flame
     float w = 0.98 * pow(sin(3.14159 * min(1.0, v * 0.82 + 0.08)), 0.5) * (1.0 - 0.42 * v);
     a = step(abs(u), w * (0.78 + 0.4 * n));
@@ -241,6 +254,14 @@ const BB_SHAPE = /* glsl */ `
   } else {                          // low mound (shrub / thicket)
     float d = length(vec2(u, v / 0.95));
     a = step(d, 0.88 + 0.3 * (n - 0.5));
+  }
+  if (uBBShape > 0.5 && uBBShape < 3.5) {
+    // r4: a mosaic of sunlit leaf pads and dark holes (the impostors read as smooth lime puffs / "cubes" from the air);
+    // lower crown and the side away from the light darker, ragged high-frequency edge
+    float l1 = cgVnoise2(vec2(u * 3.4, v * 3.8) + cgSeed * 11.0), l2 = cgVnoise2(vec2(u * 8.0, v * 8.5) + cgSeed * 5.0 + 3.0);
+    float lump = l1 * 0.62 + l2 * 0.38;
+    diffuseColor.rgb *= (0.4 + 0.75 * smoothstep(0.2, 0.8, lump)) * (0.62 + 0.3 * smoothstep(0.25, 0.85, v));
+    if (l2 < 0.2 && abs(u) > 0.55) a = 0.0;
   }
   diffuseColor.a = a;
 }
@@ -259,6 +280,7 @@ export function billboardMaterial(species, map) {
   const shape = species === 'palm' ? 4 : species === 'cypress' ? 0 : species === 'pine' ? 2 : species === 'shrub' || species === 'thicket' ? 3 : 1;
   const u = folUniforms(sp);
   u.uBBShape = { value: shape };
+  u.uFarLift.value = shape === 4 ? 0.3 : 0.3;   // the impostors' camera-facing crown normal already sees more light
   const m = proceduralMaterial({
     name: `foliage-${species}-bb`,
     params: { color: col(sp.color), roughness: sp.rough, metalness: 0, map, side: THREE.DoubleSide, alphaTest: 0.5, vertexColors: false },

@@ -248,6 +248,32 @@ vec3 stChecker(vec2 q, float cell, float pat, out float jd, out float tid){
     vec2 m5 = mod(ci, 6.0);
     if (m5.x < 0.5 || m5.y < 0.5) c = uC2;
   }
+  // r4 (pattern 5): plateau paving — the ref-3 band grid only in the forecourt (|x| < 34, z 28..100, world xz about the plaza
+  // centre) and round the temple; elsewhere concentric ashlar courses in running bond (varied slab lengths and tones, a few
+  // red / grey slabs, black + red inlaid ring bands) so the plateau no longer reads as one tiled pool from above (ref 9)
+  vec2 aq5 = abs(q);
+  bool grid5 = (aq5.x < 34.0 && q.y > 28.0 && q.y < 100.0) || (aq5.x < 33.0 && q.y > -72.0 && q.y <= 28.0);
+  if (pat > 4.5 && !grid5) {
+    float r = length(q), cw = cell * 1.3;
+    float ri = floor(r / cw), rf = fract(r / cw);
+    float rowH = cgH2(vec2(ri, 7.3));
+    float slabL = cell * (1.2 + 1.5 * rowH);
+    float rc = (ri + 0.5) * cw;
+    float s5 = atan(q.y, q.x) * rc / slabL + ri * 0.5;
+    float si = floor(s5), sf = fract(s5);
+    jd = min((0.5 - abs(rf - 0.5)) * cw, (0.5 - abs(sf - 0.5)) * slabL);
+    tid = cgH2(vec2(ri * 1.37, si * 0.71) + 4.2);
+    float t2 = cgH2(vec2(si * 0.37, ri * 2.11) + 9.7);
+    vec3 c = uC0 * (0.9 + 0.14 * t2);
+    c = mix(c, uC0 * vec3(0.95, 0.9, 0.82), step(0.62, t2) * 0.7);                 // cream / honey slabs
+    c = mix(c, mix(uC0, uC1, 0.35), step(0.86, tid) * step(0.5, t2));               // grey slabs
+    c = mix(c, mix(uC0, uC2, 0.55), step(0.93, tid));                                // rose-red slabs
+    float m9 = mod(ri, 11.0);
+    if (m9 < 0.5) c = uC1 * 1.2;                                                    // black inlay ring
+    else if (m9 > 0.5 && m9 < 1.5) c = rf > 0.3 && rf < 0.7 ? uC2 : uC0 * 0.97;   // red core band
+    tid = tid * 0.5;
+    return c;
+  }
   if (pat > 3.5) {
     // white slab field with black inlay bands (red core) every 5 slabs, small checker at the crossings (ref 3)
     vec2 m5 = mod(ci, 5.0);

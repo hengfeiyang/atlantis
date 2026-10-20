@@ -73,6 +73,7 @@
 import * as THREE from 'three';
 import { SUNKEN } from '../world/layout.js';
 import * as SUNKEN_OVERLAY from './sunken.js';
+import { LOOKS } from '../world/looks.js';
 
 // deterministic wave set (UW_NWAVES): wavelengths log-spaced 0.6 … 6.5 m, golden-angle directions over
 // the full circle → a Gaussian-like random surface whose caustics form a
@@ -898,7 +899,15 @@ export function installUnderwater(engine, deps) {
     return lensRT.texture;
   }
 
-  engine.onShot(() => uw.onShot());
+  // r4 (sunken): per-shot overrides of the material overlay (core/sunken.js SK uniforms): looks.js `sk: {...}` or shot.sk
+  const skSet = (k, v) => { const u = SK[k]; if (!u || k.startsWith('t')) return; if (Array.isArray(v)) u.value.fromArray(v); else if (u.value?.copy && v?.isVector4) u.value.copy(v); else u.value = v; };
+  const skDefaults = Object.fromEntries(Object.entries(SK).filter(([k]) => !k.startsWith('t') && k !== 'uSkDrift').map(([k, u]) => [k, u.value?.clone ? u.value.clone() : u.value]));
+  engine.onShot((shot) => {
+    for (const [k, v] of Object.entries(skDefaults)) { const u = SK[k]; if (u.value?.copy) u.value.copy(v); else u.value = v; }
+    const o = { ...((LOOKS[shot?.id] || {}).sk || {}), ...(shot?.sk || {}) };
+    for (const [k, v] of Object.entries(o)) skSet(k, v);
+    uw.onShot();
+  });
   return uw;
 }
 

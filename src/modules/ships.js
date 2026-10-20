@@ -97,15 +97,16 @@ async function buildGolden(engine, reg) {
   for (const [v, x, z, h, sp] of canalShips) if (clear(x, z, 16) && waterClear(x, z, h, 38, 5.5, -2)) put(v, x, z, h, { speed: sp, oars: v !== 'sailOnly', heel: v.startsWith('sail') ? 0.02 : 0, prio: 3 });
 
   // ---- sea fleet (ref 1): a few fixed ones around the canal mouth (in every framing of shot 1), then a scatter
-  for (const [v, x, z, h, sp] of [['sailRow', 4, 1112, 2, 3.2], ['sailRowB', -150, 1100, 24, 3.0], ['sailOnly', 215, 1125, 338, 2.6], ['row', -330, 1112, 158, 3.4], ['merchant', 390, 1095, 205, 2.0], ['boatSail', 120, 1085, 300, 1.4]]) {
+  for (const [v, x, z, h, sp] of [['sailRow', 4, 985, 2, 3.2], ['sailRowB', -140, 955, 24, 3.0], ['sailOnly', 215, 935, 338, 2.6], ['row', -120, 870, 158, 3.4], ['merchant', 300, 965, 205, 2.0], ['boatSail', 120, 900, 300, 1.4]]) {
     const m = v.startsWith('merchant'), b = v.startsWith('boat');
     if (clear(x, z, 20) && waterClear(x, z, h, m ? 20 : b ? 9 : 42, b ? 2 : 6, -3)) put(v, x, z, h, { speed: sp, oars: !m && !b && v !== 'sailOnly', heel: 0.03, r: m ? 10 : b ? 5 : 18, bow: m ? 10.2 : b ? 4.2 : 20.5, len: m ? 19 : b ? 8 : 38, beam: m ? 5.6 : b ? 2.2 : 5.4, prio: 2 });
   }
   const nSea = Math.round(16 + 10 * dens);
   const mouth = [0, 1060];
   for (let i = 0, n = 0; i < 400 && n < nSea; i++) {
-    const near = n < nSea * 0.7;
-    const x = near ? rng.range(-650, 650) : rng.range(-950, 950), z = near ? 1085 + Math.pow(rng.random(), 1.3) * 380 : rng.range(1400, 2100);
+    // r4 (director): the r4 shot-1 camera sees the sea between the l2 wall (z ≈ 800) and z ≈ 1000 (|x| < 340) — the fleet goes there
+    const near = n < nSea * 0.85;
+    const x = near ? rng.range(-360, 360) : rng.range(-950, 950), z = near ? 835 + rng.random() * 175 : rng.range(1050, 1500);
     if (Math.hypot(x, z - 1060) < 90) continue;
     const toMouth = (Math.atan2(mouth[0] - x, -(mouth[1] - z)) / D2R + 360) % 360;
     const hd = rng.chance(0.55) ? toMouth + rng.range(-25, 25) : rng.chance(0.5) ? rng.range(150, 210) : rng.range(0, 360);

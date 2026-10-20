@@ -164,7 +164,7 @@ function consumeSlots(engine, lib, rng, dens, maps, stats) {
       if (s.lean !== undefined) n.lerp(UP, 1 - s.lean).normalize();
       lib.w = 1;
       if (s.species === 'kelp') { if (kelpAt(lib, rng, p.x, p.y, p.z, { maxH: s.height ?? null })) stats.kelpSlots++; }
-      else if (lib.place(s.species, p, n, s.scale ?? 1, s.yaw ?? rng.range(0, 6.28), s.rgb ?? null, s.variant ?? null, rng, false)) stats.dressed = (stats.dressed || 0) + 1;
+      else if (lib.place(s.species, p, n, s.scale ?? 1, s.yaw ?? rng.range(0, 6.28), s.rgb ?? null, s.variant ?? null, rng, s.lo ?? false)) stats.dressed = (stats.dressed || 0) + 1;
       continue;
     }
     let n = s.normal ? toV(s.normal).normalize() : UP.clone();
@@ -286,17 +286,35 @@ function dressShot6(engine, maps, rng) {
     const jx = px + rng.range(-0.4, 0.4) * sx, jy = py + rng.range(-0.4, 0.4) * sy;
     const d = F.at((2 * jx) / 1672 - 1, 1 - (2 * jy) / 941, 1).sub(F.pos).normalize();
     let hit = null;
-    for (let t = 3; t < 64; t += Math.min(0.12, 0.04 + t * 0.003)) {
+    for (let t = 1; t < 64; t += Math.min(0.12, 0.04 + t * 0.003)) {
       const x = F.pos.x + d.x * t, y = F.pos.y + d.y * t, z = F.pos.z + d.z * t;
       const q = zone.sample(x, z);
-      if (q && y <= q.y) { hit = { x, y: q.y, z, t, ny: q.ny }; break; }
+      if (q && y <= q.y) { hit = { x, y: q.y, z, t, ny: q.ny, ry: y }; break; }
     }
     if (!hit) { why.miss++; continue; }
-    if (hit.ny < 0.75) { why.steep++; continue; }
-    if (hit.y < groundY(engine, hit.x, hit.z) + 0.35) { why.sand++; continue; }      // the plaza sand / mosaic stays clear
-    if (zone.rough(hit.x, hit.z, 0.1) > 0.26) { why.rough++; continue; }             // flat tops only (no statue heads / arms)
+    const gy = groundY(engine, hit.x, hit.z);
+    if (hit.ny < 0.75 || hit.y - hit.ry > 0.5) {
+      // r4: vertical faces of the foreground (stair-top piers, balustrades, basin sides; ref 6: smothered) — growth on the face
+      if (hit.t < 30 && hit.ry > gy + 0.3 && rng.random() < 0.55) {
+        const sp = ['finger', 'tube', 'anemone', 'fan', 'bush', 'lump', 'softtree'][Math.floor(rng.random() * 7)];
+        const nx = -d.x, nz = -d.z, nl = Math.hypot(nx, nz) || 1;
+        const k = THREE.MathUtils.clamp(hit.t / 14, 0.45, 1.2) * rng.range(0.6, 1.1) * (sp === 'fan' ? 0.6 : 1);
+        engine.slots.coral.push({ pos: [hit.x, hit.ry, hit.z], normal: [nx / nl, 0.45, nz / nl], species: sp, scale: k, rgb: D6_PAL[Math.floor(rng.random() * D6_PAL.length)], tag: 'dress6:' + sp });
+        n++; why.face = (why.face || 0) + 1;
+      } else why.steep++;
+      continue;
+    }
+    if (hit.y < gy + 0.35) {                           // the plaza sand / mosaic stays mostly clear: sparse grass + small heads (ref 6)
+      if (hit.t < 45 && rng.random() < 0.22 && Math.hypot(hit.x - L.FORECOURT.rose.center[0], hit.z - L.FORECOURT.rose.center[1]) > L.FORECOURT.rose.radius + 1) {
+        const sp = rng.random() < 0.55 ? 'grass' : ['bush', 'finger', 'brain', 'lump', 'anemone'][Math.floor(rng.random() * 5)];
+        engine.slots.coral.push({ pos: [hit.x, hit.y - 0.02, hit.z], normal: [0, 1, 0], species: sp, scale: sp === 'grass' ? 1.3 : THREE.MathUtils.clamp(hit.t / 18, 0.4, 1.1), rgb: sp === 'grass' ? null : D6_PAL[Math.floor(rng.random() * D6_PAL.length)], tag: 'dress6:' + sp, lo: hit.t > 25 ? 'mid' : false });
+        n++;
+      } else why.sand++;
+      continue;
+    }
+    if (zone.rough(hit.x, hit.z, 0.3) > 0.9) { why.rough++; continue; }              // flat-ish tops only (no statue heads / arms); r4: 0.26 → (0.3 m, 0.9): the r4 stair-top cornices
     const patch = noise01(hit.x, hit.z, 0.55, 11) * 0.7 + noise01(hit.x, hit.z, 1.7, 12) * 0.3;
-    if (patch < 0.3 || rng.random() > 0.45 + patch) { why.patch++; continue; }
+    if (hit.t > 6 && (patch < 0.3 || rng.random() > 0.45 + patch)) { why.patch++; continue; }   // r4: the nearest tops (stair-top blocks at 1-6 m) always grow
     const sp = pickSp();
     if (hit.t > 30 && rng.random() > 30 / hit.t) { why.patch++; continue; }  // far rows: fewer, bigger heads
     const k = THREE.MathUtils.clamp(hit.t / 13, 0.5, 1.6) * rng.range(0.7, 1.25) * (sp === 'fan' ? 0.6 : 1);
@@ -305,6 +323,170 @@ function dressShot6(engine, maps, rng) {
     n++;
   }
   console.log('[marine] dress6 ' + n + ' ' + JSON.stringify(why));
+  return n;
+}
+
+// ------------------------------------------------------------------ shot 9 plateau reef (r4 sunken)
+const D9_PAL = [linC(186, 70, 160), linC(150, 60, 170), linC(220, 90, 120), linC(232, 120, 60), linC(120, 170, 120), linC(214, 170, 70), linC(96, 140, 170), linC(200, 80, 80)];
+const D9_SPECIES = { bush: 0.25, brain: 0.08, whorl: 0.13, softtree: 0.2, finger: 0.12, staghorn: 0.08, lump: 0.04, fan: 0.06, whip: 0.04 };
+/**
+ * ref 9: the plateau around the temple is a reef — coral mounds, sponges, sea-grass meadows and fans on every free
+ * patch, big purple / pink heads in the near corners. Rays of a pixel grid of the shot-9 frame (below the waterline) are
+ * marched against the temple-zone surface map; hits on OPEN paving (plateau level) 20-230 m away seed noise-clustered
+ * reef mounds (3-9 heads, scaled with distance), hits on raised flat tops (arcade, podia, rubble) get single heads.
+ */
+function dressShot9(engine, maps, rng) {
+  const s9 = shotById(9);
+  const zone = maps.find((m) => m.z.id === 'temple')?.map;
+  if (!s9 || !zone) return 0;
+  const F = frameOf(s9);
+  const Y0 = L.CITADEL.summit, surf = L.SUNKEN.surface;
+  const dq = Math.max(0.5, Math.min(1.2, engine.quality.density ?? 1));
+  const sx = Math.round(30 / dq), sy = Math.round(22 / dq);
+  let n = 0;
+  const pick = () => { let r = rng.random(), acc = 0; for (const k in D9_SPECIES) { acc += D9_SPECIES[k]; if (r <= acc) return k; } return 'bush'; };
+  const put = (sp, x, y, z, k, t) => {
+    const rgb = sp === 'grass' || sp === 'column' ? null : D9_PAL[Math.floor(rng.random() * D9_PAL.length)];
+    engine.slots.coral.push({ pos: [x, y - 0.03, z], normal: sp === 'column' ? [0, 1, 0] : [rng.range(-0.12, 0.12), 1, rng.range(-0.12, 0.12)], species: sp, scale: k * (sp === 'fan' ? 0.7 : 1), rgb, tag: 'dress9:' + sp, lo: t > 60 ? true : t > 25 ? 'mid' : false });
+    n++;
+  };
+  for (let py = 360; py < 941; py += sy) for (let px = 4; px < 1672; px += sx) {
+    const jx = px + rng.range(-0.45, 0.45) * sx, jy = py + rng.range(-0.45, 0.45) * sy;
+    const d = F.at((2 * jx) / 1672 - 1, 1 - (2 * jy) / 941, 1).sub(F.pos).normalize();
+    let hit = null;
+    for (let t = 10; t < 240; t += 0.08 + t * 0.004) {
+      const x = F.pos.x + d.x * t, y = F.pos.y + d.y * t, z = F.pos.z + d.z * t;
+      if (y > surf) continue;
+      const q = zone.sample(x, z);
+      if (q && y <= q.y) { hit = { x, y: q.y, z, t, ny: q.ny }; break; }
+    }
+    if (!hit || hit.ny < 0.8) continue;
+    const open = Math.abs(hit.y - Y0) < 0.6;
+    const patch = noise01(hit.x, hit.z, 0.07, 21) * 0.65 + noise01(hit.x, hit.z, 0.23, 22) * 0.35;
+    const kd = THREE.MathUtils.clamp(hit.t / 28, 0.8, 3.2);
+    if (open) {
+      if (zone.rough(hit.x, hit.z, 1.5) > 0.4) continue;           // keep off steps / basin rims (they get their own growth)
+      if (Math.abs(hit.x) < 24 && hit.z > 38) continue;             // the forecourt axis (chariot, rose, Nereid basins) stays readable
+      const corner = (jx < 330 || jx > 1340) && jy > 700;           // ref 9: big reef heads in the near corners
+      if (!corner && (patch < 0.42 || rng.random() > (patch - 0.34) * 2.4)) {
+        if (patch > 0.3 && rng.random() < 0.45) { for (let g = 0; g < 3; g++) put('grass', hit.x + rng.range(-1, 1) * kd, hit.y, hit.z + rng.range(-1, 1) * kd, kd * 1.7, hit.t); }
+        continue;
+      }
+      if (hit.t > 55 && rng.random() < 0.06 / dq) { put('column', hit.x, hit.y, hit.z, rng.range(0.7, 1.15), hit.t); continue; } // dark algae columns (ref 9 "cypresses")
+      const k = corner ? rng.int(8, 14) : rng.int(5, 11), R = (corner ? 1.4 : 1.0) * kd;
+      for (let i = 0; i < k; i++) {
+        const a = rng.range(0, 6.28), rr = Math.sqrt(rng.random()) * R;
+        const x = hit.x + Math.cos(a) * rr, z = hit.z + Math.sin(a) * rr;
+        const q = zone.sample(x, z);
+        if (!q || Math.abs(q.y - Y0) > 0.6) continue;
+        const sp = i === 0 && rng.random() < 0.3 ? 'brain' : pick();
+        put(sp, x, q.y, z, Math.min(sp === 'brain' ? 1.8 : 9, kd * rng.range(0.6, 1.25) * (corner ? 1.5 : 1)), hit.t);
+      }
+      if (rng.random() < 0.5) put('grass', hit.x + rng.range(-R, R), hit.y, hit.z + rng.range(-R, R), kd * 1.8, hit.t);
+    } else if (hit.y > Y0 + 0.8 && hit.y < surf - 1.5 && zone.rough(hit.x, hit.z, 0.15) < 0.6 && rng.random() < 0.5 + patch * 0.4) {
+      put(pick(), hit.x, hit.y, hit.z, kd * rng.range(0.5, 0.9), hit.t);
+    }
+  }
+  console.log('[marine] dress9 ' + n);
+  return n;
+}
+
+// ------------------------------------------------------------------ shot 7 foreground reef (r4 sunken)
+const D7_PAL = [linC(214, 112, 52), linC(176, 84, 60), linC(150, 80, 150), linC(120, 70, 120), linC(206, 120, 150), linC(226, 160, 70), linC(110, 120, 90), linC(190, 70, 70)];
+const D7_SPECIES = { bush: 0.18, finger: 0.12, brain: 0.1, whorl: 0.1, staghorn: 0.1, lump: 0.1, softtree: 0.1, fan: 0.06, tube: 0.06, anemone: 0.05, urchin: 0.03 };
+/**
+ * ref 7: the canal floor in the near corners is a rubble reef (orange / mauve / purple heads, sponges, fans), the wreck
+ * hull is crusted with growth; the central sand lane toward the arch stays open. Pixel-grid rays of the shot-7 frame
+ * (lower 40 %) marched against the canal-zone surface map.
+ */
+function dressShot7(engine, maps, rng) {
+  const s7 = shotById(7);
+  const zone = maps.find((m) => m.z.id === 'canal')?.map;
+  if (!s7 || !zone) return 0;
+  const F = frameOf(s7);
+  const dq = Math.max(0.5, Math.min(1.2, engine.quality.density ?? 1));
+  const sx = Math.round(16 / dq), sy = Math.round(13 / dq);
+  let n = 0;
+  const pick = () => { let r = rng.random(), acc = 0; for (const k in D7_SPECIES) { acc += D7_SPECIES[k]; if (r <= acc) return k; } return 'bush'; };
+  const put = (sp, x, y, z, k, t, nrm) => {
+    engine.slots.coral.push({ pos: [x, y - 0.03, z], normal: nrm || [rng.range(-0.2, 0.2), 1, rng.range(-0.2, 0.2)], species: sp, scale: k * (sp === 'fan' ? 0.7 : 1), rgb: D7_PAL[Math.floor(rng.random() * D7_PAL.length)], tag: 'dress7:' + sp, lo: t > 30 ? 'mid' : false });
+    n++;
+  };
+  for (let py = 520; py < 941; py += sy) for (let px = 4; px < 1672; px += sx) {
+    const jx = px + rng.range(-0.45, 0.45) * sx, jy = py + rng.range(-0.45, 0.45) * sy;
+    const u = jx / 1672;
+    const d = F.at(2 * u - 1, 1 - (2 * jy) / 941, 1).sub(F.pos).normalize();
+    let hit = null;
+    for (let t = 1.5; t < 48; t += 0.05 + t * 0.003) {
+      const x = F.pos.x + d.x * t, y = F.pos.y + d.y * t, z = F.pos.z + d.z * t;
+      const q = zone.sample(x, z);
+      if (q && y <= q.y) { hit = { x, y: q.y, z, t, ny: q.ny }; break; }
+    }
+    if (!hit || hit.ny < 0.55) continue;
+    const g = groundY(engine, hit.x, hit.z);
+    const raised = hit.y > g + 0.4;
+    const patch = noise01(hit.x, hit.z, 0.35, 31) * 0.6 + noise01(hit.x, hit.z, 1.1, 32) * 0.4;
+    const kd = THREE.MathUtils.clamp(hit.t / 11, 0.45, 1.5);
+    if (raised) {                                             // wreck hull / ribs / rubble tops
+      if (rng.random() < 0.35 + 0.4 * patch) put(pick(), hit.x, hit.y, hit.z, kd * rng.range(0.4, 0.8), hit.t);
+      continue;
+    }
+    // edge weight: dense at the left / right of the frame and the very bottom, open lane in the middle
+    const side = u < 0.36 ? (0.36 - u) / 0.36 : u > 0.7 ? (u - 0.7) / 0.3 : 0;
+    const w = Math.min(1, side * 1.6 + Math.max(0, (jy - 850) / 90) * 0.35) * (0.5 + patch);
+    if (rng.random() > w) { if (patch > 0.55 && rng.random() < 0.3) put('grass', hit.x, hit.y, hit.z, 1.2, hit.t); continue; }
+    const k = rng.int(1, 3);
+    for (let i = 0; i < k; i++) {
+      const x = hit.x + rng.range(-0.6, 0.6) * kd, z = hit.z + rng.range(-0.6, 0.6) * kd;
+      const q = zone.sample(x, z); if (!q) continue;
+      put(i === 0 && rng.random() < 0.25 ? 'lump' : pick(), x, q.y, z, kd * rng.range(0.55, 1.2), hit.t);
+    }
+  }
+  console.log('[marine] dress7 ' + n);
+  return n;
+}
+
+// ------------------------------------------------------------------ shot 8 reef litter (r4 sunken)
+/**
+ * ref 8: beyond the curated dress8 heads the floor around the head is littered with small corals, sponges, urchins and
+ * rubble, the background arcade / columns crusted. Pixel-grid rays of the shot-8 frame against the head-zone surface map;
+ * the mosaic / head face / trident head (registry.sets.keepClear8) stay clear.
+ */
+function dressShot8(engine, maps, rng) {
+  const s8 = shotById(8);
+  const zone = maps.find((m) => m.z.id === 'head')?.map;
+  if (!s8 || !zone) return 0;
+  const F = frameOf(s8);
+  const keep = engine.registry.sets?.keepClear8 || [];
+  const mos = engine.registry.sets?.mosaic8;
+  const dq = Math.max(0.5, Math.min(1.2, engine.quality.density ?? 1));
+  const sx = Math.round(20 / dq), sy = Math.round(16 / dq);
+  let n = 0;
+  const pick = () => { let r = rng.random(), acc = 0; for (const k in D7_SPECIES) { acc += D7_SPECIES[k]; if (r <= acc) return k; } return 'bush'; };
+  for (let py = 380; py < 941; py += sy) for (let px = 4; px < 1672; px += sx) {
+    const jx = px + rng.range(-0.45, 0.45) * sx, jy = py + rng.range(-0.45, 0.45) * sy;
+    const d = F.at((2 * jx) / 1672 - 1, 1 - (2 * jy) / 941, 1).sub(F.pos).normalize();
+    let hit = null;
+    for (let t = 2; t < 80; t += 0.05 + t * 0.004) {
+      const x = F.pos.x + d.x * t, y = F.pos.y + d.y * t, z = F.pos.z + d.z * t;
+      const q = zone.sample(x, z);
+      if (q && y <= q.y) { hit = { x, y: q.y, z, t, ny: q.ny }; break; }
+    }
+    if (!hit || hit.ny < 0.7) continue;
+    if (keep.some((k) => Math.hypot(hit.x - k.x, hit.z - k.z) < k.r + 0.6)) continue;
+    if (mos && Math.hypot(hit.x - mos.center[0], hit.z - mos.center[1]) < mos.radius + 0.5) continue;
+    const g = groundY(engine, hit.x, hit.z);
+    const raised = hit.y > g + 0.5;
+    const patch = noise01(hit.x, hit.z, 0.3, 41) * 0.6 + noise01(hit.x, hit.z, 1.3, 42) * 0.4;
+    const kd = THREE.MathUtils.clamp(hit.t / 13, 0.4, 2.0);
+    const p = raised ? 0.3 + 0.3 * patch : (patch - 0.35) * 0.9;
+    if (rng.random() > p) continue;
+    const sp = raised ? pick() : (rng.random() < 0.3 ? 'grass' : pick());
+    engine.slots.coral.push({ pos: [hit.x, hit.y - 0.03, hit.z], normal: [rng.range(-0.2, 0.2), 1, rng.range(-0.2, 0.2)], species: sp, scale: kd * rng.range(0.45, 0.9) * (sp === 'fan' ? 0.7 : 1),
+      rgb: sp === 'grass' ? null : D7_PAL[Math.floor(rng.random() * D7_PAL.length)], tag: 'dress8r:' + sp, lo: hit.t > 35 ? true : hit.t > 18 ? 'mid' : false });
+    n++;
+  }
+  console.log('[marine] dress8 litter ' + n);
   return n;
 }
 
@@ -415,7 +597,8 @@ export async function build(engine) {
   // hero zones
   const canalKelp = (x, z) => (Math.abs(x) > 9 && Math.abs(x) < 46 && z > 560 && z < 900) || (Math.abs(x) >= 46 && z > 600 && z < 860 && Math.abs(x) < 120 && L.zoneAt(x, z) !== 'l2')
   // r3 (look-sunken): the shot-7 view corridor between the lens and the gate bridge stays open (ref 7: the bridge reads)
-  const canalKelp7 = (x, z) => canalKelp(x, z) && !(z > 696 && z < 822 && Math.abs(x + 10.7) < 19);
+  // r4: and the canal behind the bridge seen through the arch (the thin far kelp read as rain over the arch view, ref 7: clear)
+  const canalKelp7 = (x, z) => canalKelp(x, z) && !(z > 696 && z < 822 && Math.abs(x + 10.7) < 19) && !(z > 520 && z <= 700 && Math.abs(x) < 44) && !(z > 600 && z < 822 && x > -30 && x < 27);
   for (const { z, map } of maps) {
     if (!map) { console.warn('[marine] no surface map for zone', z.id); continue; }
     scatterHero(engine, lib, map, z, dens, rng, stats, {
@@ -440,7 +623,8 @@ export async function build(engine) {
       const g = groundY(engine, x, z);
       const onFloor = s.y <= g + 0.4;
       const forest = noise01(x, z, 0.02, 8);
-      if (onFloor && (zone === 'w2' || zone === 'w3' || zone === 'sea' || (zone === 'l2' && Math.abs(x) < 45)) && forest > 0.6) {
+      const archView7 = z > 380 && z < 700 && Math.abs(x) < 46;   // r4: the canal seen through the shot-7 arch stays clear
+      if (onFloor && !archView7 && (zone === 'w2' || zone === 'w3' || zone === 'sea' || (zone === 'l2' && Math.abs(x) < 45)) && forest > 0.6) {
         const k = Math.min(2, Math.round((forest - 0.5) * 5));
         for (let i = 0; i < k; i++) { const ox = rng.range(-sp, sp) * 0.5, oz = rng.range(-sp, sp) * 0.5; const ss = city.sample(x + ox, z + oz); if (ss) if (kelpAt(lib, rng, x + ox, ss.y, z + oz, { lo: true })) stats.kelp++; }
       } else if (rng.random() < 0.12) {
@@ -451,6 +635,9 @@ export async function build(engine) {
   }
   framingKelp(engine, maps);
   stats.dress6 = dressShot6(engine, maps, new RNG('marine:dress6'));
+  stats.dress9 = dressShot9(engine, maps, new RNG('marine:dress9'));
+  stats.dress7 = dressShot7(engine, maps, new RNG('marine:dress7'));
+  stats.dress8 = dressShot8(engine, maps, new RNG('marine:dress8'));
   consumeSlots(engine, lib, rng, dens, maps.map((m) => m.map).concat([city]), stats);
 
   // fauna first (its triangles count against the module budget)

@@ -73,12 +73,13 @@ export function buildHouse(ctx, lot, rng) {
     if (j < 0.5 || (age > 0.55 && rng.random() < 0.85)) return false;
     if (k < 0.18) return true;                                    // lime white
     if (k < 0.40) return rng.random() < 0.8;                      // cream
-    if (k < 0.54) return rng.random() < 0.12;                     // ochre (rare)
-    if (k < 0.65) return rng.random() < 0.15;                     // peach
-    if (k < 0.79) return rng.random() < 0.35;                     // sand
-    if (k < 0.87) return rng.random() < 0.08;                     // grey-beige
-    if (k < 0.95) return rng.random() < 0.25;                     // soft yellow
-    return rng.random() < 0.12;                                   // terracotta pink
+    // r4 (citadel): warmer mix — the r3 aerial read as a grey-white disk (ref 1: cream / honey / peach town)
+    if (k < 0.54) return rng.random() < 0.3;                      // ochre
+    if (k < 0.65) return rng.random() < 0.35;                     // peach
+    if (k < 0.79) return rng.random() < 0.6;                      // sand
+    if (k < 0.87) return rng.random() < 0.05;                     // grey-beige
+    if (k < 0.95) return rng.random() < 0.45;                     // soft yellow
+    return rng.random() < 0.25;                                   // terracotta pink
   });
   // roofs: fresh orange-red terracotta (ref 1: bright salmon/orange roofs), few dark aged ones
   const roofSeedBase = pickSeed(rng, (s) => {
@@ -220,7 +221,8 @@ export function buildHouse(ctx, lot, rng) {
     // an urn / planter by some front doors (filled by the banners module)
     if (ctx.slots && !(flags.front & FLAG.BLANK) && rng.chance(0.025)) {
       const [ux, , uz] = F.p(cx + rng.range(-hw * 0.6, hw * 0.6), 0, cz + hd + 0.7);
-      ctx.slots.urn.push({ pos: [ux, floorY, uz], size: rng.range(0.6, 0.9), tag: rng.chance(0.5) ? 'marble city' : 'city' });
+      // r4: sit on the street / lot ground in front of the door (floorY may be below a rising street: urns were buried)
+      ctx.slots.urn.push({ pos: [ux, Math.max(groundFn(ux, uz) + 0.12, Math.min(floorY, groundFn(ux, uz) + 0.6)), uz], size: rng.range(0.6, 0.9), tag: rng.chance(0.5) ? 'marble city' : 'city' });
     }
     // balconies on upper floors, awnings over shop fronts
     const frontOpen = !(flags.front & FLAG.BLANK);

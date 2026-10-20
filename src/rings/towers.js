@@ -53,7 +53,7 @@ export function towerKit(spec) {
   const Fc = new Frame([0, 0, dc], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
   const yS = spec.wallTop + (pylon ? 9.5 : 4.5), yPl = yS + 0.9;
   const broken = spec.state === 'broken';
-  const yCut = broken ? spec.y0 + (yS - spec.y0) * (0.55 + 0.2 * (spec.seed || 0)) : yS;
+  const yCut = broken ? spec.y0 + (yS - spec.y0) * ((spec.cutLow ? 0.22 : 0.55) + 0.2 * (spec.seed || 0)) : yS;   // r4: cutLow = shed-mole stumps (shot 8)
   const shaftMat = spec.banded ? 'banded' : 'white';
   const faces = faces4(Fc, hw);
   // ---- shaft
@@ -105,6 +105,33 @@ export function towerKit(spec) {
         lathe(Gt, F, sc, yPl - 0.15, 0.25, [[0, 0], [0.1, 0], [0.11, 0.08], [0.07, 0.2], [0.1, 0.45], [0.06, 0.72], [0.08, 0.8], [0, 0.82]], 6, COL);
       }
       if (spec.state === 'intact') box(Gt, F, -hw - 0.5, hw + 0.5, yPl + 0.67, yPl + 0.8, 0.1, 0.4, COL, FACES.pz | FACES.py | FACES.ny | FACES.nz);
+      // r4 (ref 4 pylons, shot 4 / shot-8 background): framed marble panels, a lapis inlay strip with gilt rosettes
+      // down the face centre, a gilt crown band under the cornice and gilt urn finials on the platform corners
+      const pa = -hw + 1.05, pb = hw - 1.05;
+      const panelZones = [[spec.wallTop + 0.55, yS - 4.0]];
+      if (i === 0) panelZones.push([Math.max(spec.y0 + 0.6, spec.yb + 2.6), spec.wallTop - 0.9]);
+      W.aux = [0, 0.35, 0, 0];
+      for (const [ya, yb2] of panelZones) {
+        if (yb2 - ya < 2) continue;
+        box(W, F, pa, pb, ya, ya + 0.24, 0, 0.1, COL, FACES.pz | FACES.py | FACES.ny);
+        box(W, F, pa, pb, yb2 - 0.24, yb2, 0, 0.1, COL, FACES.pz | FACES.py | FACES.ny);
+        box(W, F, pa, pa + 0.24, ya + 0.24, yb2 - 0.24, 0, 0.1, COL, FACES.pz | FACES.px | FACES.nx);
+        box(W, F, pb - 0.24, pb, ya + 0.24, yb2 - 0.24, 0, 0.1, COL, FACES.pz | FACES.px | FACES.nx);
+        const Lp = K.get('lapis');
+        box(Lp, F, -0.36, 0.36, ya + 0.5, yb2 - 0.5, 0, 0.05, COL, FACES.pz | FACES.px | FACES.nx | FACES.py | FACES.ny);
+        box(Gt, F, -0.46, -0.36, ya + 0.5, yb2 - 0.5, 0, 0.07, COL, FACES.pz | FACES.nx);
+        box(Gt, F, 0.36, 0.46, ya + 0.5, yb2 - 0.5, 0, 0.07, COL, FACES.pz | FACES.px);
+        const nR = Math.max(1, Math.floor((yb2 - ya - 1.4) / 2.1));
+        for (let r = 0; r < nR; r++) {
+          const yr = ya + 0.7 + (r + 0.5) * ((yb2 - ya - 1.4) / nR);
+          const Fr = new Frame(F.p(0, yr, 0.05), F.ax, F.az, mul3(F.ay, -1));
+          lathe(Gt, Fr, 0, 0, 0, [[0.3, 0], [0.29, 0.05], [0.2, 0.09], [0.1, 0.14], [0, 0.15]], 10, COL);
+        }
+      }
+      W.aux = [0, 0, 0, 0];
+      // gilt crown band (two fillets + a frieze) just under the cornice
+      box(Gt, F, -hw - 0.04, hw + 0.04, yS - 0.95, yS - 0.82, -0.02, 0.2, COL, FACES.pz | FACES.py | FACES.ny);
+      if (spec.state === 'intact' && i < 4) lathe(Gt, F, -hw - 0.3, yPl + 0.8, 0.3, [[0, 0], [0.34, 0], [0.36, 0.12], [0.2, 0.24], [0.36, 0.6], [0.14, 1.0], [0.05, 1.4], [0, 1.45]], 8, COL);
       continue;
     }
     // windows (front + sides), medallion (front)
@@ -172,7 +199,7 @@ export function towerKit(spec) {
   const G = K.get('gold'), Gt = K.get('gilt'), W = K.get('white');
   if (spec.design === 'dome') {
     // windowed drum + gold dome + finial; gilt acroteria at the platform corners
-    const dh = 3.0, dhw = 3.2;
+    const dh = 3.6, dhw = 3.7;   // r4: larger drum + dome (shot 1: the gold domes along the walls must read from 1.4 km)
     const df = faces4(Fc, dhw);
     for (const F of df) {
       W.aux = [0, 0, 0, AUX_ASHLAR(0.55)];
@@ -181,10 +208,10 @@ export function towerKit(spec) {
       chamferBox(W, F, dhw - 0.6, dhw, yPl, yPl + dh, 0, 0.12, 0.03, COL, FACES.pz | FACES.px | FACES.nx);
       sweep(W, F, -dhw - 0.3, dhw + 0.3, [[0, yPl + dh], [0.2, yPl + dh + 0.1], [0.3, yPl + dh + 0.3], [0.3, yPl + dh + 0.45]], COL, true);
       W.aux = [0, 0, 0, 0];
-      archWindow(K, F, 0, yPl + 0.5, 1.1, 1.9, 0.02, 5);
+      archWindow(K, F, 0, yPl + 0.5, 1.3, 2.4, 0.02, 5);
     }
     W.quadToward(Fc.p(-dhw - 0.3, yPl + dh + 0.45, -dhw - 0.3), Fc.p(dhw + 0.3, yPl + dh + 0.45, -dhw - 0.3), Fc.p(dhw + 0.3, yPl + dh + 0.45, dhw + 0.3), Fc.p(-dhw - 0.3, yPl + dh + 0.45, dhw + 0.3), COL, [0, 1, 0]);
-    const yD = yPl + dh + 0.45, R = 3.25;
+    const yD = yPl + dh + 0.45, R = 3.95;
     const prof = [];
     for (let i = 0; i <= 12; i++) { const a = (i / 12) * (Math.PI / 2); prof.push([R * Math.cos(a), yD + R * 1.05 * Math.sin(a)]); }
     lathe(G, Fc, 0, 0, 0, [[0, yD], ...prof], 24, COL);
@@ -226,7 +253,7 @@ export function towerKit(spec) {
 }
 
 /** height of a tower's top (for the registry / statue slots) */
-export function towerTopY(wallTop, design) { return design === 'pylon' ? wallTop + 9.5 + 2.8 : wallTop + 4.5 + 0.9 + (design === 'dome' ? 3.45 + 3.4 + 2.7 : 0.6 + 4.2 + 0.95 + 3.8 + 5.6); }
+export function towerTopY(wallTop, design) { return design === 'pylon' ? wallTop + 9.5 + 2.8 : wallTop + 4.5 + 0.9 + (design === 'dome' ? 4.05 + 4.15 + 2.7 : 0.6 + 4.2 + 0.95 + 3.8 + 5.6); }
 export const PYLON_HALF = 3.5;
 
 /**
@@ -253,11 +280,14 @@ export function buildTowers(ctx, M, plan = ctx.plan) {
     if (ctx.sunken) {
       const r = ruinRand(label, 0);
       state = r < 0.35 ? 'broken' : r < 0.75 ? 'nodome' : 'intact';
+      // r4: the shed-mole pylons stand 50-90 m in front of the shot-8 camera and hid the far citadel behind a plain
+      // block: most are broken off (ref 8 background = ruined silhouettes + the distant domed city)
+      if (t.ring === 'mole') state = 'broken';
       if (ruined(label + ':lean', 0.18)) lean = (2 + 3 * ruinRand(label, 1)) * (Math.PI / 180);
     }
     const seed = state === 'broken' ? Math.floor(ruinRand(label, 2) * 3) / 3 : 0;
     const key = `${e.id === 'citadel' ? 'c' : e.ring}|${e.landY}|${e.wallTop}|${design}|${banded ? 'b' : 'w'}|${water ? 'w' : 'l'}|${state}|${seed}`;
-    if (!kits.has(key)) kits.set(key, towerKit({ y0: e.landY, wallTop: e.wallTop, yb: water ? e.floor - 1.5 : e.landY - 0.6, design, banded, state, water, seed }));
+    if (!kits.has(key)) kits.set(key, towerKit({ y0: e.landY, wallTop: e.wallTop, yb: water ? e.floor - 1.5 : e.landY - 0.6, design, banded, state, water, seed, cutLow: e.ring === 'mole' }));
     // transform: local +z → toward the water, origin on the curtain face at the tower bearing
     const [x, z] = (e.polar || polarXZ)(e.wallR, t.bearing);
     const b = (t.bearing * Math.PI) / 180;
@@ -283,7 +313,7 @@ export function buildTowers(ctx, M, plan = ctx.plan) {
       if (design === 'pylon') {
         engine.slots.banner.push({ pos: front(e.wallTop + 9.5 - 4.0, 0.42), facing: t.facing, size: [1.7, 10.5], tag: 'rings-pylon' });
         const v = new THREE.Vector3(0, e.wallTop + 9.5 + 2.0, TOWER_PROJ - PYLON_HALF).applyMatrix4(m);   // r3: = pedestal top (props audit)
-        engine.slots.brazier.push({ pos: [v.x, v.y, v.z], facing: t.facing, size: 2.6, tag: 'rings-pylon' });
+        engine.slots.brazier.push({ pos: [v.x, v.y, v.z], facing: t.facing, size: 3.4, tag: 'rings-pylon' });   // r4: 2.6 → 3.4 (ref 4: big gold flame bowls)
       } else {
         // r2: hung in front of the string courses (proj 0.24) and below the upper window (sill yS - 4.2)
         const top = e.wallTop + 4.5 - 4.45, h = Math.min(e.id === 'citadel' ? 7 : 8.5, top - e.landY - 1.2);
@@ -296,7 +326,7 @@ export function buildTowers(ctx, M, plan = ctx.plan) {
         }
       }
     } else {
-      const v = new THREE.Vector3(0, state === 'broken' ? e.landY + (e.wallTop + 4.5 - e.landY) * 0.6 : e.wallTop + 5.4, TOWER_PROJ - TOWER_HALF).applyMatrix4(m);
+      const v = new THREE.Vector3(0, state === 'broken' ? e.landY + (e.wallTop + 4.5 - e.landY) * (e.ring === 'mole' ? 0.22 : 0.6) : e.wallTop + 5.4, TOWER_PROJ - TOWER_HALF).applyMatrix4(m);
       engine.slots.coral.push({ pos: [v.x, v.y, v.z], normal: [0, 1, 0], size: 3, tag: 'rings-tower-top' });
       if (e.ring === 'l2' || e.id === 'l1-out') {
         const k = front(e.floor + 6, 4);

@@ -26,7 +26,7 @@ export function buildLibrary(sys, engine) {
   const cypTex = cypressAtlas();
   const leafTex = leafAtlas();
   const cypMat = foliageMaterials('cypress', cypTex);
-  const lib = { palm: [], cypress: [], olive: [], broad: [], pine: [], shrub: [], thicket: [] };
+  const lib = { palm: [], cypress: [], olive: [], broad: [], pine: [], shrub: [], thicket: [], palmHero: null };
   let tris0 = 0;
   const nCyp = q.detail >= 1 ? 8 : 6;
   for (let i = 0; i < nCyp; i++) {
@@ -75,8 +75,18 @@ export function buildLibrary(sys, engine) {
       materials: { blob: palmMat.blob, card: palmMat.card, bark: palmTrunkMaterial(), bb: bbMat },
     }));
   });
+  // r4: shot-5 hero palm (fronds framing the top-right corner of ref 5): broad, dense leaflets
+  {
+    const t = buildPalm(500 + 4 * 13, 'garden', { leafW: 2.0, leafN: 1.4 });
+    const Hb = Math.max(t.H * 1.03, 4 * t.R);
+    t.lods[3] = { bb: billboardQuad(Hb, Hb / 4, impRect(4)), tris: 2 };
+    lib.palmHero = sys.addVariant({
+      name: 'palm-hero', kind: 'palm', style: 'garden', lods: t.lods, H: t.H, R: t.R, Ht: t.Ht, px: PX.palm, cullPx: 0.7, shadowLod: 2, cardShadowLod: 2,
+      materials: { blob: palmMat.blob, card: palmMat.card, bark: palmTrunkMaterial(), bb: bbMat },
+    });
+  }
   console.log(`[vegetation] palms ×${nPalm} in ${Math.round(performance.now() - tp)} ms (hero palm ${palmTris} tris, LOD1 ${palms[0].lods[1].tris}, LOD2 ${palms[0].lods[2].tris})`);
   const ms = Math.round(performance.now() - t0);
-  console.log(`[vegetation] library: ${Object.entries(lib).map(([k, v]) => `${k}×${v.length}`).join(' ')} in ${ms} ms (hero cypress ${tris0} tris)`);
+  console.log(`[vegetation] library: ${Object.entries(lib).filter(([, v]) => Array.isArray(v)).map(([k, v]) => `${k}×${v.length}`).join(' ')} in ${ms} ms (hero cypress ${tris0} tris)`);
   return lib;
 }

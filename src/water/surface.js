@@ -31,6 +31,8 @@ uniform sampler2D tSNear; uniform sampler2D tSFar;   // distance to land (m), sa
 uniform float uLevel;
 uniform vec3 uAbsorb;
 uniform vec4 uSea;       // x: r0 open sea starts, y: r1 full open sea, z: canal half width shelter, w: canal end z
+uniform float uSeaDeep;   // r4: optical-depth gain of the open sea (its shelf bed read azure through 10-15 m of clear water; ref 1 sea is navy)
+uniform vec4 uSeaSector; // r4: x,y: z/r ramp of the open south sector (beyond land ring 2), z,w: radial ramp of the far sea everywhere
 float wInBounds(vec2 uv){ vec2 e = min(uv, 1.0 - uv); return smoothstep(0.0, 0.004, min(e.x, e.y)); }
 float wTerrainH(vec2 xz, float bias){
   vec2 un = (xz - uHNearB.xy) / (uHNearB.zw - uHNearB.xy);
@@ -51,9 +53,17 @@ float wShoreDist(vec2 xz, float bias){
 // open-sea factor (fetch): 0 inside the rings and the sheltered canal, 1 on the open sea
 float wSeaK(vec2 xz){
   float r = length(xz);
-  float k = smoothstep(uSea.x, uSea.y, r);
+  // r4: the south sector opens to the sea right outside land ring 2 (ref 1: navy sea with whitecaps at the outer wall);
+  // north of it water ring 3 stays a sheltered ring
+  float sec = smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0));
+  float k = max(sec * smoothstep(uSea.x, uSea.y, r), smoothstep(uSeaSector.z, uSeaSector.w, r));
   float canal = (1.0 - smoothstep(uSea.z, uSea.z + 30.0, abs(xz.x))) * (1.0 - smoothstep(uSea.w - 60.0, uSea.w + 140.0, xz.y));
   return k * (1.0 - 0.75 * canal);
+}
+// r4: 1 outside land ring 2 in the open south sector (incl. the sheltered canal mouth between the moles), 0 in the rings
+float wOutK(vec2 xz){
+  float r = length(xz);
+  return max(smoothstep(uSeaSector.z, uSeaSector.w, r), smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0)) * smoothstep(uSea.x - 6.0, uSea.x + 30.0, r));
 }
 vec3 wBedTransmittance(float depth, float cv, float ls){
   float ct = sqrt(max(0.0, 1.0 - (1.0 - cv * cv) / 1.777));
@@ -106,9 +116,12 @@ uniform vec3 uSeaBody;      // r3: its radiance
 uniform float uGlintR;      // r3: glint radius (fraction of the default)
 uniform float uGlintVar;    // r3: extra facet-slope variance for the sparse sun glints (broad gold glitter field, ref 4)
 uniform vec3 uGlitterTint;  // colour of the glitter path (the low sun's disk is deeper gold than the scene light)
+uniform vec4 uRingLook;     // r4 (rings / canal only, 1 - seaK): x reflection gain, y body Fresnel weight, z body gain, w unused
+float wRingK;
+uniform vec3 uSunLobe;      // r4: x extra GGX alpha² of the sun glitter (broad gold field, ref 4), y its gain, z ripple contrast
 
 // values shared between the hooks of this material
-vec3 wSkyT; float wGlint; vec3 wN; float wVar; float wFoam; vec3 wRefl; float wReflW; vec3 wTbed; float wRough;
+vec2 wSlopeDbg; vec3 wSkyT; float wGlint; vec3 wN; float wVar; float wFoam; vec3 wRefl; float wReflW; vec3 wTbed; float wRough;
 
 // clumpy foam: blotches of value noise riddled with round bubble holes
 float wFoamTex(vec2 p, float fw){
@@ -150,6 +163,7 @@ const SURF_COLOR = /* glsl */`
   // metres per pixel (geometric mean of the two pixel axes)
   float pxw = sqrt(max(length(dFdx(P.xz)), length(dFdy(P.xz))) * min(length(dFdx(P.xz)), length(dFdy(P.xz))));
   wSkyT = mix(uSkyRefl, uSkyReflSea, seaK);
+  wRingK = 1.0 - max(seaK, wOutK(P.xz));
   // ---- waterfall impacts: boiling white core, broken foam spreading outward, downstream trail,
   //      radial swell rings (normals only)
   float churn = 0.0, tailF = 0.0; vec2 ringSlope = vec2(0.0);
@@ -261,6 +275,7 @@ const SURF_COLOR = /* glsl */`
   { float uh; vec2 ug; vec3 uH; uwWaveDeriv(P.xz, uh, ug, uH); slope += ug * uUwWaveK; }
 #endif
   wN = normalize(vec3(-slope.x, 1.0, -slope.y));
+  wSlopeDbg = slope;
   // ---- foam
   vec2 q0 = P.xz;
   float fwF = pxw * 0.714;
@@ -270,7 +285,7 @@ const SURF_COLOR = /* glsl */`
   // foam lines against quays / moles / islets: a thin white contact line (rings, calm) and, at sea,
   // surf bands rolling in toward the rocks
   float lapN = cgVnoise2(P.xz * 0.11 + uTime * 0.05);
-  float lineW = mix(uShoreK.x, uShoreK.x * 6.0, seaK) * (0.6 + 0.8 * lapN);
+  float lineW = mix(uShoreK.x, uShoreK.x * 3.0, seaK) * (0.6 + 0.8 * lapN) * (0.55 + 0.9 * smoothstep(0.35, 0.75, cgVnoise2(P.xz * 0.045 + 2.0)));   // r4: 6x → 3x at sea, broken along the shore
   float line = (1.0 - smoothstep(0.0, max(lineW, pxw * 0.7), sd - 0.2)) * mix(uShoreK.z, 1.0, seaK);
   float surfW = uShoreK.y * (0.7 + 0.6 * cgVnoise2(P.xz * 0.02));
   float surfPh = sd * 0.42 - uTime * 1.1 + cgVnoise2(P.xz * 0.05) * 6.0;
@@ -336,9 +351,9 @@ const SURF_COLOR = /* glsl */`
   float cv = max(dot(wN, V), 0.02);
   float ls = max(uSunDir.y, 0.03);
   float turbid = 1.0 + 2.0 * churn + 1.0 * wakeTurb;
-  vec3 Tv = exp(-uAbsorb * depth * turbid / max(sqrt(max(0.0, 1.0 - (1.0 - cv * cv) / 1.777)), 0.05));
-  wTbed = mix(vec3(1.0), wBedTransmittance(depth * turbid, max(V.y, 0.02), ls), uBodyK);
-  vec3 scat = mix(uScatter, uScatterSea, seaK * smoothstep(4.0, 16.0, depth));
+  vec3 Tv = exp(-uAbsorb * depth * mix(1.0, uSeaDeep, seaK) * turbid / max(sqrt(max(0.0, 1.0 - (1.0 - cv * cv) / 1.777)), 0.05));
+  wTbed = mix(vec3(1.0), wBedTransmittance(depth * turbid * mix(1.0, uSeaDeep, seaK), max(V.y, 0.02), ls), uBodyK);
+  vec3 scat = mix(uScatter, uScatterSea, seaK * smoothstep(1.5, 7.0, depth));   // r4: 4-16 → 1.5-7 m (the shelf of the south sea read ring-turquoise)
   vec3 body = scat * (1.0 - Tv) * uBodyK;
   body = mix(body, uAerCol * (0.75 + 0.5 * fine), aerW * 0.75 * uBodyK);
   vec3 foamAlb = uFoamCol * (0.82 + 0.18 * fine);
@@ -347,7 +362,8 @@ const SURF_COLOR = /* glsl */`
   // way a diffuse surface would be — the column under a shadow edge is still lit at depth)
   // r3: only the light refracted OUT of the water reaches the eye (1 - F): at grazing views (water-level shots 2, 4)
   // the mirror wins and the lit buildings show in it (ref 4), instead of a flat turquoise glow
-  wBody = body * (uSunIrrW * uBodyLight.x * max(uSunDir.y, 0.05) + uSkyAmbW * uBodyLight.y) * (1.0 - wFoam) * mix(1.0, 1.0 - F, uBodyFres);
+  float bodyFres = mix(uBodyFres, uBodyFres * uRingLook.y, wRingK);
+  wBody = body * (uSunIrrW * uBodyLight.x * max(uSunDir.y, 0.05) + uSkyAmbW * uBodyLight.y) * (1.0 - wFoam) * mix(1.0, 1.0 - F, bodyFres) * mix(1.0, uRingLook.z, wRingK);
   diffuseColor.rgb = foamAlb * wFoam;
   // foam is a dense scattering layer: sky light from every side and light forward-scattered from the
   // low sun behind it (backlit wakes / surf stay white, refs 1, 2)
@@ -404,7 +420,7 @@ const SURF_NORMAL = /* glsl */`cgBump = wN - cgN;`;
 const INJECT_REFL = /* glsl */`
 #if defined( RE_IndirectSpecular )
   radiance = mix(radiance * mix(uEnvBoost * wSkyT, vec3(1.0), wFoam), wRefl, wReflW * (1.0 - wFoam));
-  radiance *= mix(uReflGain, 1.0, wFoam);
+  radiance *= mix(uReflGain * mix(1.0, uRingLook.x, wRingK), 1.0, wFoam);
 #endif
 `;
 // sun glitter toward the VISIBLE sun (ATMO.uSunDir — the art-directed disk, see core/sky.js), replacing the
@@ -419,6 +435,14 @@ const SUN_SPEC = /* glsl */`
   float a = max(wRough * wRough, 0.0025), aa = a * a;
   float dd = NoH * NoH * (aa - 1.0) + 1.0;
   float D = aa / (3.14159265 * dd * dd);
+  // r4: a second, broad lobe — the sub-pixel ripple facets of a calm, wind-ruffled ring scatter the low sun into a wide
+  // field of gold (ref 4); modulated by the resolved ripple normal so it breaks into wavy bands, not a smooth sheen
+  if (uSunLobe.y > 0.0) {
+    float ab = aa + uSunLobe.x, db = NoH * NoH * (ab - 1.0) + 1.0;
+    float rip = clamp(0.5 + uSunLobe.z * (NoH - max(Hh.y, 0.0)), 0.0, 1.0);   // facets tilted toward H vs the mean plane
+    float Db = ab / (3.14159265 * db * db) * rip * rip * 2.0;
+    D += Db * uSunLobe.y;
+  }
   float k = a * 0.5;
   float Gs = (NoL / (NoL * (1.0 - k) + k)) * (NoV / (NoV * (1.0 - k) + k));
   float Fs = 0.02 + 0.98 * pow(1.0 - VoH, 5.0);
@@ -444,6 +468,7 @@ if (uDebug > 0.5) {
   else if (uDebug < 6.5) gl_FragColor = vec4(vec3(sqrt(wVar) * 10.0), 1.0);
   else if (uDebug > 7.5 && uDebug < 8.5) gl_FragColor = vec4(vec3(fract(wShoreDist(vAtmoWorldPos.xz, 0.0) / 20.0)), 1.0);
   else if (uDebug > 8.5 && uDebug < 9.5) gl_FragColor = vec4(vec3(wSeaK(vAtmoWorldPos.xz)), 1.0);
+  else if (uDebug > 10.5 && uDebug < 11.5) gl_FragColor = vec4(abs(wSlopeDbg) * 4.0, 0.0, 1.0);
   else if (uDebug > 9.5 && uDebug < 10.5) gl_FragColor = vec4(vec3(fract(max(0.0, uLevel - wTerrainH(vAtmoWorldPos.xz, 0.0)) / 10.0)), 1.0);
 }
 `;
@@ -458,7 +483,7 @@ varying vec3 vW;
 uniform vec3 uSunDir;
 ${WATER_COMMON_GLSL}
 void main(){
-  float depth = max(0.0, uLevel - wTerrainH(vW.xz, 0.0));
+  float depth = max(0.0, uLevel - wTerrainH(vW.xz, 0.0)) * mix(1.0, uSeaDeep, wSeaK(vW.xz));
   vec3 V = normalize(cameraPosition - vW);
   vec3 T = wBedTransmittance(depth, max(V.y, 0.02), max(uSunDir.y, 0.03));
   gl_FragColor = vec4(T, 1.0);
@@ -510,7 +535,9 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     tSNear: { value: shore.near.tex }, tSFar: { value: shore.far.tex },
     uLevel: { value: level },
     uAbsorb: { value: new THREE.Vector3(0.32, 0.075, 0.05) },
-    uSea: { value: new THREE.Vector4(860, 1250, 70, 1060) },
+    uSea: { value: new THREE.Vector4(826, 980, 70, 1060) },
+    uSeaSector: { value: new THREE.Vector4(0.2, 0.42, 1300, 1900) },
+    uSeaDeep: { value: 1.6 },
   };
   const impacts = [], impactsB = [], wakesA = [], wakesB = [];
   for (let i = 0; i < MAX_IMPACTS; i++) { impacts.push(new THREE.Vector4(0, 0, 1, 0)); impactsB.push(new THREE.Vector4(0, 1, 0, 0)); }
@@ -535,7 +562,7 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uFoamCol: { value: new THREE.Vector3(0.80, 0.83, 0.84) },
     uAerCol: { value: new THREE.Vector3(0.07, 0.14, 0.14) },
     uSeaWave: { value: new THREE.Vector4(2.6, 1.7, 1.0, 0.16) },
-    uShoreK: { value: new THREE.Vector4(0.7, 34, 0.35, 1.0) },
+    uShoreK: { value: new THREE.Vector4(0.7, 22, 0.35, 0.65) },   // r4: surf 34 m / 1.0 → 22 m / 0.65 (the open sea now starts at land ring 2: wide white bands round the islets)
     uGlint: { value: new THREE.Vector4(0.10, 0.9, 1.0, 0.6) },
     uBodyK: { value: 1 },
     uRingCalm: { value: 0.6 },
@@ -552,6 +579,8 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uGlintVar: { value: 0.0 },
     uGlintR: { value: 1.0 },
     uSeaOpaque: { value: 0.0 }, uSeaBody: { value: new THREE.Vector3(0.02, 0.05, 0.1) },
+    uRingLook: { value: new THREE.Vector4(1, 1, 1, 0) },
+    uSunLobe: { value: new THREE.Vector3(0, 0, 0) },
   };
   for (const [k, v] of Object.entries(look)) setU(uniforms, k, v);
   const mat = makeSurfaceMaterial(uniforms);

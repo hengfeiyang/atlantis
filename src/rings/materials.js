@@ -43,7 +43,9 @@ const ROCK_COLOR = /* glsl */ `
   float up = clamp(n.y, 0.0, 1.0);
   float m1 = cgFbm3(p * 0.028 + 1.7, 3);
   float m2 = cgFbm3(p * 0.095 + vec3(11.0, 3.0, 7.0), 3);
-  vec3 cream = vec3(0.360, 0.310, 0.250), bone = vec3(0.420, 0.372, 0.310), grey = vec3(0.300, 0.282, 0.262), buff = vec3(0.385, 0.300, 0.215);   // r3: = terrain citadel limestone (warm grey-tan, mid contrast)   // r3: warmer tan / ochre, darker (ref 4 crags ≈ rgb 130-160 / 95-120 / 70-90 lit)
+  // r4 (arch-a): ref-4 crag palette = pale grey-mauve limestone (ref ≈ rgb 130/110/98, 108/91/87, 173/147/147 lit),
+  // much less yellow than r3; warm buff only in iron-stained streaks
+  vec3 cream = vec3(0.370, 0.335, 0.305), bone = vec3(0.455, 0.418, 0.392), grey = vec3(0.285, 0.272, 0.270), buff = vec3(0.360, 0.295, 0.245);   // r3: = terrain citadel limestone (warm grey-tan, mid contrast)   // r3: warmer tan / ochre, darker (ref 4 crags ≈ rgb 130-160 / 95-120 / 70-90 lit)
   vec3 c = mix(cream, bone, smoothstep(0.1, 0.55, -m1 + 0.5 * m2) * 0.7);
   c = mix(c, grey, smoothstep(0.25, 0.75, m1 + 0.35 * m2) * 0.42);
   c = mix(c, buff, smoothstep(0.15, 0.65, m2 + 0.35 * m1) * 0.55 * (0.4 + 0.6 * vert));
@@ -69,19 +71,28 @@ const ROCK_COLOR = /* glsl */ `
   // crevices (vertex cavity, sharpened + broken edges) and fractures: dark and damp
   float cavN = vRkAux.x + 0.2 * cgSnoise(p * vec3(1.3, 0.6, 1.3) + 4.0) * (1.0 - smoothstep(0.3, 1.2, fp));
   float cv = clamp(max(0.9 * smoothstep(0.35, 0.75, cavN), crk), 0.0, 1.0);
-  c = mix(c, c * vec3(0.72, 0.76, 0.66), cv);   // r3: damp crevices, not black (terrain palette)
+  // r4: crisp grey crevice LINES (joints / fractures) instead of soft dark blotches on the lump flanks
+  c = mix(c, c * vec3(0.50, 0.50, 0.50), smoothstep(0.45, 0.85, cavN) * 0.85);
+  // weathering skin: pale dry patches + grey-blue lichen crust (ref 4: mottled grey-mauve)
+  float sk2 = cgFbm3(p * vec3(0.55, 0.25, 0.55) + 31.0, 3);
+  c = mix(c, c * vec3(1.22, 1.18, 1.14), smoothstep(0.1, 0.5, sk2) * 0.55);
+  c = mix(c, c * vec3(0.78, 0.80, 0.84), smoothstep(0.15, 0.55, -sk2) * 0.5);
+  c = mix(c, c * vec3(0.50, 0.50, 0.52), crk);
+  // sunlit facets lighter (dry weathered skin), lumpy undersides cooler
+  c *= 1.0 + 0.10 * smoothstep(0.2, 0.8, up + 0.4 * m2);
   // lichen: yellow + white patches
   float lm = smoothstep(0.0, 0.6, cgFbm3(p * 0.3 + 4.0, 3) + 0.3 * up);
   c = mix(c, vec3(0.56, 0.51, 0.31), smoothstep(0.55, 0.8, cgSnoise(p * 1.9 + 9.0)) * lm * 0.3);
   c = mix(c, vec3(0.66, 0.66, 0.63), smoothstep(0.62, 0.85, cgSnoise(p * 1.3 + 2.0)) * (1.0 - lm) * 0.25);
   // moss / grass tufts on ledges (up faces) and in crevices (golden only: uRkGreen)
+  // r4: only on real ledges (up > 0.8) and in sparse tufts — r3 put dark moss on every up-tilted lump (leopard spots)
   float mossN = cgFbm3(p * 0.35 + 21.0, 3);
-  float moss = smoothstep(0.5, 0.9, up * 0.95 + cv * 0.25 + 0.45 * mossN) * uRkGreen;
-  vec3 grass = mix(vec3(0.050, 0.072, 0.022), vec3(0.15, 0.16, 0.05), smoothstep(-0.3, 0.6, mossN));
-  c = mix(c, grass, moss * 0.75);
+  float moss = smoothstep(0.78, 0.95, up) * smoothstep(0.35, 0.7, mossN + 0.25 * cv) * uRkGreen;
+  vec3 grass = mix(vec3(0.15, 0.16, 0.07), vec3(0.27, 0.25, 0.11), smoothstep(-0.3, 0.6, mossN));   // dry sunlit grass, not dark blots
+  c = mix(c, grass, moss * 0.45);
   // wet / algae line near the water
   float wet = 1.0 - smoothstep(0.0, 1.6, p.y);
-  c = mix(c, c * vec3(0.42, 0.46, 0.38), wet * 0.8);
+  c = mix(c, c * vec3(0.55, 0.58, 0.50), wet * 0.7);   // r4: lighter (shot 1 riprap read black)
   diffuseColor.rgb *= max(c, vec3(0.0));
 `;
 const ROCK_NORMAL = /* glsl */ `
@@ -97,7 +108,10 @@ const ROCK_NORMAL = /* glsl */ `
     // r3: mid-scale facets / fractures (breaks the smooth crag lumps when front-lit, shot 4)
     vec3 q3 = cgP * vec3(0.62, 0.34, 0.62) + 5.0; float c3 = cgSnoise(q3) + 0.5 * cgSnoise(q3 * 2.3);
     vec3 g3 = vec3(cgSnoise(q3 + vec3(e,0,0)) + 0.5 * cgSnoise((q3 + vec3(e,0,0)) * 2.3) - c3, cgSnoise(q3 + vec3(0,e,0)) + 0.5 * cgSnoise((q3 + vec3(0,e,0)) * 2.3) - c3, cgSnoise(q3 + vec3(0,0,e)) + 0.5 * cgSnoise((q3 + vec3(0,0,e)) * 2.3) - c3) / e;
-    vec3 b = (g * vec3(0.9, 0.12, 0.9) * 0.14 + g2 * 0.05 + g3 * vec3(0.62, 0.34, 0.62) * 0.2) * fN;
+    // r4: ridged fracture facets (1 - |noise|: sharp creases, flat-ish planes between) = angular limestone, ref 4
+    vec3 q4 = cgP * vec3(0.42, 0.30, 0.42) + 17.0; float r0 = abs(cgSnoise(q4));
+    vec3 g4 = vec3(abs(cgSnoise(q4 + vec3(e,0,0))) - r0, abs(cgSnoise(q4 + vec3(0,e,0))) - r0, abs(cgSnoise(q4 + vec3(0,0,e))) - r0) / e;
+    vec3 b = (g * vec3(0.9, 0.12, 0.9) * 0.07 + g2 * 0.06 + g3 * vec3(0.62, 0.34, 0.62) * 0.035 - g4 * vec3(0.42, 0.30, 0.42) * 0.16 * (0.3 + 0.7 * uRkGreen)) * fN;   // r4: the r3 0.2 mid-scale bump made the leopard spots (shot 4)
     cgBump = b - cgN * dot(b, cgN);
   }
 `;
@@ -183,6 +197,10 @@ export async function ringMaterials(engine) {
     M.tin = placeholderMetal(0xa9aaa6, 0.5); M.bronze = placeholderMetal(0x9a6a3a, 0.4); M.orichalcum = placeholderMetal(0xc8703e, 0.34);
     M.gold = placeholderMetal(0xd9a441, 0.26, 'gold'); M.gilt = placeholderMetal(0xb8904a, 0.42, 'gold');
   }
+  // r4: lapis inlay (pylon face strips, ref 4) — deep navy glazed stone
+  M.lapis = proceduralMaterial({ name: 'rings-lapis', params: { color: 0xffffff, roughness: 0.32, vertexColors: true },
+    color: `float n = cgFbm3(cgP * 2.1, 3); diffuseColor.rgb *= mix(vec3(0.020, 0.034, 0.120), vec3(0.034, 0.052, 0.17), smoothstep(-0.4, 0.6, n)) + vec3(0.25, 0.2, 0.08) * smoothstep(0.72, 0.9, cgSnoise(cgP * 9.0));` });
+  M.lapis.userData.sunken = 'stone';
   M.rock = rockMaterial(1);
   M.rockBare = rockMaterial(0);
   M.interior = interiorMaterial();

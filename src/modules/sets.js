@@ -44,6 +44,15 @@ export async function build(engine) {
       engine.add(bg);
       console.log(`[sets] shot-8 backdrop (arcade + towers): ${Math.round(performance.now() - tb)} ms, ${(tris(bg) / 1e6).toFixed(2)} M tris`);
     } catch (e) { console.error('[sets] backdrop8 failed', e.stack || e); }
+    // r4 (sunken): ruined precinct on the plateau rim (shots 6, 9) — src/sets/precinct.js
+    const tp = performance.now();
+    try {
+      const [{ buildPrecinct }, { surfaceMap }] = await Promise.all([import('../sets/precinct.js'), import('../marine/scatter.js')]);
+      const map = surfaceMap(engine, { cx: 0, cz: 0, size: 240, res: 480 });
+      const { group: pg, stats } = buildPrecinct(engine, { q, map });
+      engine.add(pg);
+      console.log(`[sets] precinct (shots 6/9): ${Math.round(performance.now() - tp)} ms, ${(tris(pg) / 1e6).toFixed(2)} M tris ${JSON.stringify(stats)}`);
+    } catch (e) { console.error('[sets] precinct failed', e.stack || e); }
   }
   const t1 = performance.now();
   try {

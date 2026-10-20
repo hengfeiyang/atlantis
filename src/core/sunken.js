@@ -46,7 +46,7 @@ export const SK = {
   uSkMetal: { value: new THREE.Vector4(0.7, 0.5, 0.9, 0.8) },  // r3 (look-sunken): more verdigris + brighter bronze between (r2 0.62 / 0.6: the shot-6 chariot / Nereids read as navy silhouettes)
   uSkGold: { value: new THREE.Vector4(0.12, 0.4, 0.3, 0.9) },  // r2 (look-sunken): less dulled — gold glints at 30-50 m (refs 6, 8)
   uSkStone: { value: new THREE.Vector4(0.3, 0.45, 0.08, 0.2) },
-  uSkWood: { value: new THREE.Vector4(0.3, 0.4, 0.3, 0) },
+  uSkWood: { value: new THREE.Vector4(0.3, 0.4, 0.8, 0.35) },  // r4: algae boost 0.3 → 0.8, w = crust scale on wood (the shot-7 wreck read camouflage-blotched pale grey; ref 7: green-crusted)
   tSkDrift: { value: null },
   uSkDrift: { value: new THREE.Vector4(0, 0, 1, 0) },
   uSkDrift2: { value: new THREE.Vector4(0.3, 1.9, 0.5, 0) },
@@ -133,7 +133,7 @@ void skApply(inout vec3 alb, inout float rough, inout float metal, inout vec3 bu
   bumpW += skBumpOf(P, 13.0) * 0.05 * a;
   // ---- coral-algae crust spots (pink / mauve), on edges and up faces
   float cs = skF(P * uSkCrust.y + 31.0);
-  float cr = smoothstep(uSkCrust.z, uSkCrust.z + 0.06, cs + 0.08 * up) * uSkCrust.x * amt * (kind == 3 ? uSkGold.z : 1.0);
+  float cr = smoothstep(uSkCrust.z, uSkCrust.z + 0.06, cs + 0.08 * up) * uSkCrust.x * amt * (kind == 3 ? uSkGold.z : (kind == 4 ? uSkWood.w : 1.0));
   vec3 cC = mix(uSkCrustColor, uSkCrustColor2, smoothstep(0.4, 0.7, skN(P * 0.7 + 8.0)));
   alb = mix(alb, cC * (0.8 + 0.4 * n3), cr);
   rough = mix(rough, 0.9, cr); metal = mix(metal, 0.0, cr);

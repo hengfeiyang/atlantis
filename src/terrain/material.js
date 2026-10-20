@@ -60,7 +60,7 @@ float stFbm(vec3 p, int oct, float fp, float gain) {
   int no = int(float(oct) * uStOne);
   for (int i = 0; i < no; i++) {
     float w = 1.0 - smoothstep(0.18, 0.5, fp * f);
-    s += a * w * cgSnoise(p * f);
+    if (w > 0.0) s += a * w * cgSnoise(p * f); // r4 perf: skip octaves faded out by the footprint (same result)
     n += a;
     f *= 2.07; a *= gain; p += vec3(3.71, 1.37, 5.13);
   }

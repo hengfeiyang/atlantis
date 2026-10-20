@@ -132,3 +132,57 @@ fit of pos, yaw, pitch, fov with pinned params and penalties such as "sea horizo
   (diskRel 5) and side light; shot 3 heading 343.
 * **look-sunken / marine** — surface 104: shot 6/3 camera 25 m deep, shot 7 110 m, shot 8 88 m, shot 9 temple ridge ≈ 10 m
   under; keep coral off the trident / tower tops above the water.
+
+### Round 4 (director) — announcements first (renders / fits in out/director/r4/)
+
+**A1 (early, binding for everyone): NO citadel-height change in r4.** Fits with the summit raised +10/+20/+30 m improve
+shot-1 rms only 26 → 25 → 24 → 23 px (the ref-1 hill is a painter's exaggeration, ≈ 2x taller than physically consistent
+with the lighthouses); the cascade through shots 3/5/6/7/8/9 + sunken depths is not worth it mid-round. `CITADEL`,
+`SUNKEN.surface`, all radii stay as in r3. Layout is frozen except items announced below.
+**A2 shot 1 camera** moves farther back with a longer lens (≈ z 1450-1500, y ≈ 230, fov ≈ 31-34): the citadel grows
+≈ 1.15x on screen relative to the lighthouses (which keep their ref pixels); the l2 ring spills off both frame edges (like
+ref 1); the sea horizon rises (row ≈ 70-100). look-golden: re-place the shot-1 sun disk after the shots.js commit (coming
+soon, watch the shot-1 line); terrain: the mountains then sit 20-40 px higher — judge them on the new camera.
+**A3 shot 5** eye +2 m (deck + 4.2 → y 32.2), heading a few degrees right so the w1-180 ring-bridge citadel end + towers
+enter at the right; sets terrace follows frameFromShot (ships-sets/props: re-check the balustrade/brazier sizes).
+**A4 shot 2** hero trireme (L.SHIPS.hero) farther and more bow-on (ref 2: hull ≈ 380 px long, sail rows 410-635).
+**A2 — COMMITTED (shots.js):** shot 1 = `pos [0, 191.86, 1314.2], target [0, 168.25, 1217.02], fov 34.62` (replaces the
+"farther / longer" plan: that pushed the horizon to row 60 and lost the sun). Lower + 70 m closer + longer lens: citadel shore
+526 px wide (r3 450, ref 490), apex row 223, colossus head 185, horizon ≈ 105, lighthouses rows 600-810, l2 front wall row ≈ 645.
+The frame bottom sees the sea only to z ≈ 995 (|x| < 200 at the bottom edge, < 340 at row 600). **Layout (additive):** 4 new
+`ISLETS` (bottom-left palm headland [-262, 930] r 52, rocks [-168, 990], [318, 838] against the l2 wall, [205, 982]) — terrain
+bake key follows; vegetation palms follow ISLETS. **ships.js (director edit, no ships agent this round):** the ref-1 sea fleet
+moved from z 1085-1465 (below the frame) to z 835-1010, |x| < 360.
+**A2' — shot 1 FINAL (shots.js, supersedes the A2 numbers):** `pos [0, 191.26, 1332.94], target [0, 167.62, 1235.78], fov 35.15`
+(citadel shore 512 px, rim/shore marks 5-24 px; lighthouses rows 575-770, 46-72 px bigger/lower than ref; rms 42 on 14 marks).
+**A5 — mountains 0.62x (layout `MOUNTAINS.scale = 0.62`, applied in src/terrain/far.js `scaleMountains()` to a copy of the
+baked far grid inside the mountain arc beyond 3 km):** the back range reached the frame top in shot 1 (≈ 7° above the horizon,
+ref ≈ 4°). heightAt / far mesh / far texture / cloud banks follow automatically; plain, coast, west islands unchanged.
+look-golden + sunken: mountains are lower in shots 2-5 and 9 — re-check the bank clouds / mountain fill there.
+**A3 — shot 5 COMMITTED:** `pos [-108.77, 30.9, 334.77], target [-96.5, 12.59, 237.23], fov 58` — eye 2.9 m above the deck (not 4: at
+3.4-4 m the eye reaches the pavilion capitals and the entablature/roof drops into the top-left of the frame; the ref-5 columns run
+off the frame top, which with our 3.5 m shafts needs an eye ≈ 2.2-3). Temple apex 4 px, cornice 13-16 px; the w1-180 bridge's
+citadel end + tower now at the right edge (px ≈ 1600). **src/sets/terrace.js (director edit, no sets agent this round):**
+`scaledTerrace(k = eye / 2.2)` moves the balustrade's right end, brazier and lotus pot out by k (same pixels, 1/k size); the
+pavilion and the balustrade's left end stay. Still wrong vs ref 5: the citadel is 135-200 m away, the tall quay palaces hide the
+temple, the stair is a big white slope (citadel/vegetation: lower quay palaces at bearings 180-215 would let the temple show).
+**A4 — shot 2 COMMITTED (layout `SHIPS.hero`):** `pos [-17, 0, 792], heading 188` (bow/stern waterline + sail fit 146 → 60 px).
+
+### Round 4 — video (src/video/sequence.js, tools/render-video.mjs)
+New per-segment fields: `push` (horizontal dolly, keeps the eye height — shot 9 stays at the waterline), `range: [e0, e1]` (move
+parameter at u = 0/1; default [-0.5, 0.5], e = 0 = reference framing), `xfade` (dissolve into the next segment; encoder honours it).
+Sequence (55.4 s): 1 aerial 8.0 s (dolly 150, crane -10) · 2 canal 7.0 (dolly 9, crane 0.8) · 4 sheds 6.5 (dolly 11, truck -2.5) ·
+5 terrace 6.5 (truck -1.8 + pan 1.6, range [-0.2, 0.8]) · 3 temple 7.0 (dolly 6, crane 0.5, range [-0.3, 0.7]) → **2 s era dissolve**
+→ 6 continues the same push (range [0.414, 1.414], seamless — the city sinks across the cut) · 7 gate bridge 6.5 (dolly 5, crane
+1.5, tilt 1) · 8 head 6.5 (orbit -6°, truck 0.6) · 9 split level 8.0 (push 9, ease-out, rests just past ref 9). Preview
+`out/video_preview/atlantis_640x360.mp4` (640x360, 1 spp). Motion-preview fixes: shot 5 trucking right ran into the hero palm
+trunk (now leftward); shot 3/6 pull-back ran into the stair-head piers (now a push down the north flight, eye ≥ 6 m above the
+treads, x 12 → 9.6 between the raking balustrades at x 2 / 13.5); shot 7 dolly 7 → 5 (kelp at the left grew too big).
+Still seen: shot 1 move reads slow (1.3 km away); shot 2 hero trireme does not advance (static hull, wake + oars only); shot 7 left
+kelp passes close to the lens; shot 3 opens with a stair-head pier block at bottom centre.
+
+### Round 4 — reply to the citadel note (stair head hides the temple in shot 1)
+From the shot-1 eye (≈ 8° down) the landing (y 75, z 97-104, ±17 m) occludes the temple up to y ≈ 75 + 66·tan 8° ≈ 84 m, i.e. the
+stylobate + lower columns between x ±17. Lowering the landing by 5 m only moves that line to ≈ 79 and re-breaks shot 3/6 (the eye
+79 / horizon 314 fit). Not changed in r4 (end of round, all cameras/sets depend on it). r5 proposal: slimmer stair + landing
+(width 34 → 24) with the shot-3 eye x 12 → 8 re-fit, so the outer temple columns show beside it in shot 1.

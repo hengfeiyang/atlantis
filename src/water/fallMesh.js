@@ -281,7 +281,8 @@ uniform vec3 uFallWhite; // aerated water albedo (blue-white)
 uniform vec3 uFallGap;   // thin clear falling water between the white streaks (dark slate)
 uniform vec3 uFallGlass; // glassy lip
 uniform vec3 uFallAmb;   // r3: sky light scattered inside the aerated water (keeps shaded falls white, refs 1, 4, 5)
-float wfAlpha; float wfAer; float wfStreak; float wfRough; float wfCasc; float wfTilt; float wfW; float wfStrandK;
+uniform vec4 uFallFar;   // r4: x,y distance ramp (m) of the far read (aerials, ref 1: solid white ribbons), z opacity floor, w whiteness
+float wfFar; float wfAlpha; float wfAer; float wfStreak; float wfRough; float wfCasc; float wfTilt; float wfW; float wfStrandK;
 varying float vFallSh;
 // fades a pattern of period P (m) to its mean once it is finer than ~1.5 px (pf: metres per pixel)
 float wfVis(float P, float pf){ return 1.0 - smoothstep(0.55, 1.0, pf * 1.1 / P); }
@@ -437,6 +438,13 @@ const COLOR = /* glsl */`
   alpha *= endFade;
   float lipN = cgVnoise2(vec2(xm * 0.7 + seed * 9.0, seed * 3.0)) * 1.6 + 2.2 * (1.0 - smoothstep(0.0, 0.3, min(u, 1.0 - u))) * (1.0 - strand);
   alpha *= smoothstep(lipN * 0.6, lipN + 1.0 + 1.4 * fC + 2.2 * cascK * bA, sPath);    // soft, ragged start upstream of the lip (froth heaving over cascade crests)
+  // r4: from far away (shot 1 at 1.4 km) a fall is a few pixels wide: its streaks, gaps and ragged edges average
+  // into a pale translucent smear. Real falls read there as solid white ribbons (ref 1) → raise coverage and
+  // whiteness with distance (the ragged edges / start / end fades are kept)
+  float farD = smoothstep(uFallFar.x, uFallFar.y, distance(cameraPosition, cgP)) * (1.0 - strand) * (1.0 - frontL);
+  alpha = mix(alpha, max(alpha, smoothstep(0.15, 0.6, edge) * endFade * uFallFar.z * smoothstep(lipN * 0.6, lipN + 1.0, sPath) * mix(1.0, 0.2 + 0.8 * W, contact * aerP * 0.5)), farD);
+  W = mix(W, max(W, uFallFar.w), farD * aerP);
+  wfFar = farD * aerP;
   wfAlpha = clamp(alpha * uFallK.w, 0.0, 1.0);
   // ---- albedo: dark glassy lip, blue-white aerated streaks over dark slate gaps
   float fib = (fC - 0.5) * vC * 0.8 + (pE - 0.5) * 0.3 + (farS - 0.5) * (0.25 + 0.15 * farK);
@@ -494,6 +502,9 @@ const EMISSIVE = /* glsl */`
   // the spray around it, so it stays bright white even where the bay is in shade
   totalEmissiveRadiance += uSunCol * diffuseColor.rgb * uFallK2.w * 0.3 * wfCasc * wfW * mix(0.6, 1.0, vFallSh);
   totalEmissiveRadiance += uFallAmb * diffuseColor.rgb * wfW * wfAer * (1.0 - 0.6 * vFallSh);
+  // r4: far read — the multiple-scattered sky + sun glow of a whole white fall (sub-pixel spray, foam) keeps it the
+  // brightest thing on the hill from the air (ref 1), shaded faces included
+  totalEmissiveRadiance += (uFallAmb * 1.2 + uSunCol * 0.06) * diffuseColor.rgb * wfFar;
   if (uDebug > 1.5 && uDebug < 4.5) totalEmissiveRadiance = diffuseColor.rgb * 3.0;
   if (uDebug > 4.5 && uDebug < 5.5) totalEmissiveRadiance = vec3(0.0);
   if (uDebug > 7.5) totalEmissiveRadiance = diffuseColor.rgb * 3.0;
@@ -514,6 +525,7 @@ export function createFallMaterial({ hTex = null, hBounds = [0, 0, 1, 1], unifor
     uFallGap: { value: new THREE.Color(0.075, 0.1, 0.12) },
     uFallGlass: { value: new THREE.Color(0.035, 0.06, 0.065) },
     uFallAmb: { value: new THREE.Color(0, 0, 0) },
+    uFallFar: { value: new THREE.Vector4(350, 1100, 0.92, 0.85) },
   };
   const uniforms = shared || defaults;
   if (shared) for (const [k, v] of Object.entries(defaults)) if (!shared[k] || (k === 'uFallK2' && shared[k].value.w === 0)) shared[k] = v;

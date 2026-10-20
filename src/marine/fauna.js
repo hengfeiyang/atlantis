@@ -292,7 +292,8 @@ export function buildSwimmer(engine, kind, { path, speed = 1.2, u0 = 0, scale = 
     // bank into the turn: curvature from the tangent change
     const tg2 = curve.getTangentAt((u + 0.01) % 1);
     const turn = Math.atan2(tg.x * tg2.z - tg.z * tg2.x, tg.x * tg2.x + tg.z * tg2.z);
-    e.set(-Math.asin(THREE.MathUtils.clamp(tg.y, -1, 1)), Math.atan2(tg.x, tg.z), THREE.MathUtils.clamp(-turn * 12, -0.5, 0.5), 'YXZ');
+    const bank = kind === 'turtle' ? 0.14 : 0.5;   // r4: the turtle banked 29° read edge-on (a log) from the shot-7 floor camera
+    e.set(-Math.asin(THREE.MathUtils.clamp(tg.y, -1, 1)) * (kind === 'turtle' ? 0.4 : 1), Math.atan2(tg.x, tg.z), THREE.MathUtils.clamp(-turn * 12, -bank, bank), 'YXZ');
     q.setFromEuler(e);
     mesh.position.set(p.x, p.y + bob, p.z);
     mesh.quaternion.copy(q);

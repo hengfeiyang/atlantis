@@ -45,11 +45,28 @@ export const SHOT_TUNE = {
   // shot 4 (eye 2.5 m in w1, sun 60° left of the view): calm mirror, a wide glitter field of small facets
   // across the left half (ref 4), deeper teal body (ref ≈ rgb 46,105,126)
   // shot 9 (split level at dusk): a livelier sea, ripples catching the sunset (ref 9)
-  9: { uWaveAmp: [0.13, 0.12, 0.055, 0.006] },
-  4: { uRingCalm: 0.3, uGlintVar: 1.0, uGlintR: 0.45, uGlint: [0.6, 0.5, 1.0, 1.0], uBodyLight: [0.6, 0.65, 0.5], uScatter: [0.008, 0.11, 0.16] },
+  // r4: ref 9's dusk sea is wave-shaped (dark troughs, crests catching the sunset), warm, not a smooth grey mirror:
+  // the resolved core waves (uUwWaveK, same pattern as the meniscus / caustics) carry the shape, the sub-pixel FFT
+  // octaves are lowered (their LEAN variance blurred the mirror into flat bands), a mostly opaque navy body,
+  // a warm (and > 1) sky-reflection tint, sharper reflection lookups, more sunset glints
+  9: {
+    uWaveAmp: [0.06, 0.05, 0.03, 0.004], uUwWaveK: 5.0, uSeaOpaque: 0.88, uSeaBody: [0.04, 0.12, 0.3],
+    uSkyReflSea: [1.15, 0.8, 0.62], uGlint: [0.6, 0.4, 1, 1], uGlintVar: 0.01, uReflSmear: 0.3, uReflLod: 0.0,
+  },
+  // r4: the r3 sparse glints read as white dots → a wind-ruffled mirror instead: livelier ripples (mid octaves) that break
+  // the reflected sheds into wavy bands, a broad second sun lobe for the gold field (uSunLobe), almost no point glints,
+  // less body light so the reflections win (ref 4 right half: teal troughs p50 ≈ 39,120,129 + gold crests p90 ≈ 214,161,113)
+  4: {
+    uRingCalm: 1.05, uRingAmp: [0.7, 1.2, 1.2, 0.7], uGlint: [0.02, 0.5, 1.0, 1.0], uBodyLight: [0.5, 0.6, 0.5],
+    uScatter: [0.008, 0.11, 0.16], uReflGain: 1.6, uReflSmear: 1.0, uSunLobe: [0.12, 0.25, 8.0],
+  },
+  // r4 (shot 1, the opening aerial at 1.4 km): the rings read as concentric bands of turquoise water (ref 1 rings p50 ≈ 76,112,125)
+  // — less of the white city mirrored at the grazing view (ring-only reflection gain), the body not weighted down by
+  // Fresnel, a cyan body + sky tint. The open sea (seaK) keeps its navy body, chop and whitecaps.
+  1: { uRingLook: [0.45, 0.2, 1.8, 0], uScatter: [0.006, 0.12, 0.2], uSkyRefl: [0.2, 0.55, 0.75] },
 };
 const tuneDefaults = {};
-const HERO_FOAM = 1.0;
+const HERO_FOAM = 1.5;   // r4: 1.0 → 1.5 (ref 2: a broad breaking bow wave)
 
 export const NEAR_BOUNDS = [-1100, -1000, 1100, 1400];
 export const FAR_BOUNDS = [-7000, -7000, 7000, 7000];
@@ -89,7 +106,7 @@ export async function build(engine) {
 
   // ---- the surface seen from above
   const look = sunken ? {
-    uSea: [-10, 0, -1000, -1e5], uBodyK: 0, uSeaWave: [1.0, 1.0, 1.0, 0.02], uShoreK: [0.5, 10, 0.6, 0.5],
+    uSea: [-10, 0, -1000, -1e5], uSeaSector: [-3, -2, -10, 0], uBodyK: 0, uSeaWave: [1.0, 1.0, 1.0, 0.02], uShoreK: [0.5, 10, 0.6, 0.5],
     uSkyReflSea: [0.55, 0.5, 0.5], uGlint: [0.16, 0.8, 1.0, 1.0], uRingCalm: 1.0,
   } : {};
   const water = createWaterSurface(engine, { maps, shore, waves, reflection, level, absorb: !sunken, look });

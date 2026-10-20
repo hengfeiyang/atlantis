@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { loadOrBuild } from '../core/cache.js';
 import { generateFarGrid, FAR_VERSION, boxBlur } from './farfield.js';
 import { registerFarGrid } from './farsample.js';
+import * as L from '../world/layout.js';
 
 export const FAR_NAME = 'terrain-far-' + FAR_VERSION;
 
@@ -29,9 +30,31 @@ export async function loadFarGrid() {
     if (p && /^[\w-]+$/.test(p)) name = p;
   } catch { /* node */ }
   const geo = await loadOrBuild(name, () => farToGeometry(generateFarGrid({ cell: 48, coarse: 96, spIters: 40, drops: 0, fineIters: 1, log: (m) => console.log(m) })));
-  const g = registerFarGrid(farFromGeometry(geo));
+  const g = registerFarGrid(scaleMountains(farFromGeometry(geo)));
   console.log(`[terrain] far grid ${g.nx}x${g.nz} @ ${g.cell} m ready in ${Math.round(performance.now() - t0)} ms`);
   return g;
+}
+
+/**
+ * r4 (director, layout MOUNTAINS.scale): vertical scale of the mountain wall above the plain, applied to a COPY of the
+ * baked grid before registration (heightAt, far mesh, far texture, cloud banks all follow). Only inside the mountain arc
+ * (bearing ± arc/2, soft 15° edges) and beyond 3 km, so the plain, the coast and the west-sea islands keep their heights.
+ */
+function scaleMountains(g) {
+  const k = L.MOUNTAINS.scale ?? 1;
+  if (k === 1) return g;
+  const { x0, z0, cell, nx, nz } = g, src = g.data, out = new Float32Array(src.length), h0 = 30;
+  const M = L.MOUNTAINS, half = M.arc * 0.5;
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const n = j * nx + i, h = src[n];
+    if (h <= h0) { out[n] = h; continue; }
+    const x = x0 + i * cell, z = z0 + j * cell;
+    const rel = ((L.bearingOf(x, z) - M.bearing + 540) % 360) - 180;
+    const m = ss(-half - 15, -half, rel) * ss(half + 15, half, rel) * ss(2600, 3600, Math.hypot(x, z));
+    out[n] = h0 + (h - h0) * (1 + (k - 1) * m);
+  }
+  return { ...g, data: out };
 }
 
 // float → half (fast, no allocation per value)

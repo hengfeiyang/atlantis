@@ -14,29 +14,37 @@ const D2R = Math.PI / 180;
  *  r2 (ref 4): rounded limestone crag masses (vertical karst lumps ≈ 3 × 4.5 m) with deep dark crevices
  *  between them, a broad bulge field, a little of the terrain face field (src/terrain/field.js) for joints. */
 function hash2(i, j) { let h = (i * 374761393 + j * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
-function crag(su, y) {
+function crag(su, y, sc = 1) {
   // 2D cellular in (along-face metres, height); jittered cells, F1 / F2 + cell id
-  const cx = su / 3.3, cy = y / 4.6 + 0.35 * noiseB.noise2(su * 0.05, 1.7);
+  const cx = su / (3.3 * sc), cy = y / (4.6 * sc) + 0.35 * noiseB.noise2(su * 0.05, 1.7);
   const ix = Math.floor(cx), iy = Math.floor(cy);
-  let f1 = 9, f2 = 9, id = 0;
+  let f1 = 9, f2 = 9, id = 0, ddx = 0, ddy = 0, gid = [0, 0];
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
     const gx = ix + i, gy = iy + j;
     const ox = gx + 0.15 + 0.7 * hash2(gx, gy), oy = gy + 0.15 + 0.7 * hash2(gx + 71, gy - 13);
     const dx = (ox - cx), dy = (oy - cy) * 1.0;
     const dd = Math.hypot(dx, dy);
-    if (dd < f1) { f2 = f1; f1 = dd; id = hash2(gx - 5, gy + 9); } else if (dd < f2) f2 = dd;
+    if (dd < f1) { f2 = f1; f1 = dd; id = hash2(gx - 5, gy + 9); ddx = -dx; ddy = -dy; gid = [gx, gy]; } else if (dd < f2) f2 = dd;
   }
-  return [f1, f2, id];
+  return [f1, f2, id, ddx, ddy, gid];
 }
 function rockDisp(x, y, z, e) {
   const su = e && e.su ? e.su(x, z) : Math.atan2(x, -z) * 300;             // ≈ metres along the face (continuous across bays)
-  const [f1, f2, id] = crag(su, y);
+  // r4: e.cragScale (shed mole, shot 4 close-up): larger karst masses, shallow crevices — the r3 3 × 4.6 m lumps with
+  // deep pits cast a leopard-spot pattern of small shadows under the low grazing sun
+  const sc = e && e.cragScale ? e.cragScale : 1;
+  const [f1, f2, id, ddx, ddy, gid] = crag(su, y, sc);
   const gap = f2 - f1;
   const crev = 1 - Math.min(1, gap / 0.3);
-  const lump = 1.9 * (0.62 - f1) * (0.7 + 0.6 * id) - 1.3 * crev * crev;
-  const t = TF.rockDisp(x, y, z, 0.12);
+  let lump;
+  if (sc > 1) {
+    // faceted blocks: each cell is a tilted PLANE (random offset + slopes) → flat sunlit faces, steps / clefts between
+    const sx = (hash2(gid[0] + 31, gid[1] - 7) - 0.5) * 2.2, sy = (hash2(gid[0] - 19, gid[1] + 43) - 0.6) * 1.6;
+    lump = (0.9 * (id - 0.5) * 2 + sx * ddx + sy * ddy - 0.9 * crev * crev) * sc * 0.75;
+  } else lump = 1.9 * (0.62 - f1) * (0.7 + 0.6 * id) - 1.3 * crev * crev;
+  const t = TF.rockDisp(x, y, z, 0.12) * (sc > 1 ? 0.5 : 1);
   const mass = Math.max(0, noiseA.fbm3(x * 0.04, y * 0.05, z * 0.04, 2) + 0.15) * 1.4;
-  const fine = 0.12 * noiseB.noise3(x * 0.9, y * 0.9, z * 0.9);
+  const fine = (sc > 1 ? 0.05 : 0.12) * noiseB.noise3(x * 0.9, y * 0.9, z * 0.9);
   const cav = Math.min(1, Math.max(0, crev * 0.9 + TF.CAV * 0.3));
   const k = e && e.rockAmp != null ? e.rockAmp : 1;   // r3: shed mole = flatter dressed-rock face (front-lit in shot 4)
   return [Math.max(-1.4 * k, Math.min(3.6 * k, 0.7 * k + (lump + mass) * k + t + fine)), cav * (0.5 + 0.5 * k)];

@@ -171,9 +171,10 @@ function encode() {
   const inputs = parts.flatMap((p) => ['-i', p.p]);
   let filter = '', last = '[0:v]', acc = parts[0].dur;
   for (let k = 1; k < parts.length; k++) {
-    const off = (acc - XFADE).toFixed(3);
-    filter += `${last}[${k}:v]xfade=transition=fade:duration=${XFADE}:offset=${off}[v${k}];`;
-    last = `[v${k}]`; acc = acc + parts[k].dur - XFADE;
+    const xf = segs[k - 1].xfade ?? XFADE;   // r4: per-transition dissolve (sequence.js `xfade`)
+    const off = (acc - xf).toFixed(3);
+    filter += `${last}[${k}:v]xfade=transition=fade:duration=${xf}:offset=${off}[v${k}];`;
+    last = `[v${k}]`; acc = acc + parts[k].dur - xf;
   }
   const pictureDur = acc;
   const music = args.music && fs.existsSync(args.music) ? args.music : null;

@@ -213,7 +213,7 @@ export class MistSystem {
   }
   /** add a puff: { pos [x,y,z], size m, life s, vel [vx,vy,vz] (alias drift), growth, density, kind 0..3,
    *  gravity m/s², stretch, seed?, phase? } */
-  add(p) { this.items.push(p); }
+  add(p) { if ([...(p.pos || []), p.size, ...(p.vel || p.drift || [])].every(Number.isFinite)) this.items.push(p); }   // r4: never a NaN puff
 
   build(rng) {
     const n = this.items.length;

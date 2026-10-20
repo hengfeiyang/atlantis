@@ -7,6 +7,7 @@ import { Building } from '../arch/build.js';
 import { box, extrudeOutline } from '../arch/geom.js';
 import { tholos } from '../arch/tholos.js';
 import { RNG } from '../core/rng.js';
+import { towerInto } from './precinct.js';
 
 const PI = Math.PI;
 
@@ -120,20 +121,24 @@ export function buildBackdrop8(engine, F, G, q) {
     group.add(g);
     engine.footprints?.addCircle?.(p.x, p.z, 10, 'sets:arcade8');
   }
-  // ---- two tall towers with gilded tholoi on land ring 1 (stay on the ring: r ≥ 312)
-  const TW = [{ px: 1185, depth: 92, h: 24, w: 6.2, seed: 82 }, { px: 1500, depth: 118, h: 28, w: 6.8, seed: 83 }];
+  // ---- tall towers with gilded tholoi on land ring 1 (stay on the ring: r ≥ l1.r0 + 10; r4: was r ≥ 312 — since the r3
+  //      w1 widening (l1 from r 350) the towers stood on the w1 floor hidden behind the l1 inner wall). Slender, so the
+  //      tholoi read against the wall / water above it like ref 8's (px ≈ 1170, 1500; a third, lower one at px ≈ 980)
+  const rMin = (L.ringById('l1')?.r0 ?? 350) + 10;
+  const TW = [{ px: 1185, depth: 92, h: 10.5, w: 3.0, seed: 82 }, { px: 1500, depth: 118, h: 12.5, w: 3.3, seed: 83 }];
   for (const t of TW) {
     let p = null;
-    for (let dd = t.depth; dd > 40; dd -= 6) { const c = F.at(t.px, 470, dd); if (Math.hypot(c.x, c.z) >= 312) { p = c; break; } }
+    for (let dd = t.depth; dd > 18; dd -= 3) { const c = F.at(t.px, 470, dd); if (Math.hypot(c.x, c.z) >= rMin) { p = c; break; } }
     if (!p) continue;
     // avoid sitting inside a city landmark
     const fp = engine.footprints;
     if (fp?.query) for (let k = 0; k < 6; k++) { const hits = fp.query(p.x, p.z, 5).filter((it) => it.tag === 'city-landmark' || String(it.tag).startsWith('sets')); if (!hits.length) break; p.addScaledVector(F.right, 7); }
     const gy = G(p.x, p.z);
-    const B = tower({ detail: det, seed: t.seed, w: t.w, h: t.h });
+    const B = new Building('set8-tower', { detail: det, seed: t.seed, variant: 'ruined', weather: 0.8 });
+    towerInto(B, { w: t.w, h: t.h, broken: false });   // r4: white + red courses (precinct kit; the r1 banded ashlar read as grey blocks)
     const g = B.finalize({ position: [p.x, gy, p.z], rotY: yaw + 0.3 + t.seed * 0.1, ao: false });
     group.add(g);
-    const T = tholos({ radius: t.w * 0.46, columns: 8, colH: 3.6, order: 'corinthian', gild: 1, detail: det, seed: t.seed, name: 'set8-towerTholos', steps: 2, stepH: 0.28, tread: 0.3, foundation: 1.0 });
+    const T = tholos({ radius: t.w * 0.5, columns: 8, colH: 2.8, order: 'corinthian', gild: 1, detail: det, seed: t.seed, name: 'set8-towerTholos', steps: 2, stepH: 0.28, tread: 0.3, foundation: 1.0 });
     const tg = T.finalize({ position: [p.x, gy + t.h + 0.7 + 2 * 0.28, p.z], rotY: yaw, ao: false });
     group.add(tg);
   }

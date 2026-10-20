@@ -65,6 +65,9 @@ export const SKY = {
   // r3 (look-golden): density exponent (> 1 = thinner, softer edges, the cores unchanged: the r2 cumulus read as paper cut-outs
   // with a bright outline when lit from a low sun)
   uCloudEdge: { value: 1.0 },
+  // r4 (look-golden): scale of the aerial haze between the eye and the cumulus (1 = physical; < 1 keeps distant cloud
+  // bodies their own warm colour instead of the blue-lavender haze: refs 2, 3, 5 peach / brown-grey shaded bodies)
+  uCloudHaze: { value: 1.0 },
   uCloudStep: { value: new THREE.Vector2(30, 0.01) }, // r3: coarse march step = x + y·t (m)   // r2 (look-golden): density multiplier reached at uCloudFar.y (0 = clear low sky: the low sun shows)
   // ---- high cirrus / altocumulus streaks (refs 1, 3, 7): x amount, y altitude (m), z streak direction (rad)
   uCirrus: { value: new THREE.Vector3(0.25, 7500, 0.6) },
@@ -212,6 +215,7 @@ uniform float uCloudErode;
 uniform vec2 uCloudFar;
 uniform float uCloudFarMin;
 uniform float uCloudEdge;
+uniform float uCloudHaze;
 uniform vec2 uCloudStep;
 uniform float uCloudGlowAmb;
 uniform vec2 uCloudLight;
@@ -422,7 +426,7 @@ void main() {
     vec3 rd = normalize(vec3(d.x, max(d.y, 0.0005), d.z));
     vec4 c = skyClouds(cameraPosition, rd, steps, cgFrameJitter(), dist);
     if (c.a < 0.999) {
-      float od = atmoHazeOD(cameraPosition.y, rd.y, dist);
+      float od = atmoHazeOD(cameraPosition.y, rd.y, dist) * uCloudHaze;
       vec3 Th = exp(-od * uExtinction * 0.8);
       vec3 hz = atmoHazeInscatter(rd);
       float fadeH = smoothstep(-0.02, 0.03, d.y);

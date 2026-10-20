@@ -47,10 +47,13 @@ export function bootH(au, al) {
   return Math.pow(v, 1.3) * (1 - smoothstep(0.8, 1.0, v)) * (1 - Math.pow(Math.abs(fa - fc), 2));
 }
 
-export function buildPalm(seed, style = 'tall') {
+// opts (r4, hero palms framing a shot): { leafW: leaflet width ×, leafN: leaflets per frond × } — ref 5's overhead
+// fronds are dense, broad-leafleted fans; the generic 2×56 thin leaflets read sparse and dark at 2-6 m
+export function buildPalm(seed, style = 'tall', opts = {}) {
   const rng = new RNG(`palm:${style}:${seed}`);
   const nz = new Simplex(hashString(`palmN:${seed}`));
   const P = params(rng, style);
+  P.leafW = opts.leafW ?? 1; P.leafN = opts.leafN ?? 1;
   const Ht = P.trunkH;
 
   // ---------------------------------------------------------------- trunk centreline
@@ -210,7 +213,7 @@ export function buildPalm(seed, style = 'tall') {
         const beta = (f.spear ? 65 : f.dry ? -50 : P.vAng + plane + lr.range(-8, 8)) * D2R;
         const side = v3.mul(fr.S, sg);
         const dir = v3.norm(v3.add(v3.mul(fr.T, Math.cos(alpha)), v3.mul(v3.add(v3.mul(side, Math.cos(beta)), v3.mul(fr.U, Math.sin(beta))), Math.sin(alpha))));
-        const w = 0.042 * (f.L / 4.3) * (1 - 0.35 * u) * lr.range(0.85, 1.15);
+        const w = 0.042 * P.leafW * (f.L / 4.3) * (1 - 0.35 * u) * lr.range(0.85, 1.15);
         let wd = v3.cross(dir, fr.U); wd = v3.len(wd) < 1e-4 ? fr.S : v3.norm(wd);
         const sag = (f.dry ? 0.05 : 0.16 + 0.08 * u) * l;
         const b = v3.mad(fr.p, fr.U, 0.006);
@@ -305,7 +308,7 @@ export function buildPalm(seed, style = 'tall') {
     for (const f of fronds) {
       emitPetiole(card, f, 5, 5, LEAFY0 + 0.02);
       emitRachis(card, f, 10, 3);
-      emitLeaflets(card, f, f.dry ? 34 : 56);
+      emitLeaflets(card, f, Math.round((f.dry ? 34 : 56) * P.leafN));
     }
     if (P.dates) emitDates(blob, card, P.dates, 7);
     lods.push(fin(bark, blob, card));

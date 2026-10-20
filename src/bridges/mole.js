@@ -5,7 +5,7 @@
 import * as L from '../world/layout.js';
 import { heightAt } from '../world/heightfield.js';
 import { ruined } from '../world/era.js';
-import { AUX, boxA, archRing, archPoint, spandrel, corniceX, corniceRect, balustradeX, pedestal, reliefPanelZ, surface } from './kit.js';
+import { AUX, boxA, archRing, archBand, archPoint, spandrel, corniceX, corniceRect, balustradeX, pedestal, reliefPanelZ, medallionZ, surface } from './kit.js';
 import { gateTower } from './tower.js';
 import { cutwater } from './parts.js';
 import { molePlan } from '../rings/mole.js';
@@ -99,8 +99,9 @@ export function buildMoleHead(kit) {
         const xc = x0 + (x1 - x0) * ((i + 0.5) / np), pw = (x1 - x0) / np;
         boxA(red, xc - pw * 0.34, yFr + 0.15, f > 0 ? hd + 0.06 : -hd - 0.13, xc + pw * 0.34, yCo - 0.15, f > 0 ? hd + 0.13 : -hd - 0.06, [0.2, 0, 0.2, 0], 0.01);
       }
-      // gilt medallions in the spandrels
-      for (const cx of arches) for (const s of [-1, 1]) boxA(kit.mb.gilt, cx + s * (a + thick + 0.9) - 0.5, yFr - 2.2, f > 0 ? hd : -hd - 0.12, cx + s * (a + thick + 0.9) + 0.5, yFr - 1.2, f > 0 ? hd + 0.12 : -hd, [0.2, 0, 0, 0], 0.03);
+      // r4 (ref 4): carved scroll archivolt band on every arch + round gilt medallions in the spandrels
+      for (const cx of arches) archBand(kit, cx, sp, a, b, thick + 0.05, thick + 0.8, f * hd, f, { waves: 24, depth: 0.16 });
+      for (const cx of arches) for (const s of [-1, 1]) medallionZ(kit, cx + s * (a + thick + 1.1), yFr - 1.75, f * (hd + 0.02), f, 0.95, 5 + s + (f > 0 ? 2 : 0));
     }
     // middle pier: cutwaters + a pedestal pair with statues / braziers over it
     if (nA === 2) {

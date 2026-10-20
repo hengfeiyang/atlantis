@@ -10,23 +10,30 @@ export const FPS = 30;
 export const XFADE = 0.8;      // seconds of cross-dissolve between consecutive segments
 export const SHUTTER = 0.5;    // 180° shutter: motion blur over half the frame interval
 
-// ATLANTIS (r3 draft — director tunes moves against the final cameras): the golden city from the air down to
-// the temple, then the SAME temple camera underwater (3 → 6 dissolve = the city sinks across the cut), the
-// sunken city, and the film ends at the surface (split level, ref 9) as the sun sets.
+// ATLANTIS (r4 director): the golden city from the air down to the temple, then the SAME temple camera underwater
+// (3 → 6: one continuous push-in, a long 2 s dissolve = the city sinks across the cut), the sunken city, and the film
+// ends at the surface (split level, ref 9) as the sun sets.
+// Extra fields (r4):
+//   push:  metres, HORIZONTAL forward (keeps the eye height: shot 9's eye must stay at the waterline)
+//   range: [e0, e1] move parameter at u = 0 / 1 after easing (default [-0.5, 0.5]; e = 0 is the reference framing)
+//   xfade: seconds of dissolve INTO the next segment (default XFADE)
+// Shot 6 continues shot 3's push: same rate (1 unit of e per 7 s), starting where shot 3 is when the dissolve begins.
+const S36 = 7.0, X36 = 2.0;
 export const SEQUENCE = [
-  { shot: 1, dur: 7.5, time: 10, move: { dolly: 40, crane: -8, pan: 1.2 }, ease: 'inout' },
-  { shot: 2, dur: 7.0, time: 40, move: { dolly: 8, crane: 0.6 }, ease: 'linear' },
-  { shot: 4, dur: 6.5, time: 70, move: { dolly: 10, truck: -2 }, ease: 'linear' },
-  { shot: 5, dur: 6.5, time: 100, move: { dolly: 2.5, pan: -1.5 }, ease: 'linear' },
-  { shot: 3, dur: 7.0, time: 130, move: { dolly: 5, crane: 0.8, tilt: 0.6 }, ease: 'linear' },
-  { shot: 6, dur: 7.0, time: 30, move: { dolly: 5, crane: 0.8, tilt: 0.6 }, ease: 'linear' }, // same move as 3: era dissolve
-  { shot: 7, dur: 6.5, time: 60, move: { dolly: 6, crane: 1.5, tilt: 1.0 }, ease: 'linear' },
-  { shot: 8, dur: 6.5, time: 90, move: { truck: 1.6, pan: -1.0 }, ease: 'linear' },
-  { shot: 9, dur: 8.0, time: 120, move: { dolly: 4, crane: 0.0 }, ease: 'out' },
+  { shot: 1, dur: 8.0, time: 10, move: { dolly: 150, crane: -10, pan: 0.6 }, ease: 'linear' },   // drone push-in over the fleet toward the citadel
+  { shot: 2, dur: 7.0, time: 40, move: { dolly: 9, crane: 0.8, pan: -0.8 }, ease: 'linear' },     // gliding up the canal, the hero trireme rowing toward us
+  { shot: 4, dur: 6.5, time: 70, move: { dolly: 11, truck: -2.5 }, ease: 'linear' },             // along the ship-shed mole at water level
+  { shot: 5, dur: 6.5, time: 100, move: { truck: -1.8, pan: 1.6 }, ease: 'linear', range: [-0.2, 0.8] }, // sideways along the balustrade, leftward (> 0.5 m right of the ref eye the hero palm trunk enters)
+  { shot: 3, dur: S36, time: 130, move: { dolly: 6, crane: 0.5 }, ease: 'linear', range: [-0.3, 0.7], xfade: X36 },  // slow push toward the temple (a pull-back runs into the stair-head piers) ...
+  { shot: 6, dur: S36, time: 30, move: { dolly: 6, crane: 0.5 }, ease: 'linear', range: [0.7 - X36 / S36, 1.7 - X36 / S36] }, // ... continued underwater
+  { shot: 7, dur: 6.5, time: 60, move: { dolly: 5, crane: 1.5, tilt: 1.0 }, ease: 'linear' },
+  { shot: 8, dur: 6.5, time: 90, move: { orbit: -6, truck: 0.6, pan: -0.8 }, ease: 'linear' },
+  { shot: 9, dur: 8.0, time: 120, move: { push: 9 }, ease: 'out', range: [-0.6, 0.2] },            // ease-out: e = 0 (ref 9) at u = 0.5, comes to rest
 ];
+export const xfadeAfter = (i) => SEQUENCE[i]?.xfade ?? XFADE;
 
 export function totalDuration() {
-  return SEQUENCE.reduce((s, g) => s + g.dur, 0) - XFADE * (SEQUENCE.length - 1);
+  return SEQUENCE.reduce((s, g, i) => s + g.dur - (i < SEQUENCE.length - 1 ? xfadeAfter(i) : 0), 0);
 }
 
 const easeFns = {
@@ -37,7 +44,8 @@ const easeFns = {
 
 /** camera {pos, target, fov, dof?} for a segment at normalised time u ∈ [0,1] */
 export function cameraAt(shot, seg, u) {
-  const e = (easeFns[seg.ease] || easeFns.linear)(Math.min(1, Math.max(0, u))) - 0.5; // −0.5 … +0.5, 0 = reference framing
+  const [e0, e1] = seg.range || [-0.5, 0.5];
+  const e = e0 + (e1 - e0) * (easeFns[seg.ease] || easeFns.linear)(Math.min(1, Math.max(0, u))); // 0 = reference framing
   const m = seg.move || {};
   const P = shot.pos.slice(), T = shot.target.slice();
   let fx = T[0] - P[0], fy = T[1] - P[1], fz = T[2] - P[2];
@@ -52,6 +60,7 @@ export function cameraAt(shot, seg, u) {
     P[0] = T[0] + dx * c - dz * s; P[2] = T[2] + dx * s + dz * c;
   }
   if (m.dolly) add([fx, fy, fz], m.dolly * e);
+  if (m.push) { const hl = Math.hypot(fx, fz) || 1; add([fx / hl, 0, fz / hl], m.push * e); }
   if (m.truck) add([rx, 0, rz], m.truck * e);
   if (m.crane) add([0, 1, 0], m.crane * e);
   // pan / tilt: rotate the target around the camera position

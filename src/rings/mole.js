@@ -62,7 +62,7 @@ export function molePlan() {
   const sBack = -M.back, sEnd = M.front, latF = M.depth, latE = M.depth + M.width;
   const common = { landY: M.landY, floor: w1.floor };
   const west = lineEdge(P(sBack, latF), P(sEnd, latF), [-n[0], -n[1]], { ...common, id: 'mole-w', wallH: M.wallH, cladding: 'tin', curtain: true });
-  west.shedDepth = M.depth; west.rockAmp = 0.55;
+  west.shedDepth = M.depth; west.rockAmp = 0.42; west.cragScale = 1.7;   // r4: big flat-faced masses (shot 4 leopard spots)
   west.shedLamps = [M.depth - 2.5, M.depth - 9, M.depth - 16, M.depth - 24]; west.lampGain = 1.5;   // r3: golden vault glow (ref 4) west.shedBack = M.shedBack || 32;
   const north = lineEdge(P(sEnd, latF), P(sEnd, latE), d, { ...common, id: 'mole-n', curtain: false });
   const east = lineEdge(P(sEnd, latE), P(sBack, latE), n, { ...common, id: 'mole-e', curtain: false });

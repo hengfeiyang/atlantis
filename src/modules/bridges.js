@@ -17,12 +17,14 @@ import { buildCitadelTowers } from '../bridges/pinnacles.js';
 import { buildMoleHead, buildMoleTowers } from '../bridges/mole.js';
 
 let MATS = null;
-export function bridgeMaterials() {
+export function bridgeMaterials(sunken = false) {
   if (MATS) return MATS;
   MATS = {
     white: whiteStone({ weather: 0.22, lichen: 0.03, veins: 0.55, seed: 3 }),
     red: redStone({ weather: 0.2, seed: 5 }),
-    banded: bandedStone({ band: 1.25, redFrac: 0.5, bandOffset: 0.35, weather: 0.2, seed: 7 }),
+    // r4: sunken (ref 7) — wider, deeper-red courses so the banding survives the blue depth absorption at 120 m
+    banded: sunken ? bandedStone({ band: 1.9, redFrac: 0.42, bandOffset: 0.35, weather: 0.3, seed: 7, colors: { c0: '#e4dccb', c1: '#c27a62' } })
+      : bandedStone({ band: 1.25, redFrac: 0.5, bandOffset: 0.35, weather: 0.2, seed: 7 }),
     black: blackStone({ weather: 0.3, seed: 2 }),
     lime: limestone({ weather: 0.35, paving: 1.2, seed: 9 }),
     gold: goldMaterial({ roughness: 0.36 }),
@@ -44,7 +46,7 @@ function publish(engine, kits) {
 export async function build(engine) {
   const t0 = performance.now();
   const sunken = isSunken(engine);
-  const mats = bridgeMaterials();
+  const mats = bridgeMaterials(sunken);
   const group = new THREE.Group();
   group.name = 'bridges';
   const q = engine.quality;

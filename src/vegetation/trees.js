@@ -312,7 +312,8 @@ export function buildTree(species, seed, opts = {}) {
     if (!shrubby) emitWood(bark, species === 'pine' ? 1 : 0, [5, 3], 0.06);
     // (r5) more, smaller clumps: every clump shades like a small sphere (sunlit cap, dark underside), so the
     // crown reads as a mosaic of lit pads and dark holes at 10-40 px instead of a few smooth lobes
-    emitBlobs(blob, clusterBlobs(species === 'shrub' ? 5 : species === 'pine' ? 10 : species === 'thicket' ? 12 : 15), [5, 3], species === 'shrub' ? 0.95 : 0.7, patch);
+    // (r4) 6×4 segments: 5×3 clumps read as faceted boxes from the air (shot 1)
+    emitBlobs(blob, clusterBlobs(species === 'shrub' ? 5 : species === 'pine' ? 10 : species === 'thicket' ? 12 : 15), [6, 4], species === 'shrub' ? 0.95 : 0.7, patch);
     if (species !== 'shrub') emitCards(card, new RNG('cards2' + seed + species), 1, 1.75, species === 'thicket' ? 0.4 : species === 'olive' ? 0.55 : 0.5);
     lods.push({ bark: bark.count ? bark.build() : null, blob: blob.build(), card: card.count ? card.build() : null, tris: bark.triangles + blob.triangles + card.triangles });
   }

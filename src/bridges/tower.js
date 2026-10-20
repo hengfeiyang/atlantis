@@ -113,12 +113,28 @@ export function gateTower(kit, o) {
     }
     // central bay: recessed ashlar wall, banner slot, blind niche on the long faces
     const cA = -hL + cp + sb + pil * 0.5, cB = hL - cp - sb - pil * 0.5;
-    if (!isGate && o.niche) {
+    const nicheHere = !isGate && (o.niche || (o.sunkenNiche && kit.sunken && (F.id === '+z' || F.id === '-z')));
+    if (nicheHere) {
       // blind arched niche (dark) at the bottom of the central bay
-      const nw = Math.min((cB - cA) * 0.42, 2.4), nh = Math.min((yMid - yS0) * 0.85, nw * 2.6);
+      const big = !o.niche;   // r4: sunken gate towers (ref 7): tall statue niche with a gilt frame + a statue on a plinth
+      const nw = big ? Math.min((cB - cA) * 0.62, 4.2) : Math.min((cB - cA) * 0.42, 2.4), nh = big ? Math.min((yMid - yS0) * 0.92, nw * 2.2) : Math.min((yMid - yS0) * 0.85, nw * 2.6);
       fbox(dk, F, -nw / 2, nw / 2, yS0 + 0.3, yS0 + 0.3 + nh, -ins - 0.6, -ins + 0.01, AUX.dark, 0);
       fbox(w, F, -nw / 2 - 0.25, nw / 2 + 0.25, yS0 + 0.3 + nh, yS0 + 0.6 + nh, -ins - 0.05, -ins + 0.18, AUX.mould, 0.02);
       fbox(w, F, -nw / 2 - 0.3, nw / 2 + 0.3, yS0 + 0.05, yS0 + 0.3, -ins - 0.05, -ins + 0.2, AUX.mould, 0.02);
+      if (big) {
+        for (const sg of [-1, 1]) fbox(gl, F, sg > 0 ? nw / 2 : -nw / 2 - 0.22, sg > 0 ? nw / 2 + 0.22 : -nw / 2, yS0 + 0.3, yS0 + 0.3 + nh, -ins - 0.05, -ins + 0.12, [0.3, 0, 0, 0], 0.02);
+        // stepped semicircular hood over the niche (white / gilt alternating)
+        const R0 = nw / 2, yc = yS0 + 0.6 + nh, segs = 9;
+        for (let k = 0; k < segs; k++) {
+          const a0 = Math.PI * k / segs, a1 = Math.PI * (k + 1) / segs;
+          const ua = Math.cos(a1) * R0, ub = Math.cos(a0) * R0, yb = yc + Math.min(Math.sin(a0), Math.sin(a1)) * R0 * 0.9;
+          fbox(k % 2 ? gl : w, F, Math.min(ua, ub), Math.max(ua, ub), yc, Math.max(yc + 0.1, yb), -ins - 0.05, -ins + 0.1 + 0.06 * (k % 2), AUX.mould, 0.01);
+        }
+        const pH = 0.9;
+        fbox(w, F, -nw * 0.32, nw * 0.32, yS0 + 0.3, yS0 + 0.3 + pH, -ins - 0.05, -ins + 1.0, AUX.mould, 0.03);
+        const [sx, sz] = F.map(0, -ins + 0.55);
+        kit.slots.statue.push({ pos: kit.W(sx, yS0 + 0.3 + pH, sz), facing: kit.compass(F.nrm[0], F.nrm[1]), size: Math.min(nh - pH - 0.4, 5.6), tag: 'pedestal', source: 'bridges-' + (o.tag || 'tower') + '-niche' });
+      }
     }
     if (!kit.sunken && o.bannerFaces && o.bannerFaces.includes(F.id)) {
       const [bx, bz] = F.map(0, -ins + 0.06);
@@ -154,7 +170,10 @@ export function gateTower(kit, o) {
     boxA(w, px - cpw / 2, yTop, pz - cpw / 2, px + cpw / 2, yTop + cph, pz + cpw / 2, AUX.mould, 0.03);
     boxA(w, px - cpw / 2 - 0.08, yTop + cph, pz - cpw / 2 - 0.08, px + cpw / 2 + 0.08, yTop + cph + 0.14, pz + cpw / 2 + 0.08, AUX.mould, 0.02);
     const gone = kit.sunken && hash3(seed, sx + 2, sz + 5) < 0.35;
-    if (!gone) urnFinial(g, px, yTop + cph + 0.14, pz, Math.max(1.2, Lmin * 0.095), Math.max(8, Math.round(14 * kit.detail)));
+    if (!gone && kit.sunken && o.sunkenNiche) {
+      // r4 (ref 7): the sunken gate towers carry statues on the roof corners (verdigris silhouettes beside the tholos)
+      kit.slots.statue.push({ pos: kit.W(px, yTop + cph + 0.14, pz), facing: kit.compass(sx, sz), size: Math.max(3.0, Lmin * 0.17), tag: 'pedestal', source: 'bridges-' + (o.tag || 'tower') + '-corner' });
+    } else if (!gone) urnFinial(g, px, yTop + cph + 0.14, pz, Math.max(1.2, Lmin * 0.095), Math.max(8, Math.round(14 * kit.detail)));
     else kit.coralAt(px, yTop + cph + 0.14, pz, 0, 1, 0, 0.5, 'tower-acroterion');
   }
   // ---------------------------------------------------------------- tholos
@@ -164,6 +183,20 @@ export function gateTower(kit, o) {
   if (!o.fallenTop) {
     tip = tholosTop(kit, cx, yTop + 0.15, cz, R, { n: T.n ?? 12, colH: T.colH ?? R * 0.72, domeH: T.domeH, tridentH: T.tridentH ?? R * 0.62, tridentBroken: o.tridentBroken, missing: o.missingCols, trident: T.trident, tridentThick: T.tridentThick, stepF: T.stepF, entF: T.entF, knobF: T.knobF, drumH: T.drumH });
     if (kit.sunken) for (let i = 0; i < 4; i++) { const a = i * PI / 2 + 0.4; kit.coralAt(cx + Math.sin(a) * R * 1.02, yTop + 0.3, cz + Math.cos(a) * R * 1.02, Math.sin(a), 0.6, Math.cos(a), 0.6, 'tholos-step'); }
+  }
+  if (kit.sunken && o.sunkenNiche) {
+    // r4 (ref 7: coral on every ledge): cornice top + plinth moulding, every ≈ 2.6 m
+    for (const F of faces) {
+      const hL = F.L / 2, n = Math.max(2, Math.round(F.L / 2.6));
+      for (let k = 0; k < n; k++) {
+        const u = -hL + (k + 0.5) * (F.L / n);
+        if (hash3(seed * 3 + k, F.id.charCodeAt(1), 7) < 0.3) continue;
+        const sz = 0.55 + 0.6 * hash3(seed + k, F.id.charCodeAt(0), 3);
+        const [ax, az] = F.map(u, 0.25);
+        kit.coralAt(ax, yTop + 0.02, az, F.nrm[0] * 0.4, 1, F.nrm[1] * 0.4, sz, 'tower-cornice');
+        if (k % 2 === 0) { const [bx, bz] = F.map(u, 0.32); kit.coralAt(bx, yDeck + plinthH + 0.02, bz, F.nrm[0] * 0.5, 1, F.nrm[1] * 0.5, sz * 0.9, 'tower-plinth'); }
+      }
+    }
   }
   if (kit.sunken) {
     kit.coralAt(cx, yTop + 0.2, RZ1 - 0.5, 0, 1, 0, 0.7, 'tower-roof');

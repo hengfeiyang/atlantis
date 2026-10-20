@@ -40,6 +40,23 @@ export const TERRACE = {
 
 export function frame5() { return frameFromShot(5); }
 
+/** TERRACE with the near-set positions pushed out by k (≥ 1; see buildTerrace) */
+function scaledTerrace(k) {
+  k = Math.min(2, Math.max(1, k || 1));
+  if (k < 1.001) return TERRACE;
+  const T = TERRACE, kp = 1, sc = (p, f) => [p[0] * f, p[1] * f];
+  const c = T.pav.cols.reduce((s, q) => [s[0] + q[0] / 4, s[1] + q[1] / 4], [0, 0]);
+  const cols = T.pav.cols.map((q) => [c[0] * kp + (q[0] - c[0]), c[1] * kp + (q[1] - c[1])]);
+  return {
+    ...T, k,
+    // the balustrade's left end stays at the pavilion (A follows column A), the right end moves out by k
+    bal: { ...T.bal, a: [cols[0][0] + T.bal.a[0] - T.pav.cols[0][0], cols[0][1] + T.bal.a[1] - T.pav.cols[0][1]], b: sc(T.bal.b, k), ext: [T.bal.ext[0], T.bal.ext[1] * k] },
+    pav: { ...T.pav, cols },
+    deckBack: T.deckBack.map((q) => sc(q, kp)),
+    brazier: sc(T.brazier, k), lotusBig: sc(T.lotusBig, k),
+  };
+}
+
 const mats = (sunken) => cached('sets:terraceMats:' + sunken, () => ({
   marble: whiteStone({ polish: sunken ? 0.05 : 0.6, rough: sunken ? 0.7 : 0.36, weather: sunken ? 0.8 : 0.1, veins: 1.0, seed: 1.7 }),
   gold: goldMaterial(sunken ? { wear: 0.6 } : {}),
@@ -49,8 +66,11 @@ const mats = (sunken) => cached('sets:terraceMats:' + sunken, () => ({
 export async function buildTerrace(engine, o = {}) {
   const sunken = !!o.sunken, q = o.q ?? 1;
   const F = o.frame || frame5();
-  const T = TERRACE;
-  const deckY = o.deckY ?? (L.GARDEN_TERRACE.deck ?? F.pos.y - T.eye);
+  const deckY = o.deckY ?? (L.GARDEN_TERRACE.deck ?? F.pos.y - TERRACE.eye);
+  // r4 (director): the set was laid out for an eye 2.2 m above the deck; when the shot-5 eye is higher, the near pieces
+  // (balustrade, brazier, lotus pot) move out by k = eye / 2.2 so they keep their reference pixels at 1/k the size (ref 5
+  // reads them ≈ 1.5-2x smaller); the pavilion stays (its capitals must still leave the frame top).
+  const T = scaledTerrace((F.pos.y - deckY) / TERRACE.eye);
   const M = mats(sunken);
   const group = new THREE.Group(); group.name = 'sets:terrace';
   const yaw = Math.atan2(F.fwd.x, F.fwd.z);         // world yaw of the frame's forward

@@ -109,7 +109,7 @@ export const FALLEN_TRIDENT = { pos: [118, RINGS[1].top, 384], heading: 300, len
 export const WRECKS = [{ pos: [-14, -9, 742], heading: 160, length: 36 }];              // ref 7: trireme wreck under the gate bridge
 
 // ------------------------------------------------------------------ landscape
-export const MOUNTAINS = { bearing: 32, arc: 96, near: 5200, far: 14000, peak: 2400 };   // wall of mountains to the north / north-east (bearings ≈ 344-80°): the golden sun (az ≈ 292) sets over OPEN SEA in the WNW (refs 1-5)
+export const MOUNTAINS = { bearing: 32, arc: 96, near: 5200, far: 14000, peak: 2400, scale: 0.62 };   // r4 (director): scale = vertical scale of the baked wall above the plain (src/terrain/far.js scaleMountains): ref 1 shows the wall ≈ 4° above the horizon, ours was ≈ 7° (back range reached the frame top);   // wall of mountains to the north / north-east (bearings ≈ 344-80°): the golden sun (az ≈ 292) sets over OPEN SEA in the WNW (refs 1-5)
 export const ISLANDS = [ { center: [-2600, 1400], r: 260, top: 70 }, { center: [-3800, 600], r: 420, top: 120 }, { center: [2900, 2200], r: 300, top: 60 } ];
 
 // ------------------------------------------------------------------ sun (defaults; per-shot looks in looks.js)
@@ -156,12 +156,18 @@ export const ISLETS = [
   { center: [330, 1450], r: 26, top: 5 },
   { center: [-1250, 1500], r: 90, top: 16 },
   { center: [1500, 1700], r: 110, top: 20 },
+  // r4 (director): the r4 shot-1 camera (z 1314, y 192) sees the sea only between the l2 wall (z ≈ 800) and z ≈ 1000, |x| < 340:
+  // ref 1's bottom-left palm headland, the right rocks against the l2 wall and two small rocks at the bottom edge
+  { center: [-262, 930], r: 52, top: 13 },
+  { center: [-168, 990], r: 13, top: 4 },
+  { center: [318, 838], r: 27, top: 9 },
+  { center: [205, 982], r: 12, top: 4.5 },
 ];
 
 // ------------------------------------------------------------------ ships (added by the ships agent)
 // hero trireme of shot 2 (ref 2): leaving the canal toward the camera, bow (eye) on the left of frame
 export const SHIPS = {
-  hero: { pos: [-12, 0, 806], heading: 200, heel: 0.015 },   // r2 (director): shot-2 solve — mast ≈ 50 m ahead-left of the camera, bow toward the camera-left (ref 2)
+  hero: { pos: [-17, 0, 792], heading: 188, heel: 0.015 },   // r4 (director): ref-2 fit on bow / stern waterline + sail corners (out/director/r4/fit2ship.mjs): 14 m farther, more bow-on (rms 146 → 60 px; was [-12, 0, 806] h 200)   // r2 (director): shot-2 solve — mast ≈ 50 m ahead-left of the camera, bow toward the camera-left (ref 2)
   // ref 7 wreck pose (overrides WRECKS[0] pos/heading for the ships module): bow to the left, away from the shot-7 camera
   wreck: { pos: [-15, 790], heading: 198, roll: -0.15, pitch: 0.14, lift: 0.5 },   // r2 (director): shot-7 solve — bow near-left, stern toward the left pier (ref 7)
 };

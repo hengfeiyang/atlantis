@@ -254,6 +254,12 @@ export function palace(B, o) {
     for (let i = 0; i < Math.floor(w2 / 2.6); i++) { const x = -w2 / 2 + (i + 0.5) * (w2 / Math.floor(w2 / 2.6)); box(mI, [x - 0.4, yp + h2 * 0.25, d2 / 2 - pD / 2 - 0.02], [x + 0.4, yp + h2 * 0.75, d2 / 2 - pD / 2 + 0.03], 0, [0.6, 0, 0, 0]); }
     top = yp + h2 + 0.5; domeTop = top;
   }
+  // r4: gilt pinnacles on the parapet corners + an acroterion-like trident over the portico centre (gold glints, refs 1 / 5)
+  if (!ruin && o.pinnacles !== false) {
+    const ph = Math.min(2.2, 0.9 + h * 0.12);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { mG.push(); mG.translate(sx * (w / 2 + 0.25), yp + 0.9, sz * (d / 2 + 0.25)); pinnacle(mG, ph, { detail: 0.35 }); mG.pop(); }
+    if (o.portico) { mM.push(); mM.translate(0, yp + 0.9, d / 2 + 0.25); box(mM, [-0.55, 0, -0.45], [0.55, 0.6, 0.45], 0.02, [0.05, 0.8, 0.3, 0]); mM.pop(); mG.push(); mG.translate(0, yp + 1.5, d / 2 + 0.25); trident(mG, ph * 1.3, { detail: 0.3 }); mG.pop(); }
+  }
   if (o.dome && !ruin) {
     const r = o.dome;
     mbs.marble.push(); mbs.dome.push(); mbs.marble.translate(0, top, -pD / 2); mbs.dome.translate(0, top, -pD / 2);
@@ -466,6 +472,95 @@ export function greatRampart(B, o) {
     // flank towers framing an opening (the stair, a cascade pouring through the wall)
     if (o.flankAt && gap(i - 1) && o.flankAt((((i - 0.5) * da) * 180) / PI)) { lastTower = arc; towers.push(joint(i)); }
     if (o.flankAt && gap(i + 1) && o.flankAt((((i + 1.5) * da) * 180) / PI)) { lastTower = arc + W; towers.push(joint(i + 1)); }
+  }
+  // r4: arched OUTLETS — a run of gap bays whose middle bearing carries an outlet (o.outletAt(b) → { width, height, sill (abs y) })
+  // is closed again by a wall with an elliptical-headed opening: red field, white voussoir ring + gold keystone, white sill lip
+  // with a gold fillet, dark culvert behind (the water module's curtain starts just outside the face at the sill)
+  if (o.outletAt) {
+    const runs = [];
+    for (let i = 0; i < n; i++) {
+      if (!gap(i) || gap(i - 1)) continue;
+      let j = i; while (j - i < n && gap(j + 1)) j++;
+      runs.push([i, j]);
+    }
+    const mI = B.mb.interior;
+    for (const [i0, i1] of runs) {
+      let a0 = i0 * da, a1 = (i1 + 1) * da;
+      const spec = o.outletAt((((a0 + a1) / 2) * 180) / PI);
+      if (!spec) continue;
+      // the opening is centred on the fall's bearing (the gap run may be off by up to half a bay)
+      let ac = spec.bearing !== undefined ? (spec.bearing * PI) / 180 : (a0 + a1) / 2;
+      while (ac < a0 - PI) ac += 2 * PI; while (ac > a1 + PI) ac -= 2 * PI;
+      const sill = spec.sill ?? spec.y, wo = Math.min(spec.width, 2 * Math.min(ac - a0, a1 - ac) * rOut - 2.4), ys = sill - yFoot;
+      if (wo < 1.5) continue;
+      const ho = Math.min(spec.height, yc - 0.7 - ys), rise = Math.min(wo * 0.32, ho * 0.5), ysp = ys + ho - rise;
+      const archY = (u) => ysp + rise * Math.sqrt(Math.max(0, 1 - (2 * u / wo) ** 2));
+      const hh = ruin ? H * 0.9 : H;
+      // strips: fine across the opening (the arch outline), coarse beside it
+      const cuts = [];
+      const nO = 26, sL = (ac - a0) * rOut - wo / 2, sR = (a1 - ac) * rOut - wo / 2;
+      const nL = Math.max(1, Math.ceil(sL / 1.8)), nR = Math.max(1, Math.ceil(sR / 1.8));
+      for (let k = 0; k < nL; k++) cuts.push(-wo / 2 - sL + (sL * k) / nL);
+      for (let k = 0; k <= nO; k++) cuts.push(-wo / 2 + (wo * k) / nO);
+      for (let k = 1; k <= nR; k++) cuts.push(wo / 2 + (sR * k) / nR);
+      for (let k = 0; k < cuts.length - 1; k++) {
+        const u0 = cuts[k], u1 = cuts[k + 1], um = (u0 + u1) / 2, aa = ac + um / rOut;
+        const Wk = 2 * rOut * Math.sin((u1 - u0) / rOut / 2) + 0.02, w2 = Wk / 2;
+        const x = Math.sin(aa) * rOut, z = -Math.cos(aa) * rOut;
+        for (const m of [...all, mI]) { m.push(); m.translate(x, yFoot, z); m.rotateY(PI - aa); }
+        const inO = Math.abs(um) < wo / 2;
+        box(mK, [-w2, -2.6, -T], [w2, 1.3, 0.5], 0.0, [0.15, 0.7, 0.2, 3.045]);
+        box(mM, [-w2, 1.3, -0.4], [w2, 1.8, 0.32], 0.0, [0.1, 0.8, 0.3, 0]);
+        if (inO) {
+          const ya = archY(um);
+          box(mR, [-w2, 1.8, -T], [w2, ys - 0.45, 0], 0, [0.05, 0, 0.5, 3.07]);
+          box(mR, [-w2, ya, -T], [w2, Math.min(hh, yc), -0.02], 0, [0.05, 0, 0.5, 3.07]);
+          // sill lip (white, projecting 0.3, gold fillet) + the culvert: dark floor / soffit / back wall 3.2 m in
+          box(mM, [-w2, ys - 0.45, -3.2], [w2, ys, 0.3], 0, [0.1, 0.8, 0.3, 0]);
+          box(mG, [-w2, ys - 0.3, 0.3], [w2, ys - 0.2, 0.33], 0, [0.1, 0.4, 0, 0]);
+          box(mI, [-w2, ys, -3.2], [w2, ya, -3.0], 0, [0.7, 0, 0, 0]);
+          box(mI, [-w2, ya - 0.04, -3.2], [w2, ya, -0.02], 0, [0.7, 0, 0, 0]);
+        } else {
+          box(mR, [-w2, 1.8, -T], [w2, Math.min(hh, yc), 0], 0, [0.05, 0, 0.5, 3.07]);
+        }
+        if (!ruin) {
+          box(mM, [-w2, hs, -0.1], [w2, hs + 0.55, 0.26], 0, [0.1, 0.8, 0.4, 0]);
+          box(mG, [-w2, hs + 0.2, 0.26], [w2, hs + 0.3, 0.29], 0, [0.1, 0.4, 0, 0]);
+          box(mM, [-w2, yc, -T], [w2, H - 0.25, 0.25], 0, [0.05, 0.6, 0.5, 0]);
+          box(mM, [-w2, yc + 0.55, 0.25], [w2, yc + 1.0, 0.75], 0, [0.05, 0.9, 0.6, 0]);
+          box(mG, [-w2, yc + 0.3, 0.25], [w2, yc + 0.42, 0.29], 0, [0.1, 0.4, 0, 0]);
+          box(mM, [-w2, H - 0.25, -T], [w2, H, 0.3], 0, [0.05, 0.7, 0.1, 5.24]);
+          box(mM, [-w2, H, -0.15], [w2, H + 1.05, 0.3], 0, [0.05, 0.7, 0.3, 0]);
+          box(mG, [-w2, H + 0.95, 0.3], [w2, H + 1.0, 0.32], 0, [0.1, 0.4, 0, 0]);
+        }
+        for (const m of [...all, mI]) m.pop();
+      }
+      // voussoir ring (white, 0.75 m deep band projecting 0.22 m) following the arch, gold keystone, orichalcum jamb pilasters
+      const x0c = Math.sin(ac) * rOut, z0c = -Math.cos(ac) * rOut;
+      for (const m of all) { m.push(); m.translate(x0c, yFoot, z0c); m.rotateY(PI - ac); }
+      const nV = 15;
+      for (let k = 0; k < nV; k++) {
+        const t0 = PI * (k / nV), t1 = PI * ((k + 1) / nV);
+        const p0 = [Math.cos(PI - t0) * wo / 2, ysp + Math.sin(t0) * rise], p1 = [Math.cos(PI - t1) * wo / 2, ysp + Math.sin(t1) * rise];
+        const mx = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2, len = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+        const ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]);
+        const key = k === (nV - 1) / 2;
+        const mm = key ? mG : mM;
+        mm.push(); mm.translate(mx, my, 0); mm.rotateZ(ang);
+        box(mm, [-len / 2 - 0.03, -0.05, -0.3], [len / 2 + 0.03, key ? 1.15 : 0.8, key ? 0.34 : 0.22], 0.02, [0.05, 0.8, 0.3, 0]);
+        mm.pop();
+      }
+      for (const sg of [-1, 1]) {
+        const px = sg * (wo / 2 + 0.45);
+        box(mO, [px - 0.45, ys - 0.45, -0.05], [px + 0.45, ysp, 0.36], 0.02, [0.05, 0.6, 0.3, 0]);
+        box(mG, [px - 0.55, ysp - 0.5, -0.05], [px + 0.55, ysp, 0.46], 0.02, [0.1, 0.6, 0, 0]);   // impost capital
+        box(mG, [px - 0.55, ys - 0.45, -0.05], [px + 0.55, ys - 0.05, 0.46], 0.02, [0.1, 0.6, 0, 0]);
+      }
+      // gilt mascaron (trident medallion) over the keystone, in the upper register
+      if (!ruin && det >= 0.35) { const yM = Math.min(yc - 1.6, ysp + rise + 2.0); if (yM - (ysp + rise) > 1.3) { mG.push(); mGr.push(); mG.translate(0, yM, 0.05); mGr.translate(0, yM, 0.05); medallion(mG, mGr, Math.min(1.1, (yc - yM) * 0.7), { detail: det, trident: det >= 0.5 }); mG.pop(); mGr.pop(); } }
+      for (const m of all) m.pop();
+      if (o.onOutlet) o.onOutlet({ a: ac, width: wo, sill, top: yFoot + ysp + rise });
+    }
   }
   // bastion towers at bay joints: banded white / red shaft projecting from the wall, gold capital band, open lantern, gold dome
   const th = H + (o.towerH ?? 8), tw = o.towerW ?? Math.min(8, Math.max(5, H * 0.36)), tp = tw * 0.55;

@@ -64,6 +64,11 @@ export async function buildTerrain(engine, { shots = SHOTS } = {}) {
     mesh.castShadow = near; mesh.receiveShadow = true;
     mesh.userData.castShadow = near; mesh.userData.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
+    // r4 perf: draw the terrain AFTER the other opaque geometry (sky stays last at 1e6). Its procedural shader is
+    // the most expensive in the world; drawn first, every pixel hidden under buildings / walls / trees was shaded
+    // anyway (no depth pre-pass). Early-z now rejects them: −35…−50 % ms/sample in shots 3/5, same image
+    // (only isolated depth-tie pixels at buried object bases differ).
+    mesh.renderOrder = 1;
     root.add(mesh);
     tris += geo.index.count / 3;
   }
