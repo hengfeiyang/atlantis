@@ -1,4 +1,4 @@
-# ATLANTIS — final film render plan (director, round 6)
+# ATLANTIS — final film render plan (director, round 6; checked round 7)
 
 Picture: `src/video/sequence.js` (9 segments, 30 fps, 55.4 s of picture, 1890 rendered frames incl. dissolve overlaps).
 Renderer: `tools/render-video.mjs` (headless Chrome + ANGLE/Metal, one world build per era: golden segments 1-5,
@@ -21,6 +21,13 @@ requires attribution.
   60 s) when free space drops below `--min-free` GB (default 4) instead of failing; it resumes by itself.
 * Sanity check right before (≈ 1 min): `node tools/render.mjs --shot all --quality high --spp 8 --out out/director/final_check.png`
   → 9 stills, read the logs for page errors.
+
+**Round 7 changes (none to the commands below):** the colossus is hidden in shot 3 only (`statues.js` onShot hook,
+COMPOSITION.md D1) — automatic in both the still and video segment 5; no camera path changed; look / tone / water / sunken
+tweaks are per-shot constants (render cost flat). Final 640x360 preview of the round-7 world with music + card:
+`out/video_preview/atlantis_final_preview.mp4` (59.4 s, -16.6 LUFS, LRA 14.5, pop scan clean; frames/strips in
+`out/director/r7/qaB/`). Fresh page loads log no page errors (a session-only "ATMO_GLSL before initialization" error can
+appear after `snap --reload`: irrelevant to render-video, which always loads a fresh page — still read the log head).
 
 ## 1. Render (one command, resumable)
 
@@ -121,6 +128,9 @@ ffmpeg -loglevel error -i out/film4k/atlantis_4k.mp4 -vf "fps=1,scale=320:-1,til
 ```
 
 ## 3. Motion preview (for checks during development)
+
+QA of a preview directory (frames kept, no `--prune-frames`): `out/director/r7/strips.sh <dir> <prefix>` → one jpg per
+segment, a frame every 0.5 s; `python3 out/director/r6/popscan.py <dir>` → per-segment pop spikes.
 
 ```bash
 node tools/render-video.mjs --w 640 --h 360 --spp 2 --out out/<you>/preview   # ≈ 6-10 min, 2 spp, no music

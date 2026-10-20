@@ -141,7 +141,8 @@ export const LOOKS = {
       uWhiteBalance: [0.98, 1, 1.06], uHighTint: [0.012, 0.006, -0.002], // neutral mids + cool shadows (yb 24 → 15, ref 14), warm highlights
       uHueShift: [0, 3, -3, 4, 4, 0, -6, -8], uHueSat: [0.95, 1.05, 0.9, 0.6, 0.75, 0.95, 0.92, 0.75], uLtmFine: 0.12, uLtmMid: 0.3,
       uLtmBase: 0.45, uLtmLarge: 0.12, uShadowTint: [-0.006, 0.002, 0.03], ...LV(21, 33, 96, 197, 236),
-      uWhiteBalance: [0.95, 1, 1.14], uSaturation: 1.12 /* r6 final grade (high): yb 20 → 14, sat 42 → 43 (ref 14 / 44) */ },
+      uWhiteBalance: [0.95, 1, 1.14], uSaturation: 1.12 /* r6 final grade (high): yb 20 → 14, sat 42 → 43 (ref 14 / 44) */,
+      uSaturation: 1.14, uHueSat: [0.97, 1.07, 0.9, 0.6, 0.75, 0.95, 0.94, 0.78] /* r7: colourfulness 57.6 → ≈ 59.8 (ref 59.8), sat → 44 */ },
     // r3: golden aerial perspective (ref 1: the sea toward the sun ≈ rgb 223,158,117 below the horizon, the plain / far rings veiled
     //     warm; r2 grey-blue): broad warm Mie lobe, denser low haze, far haze; light pool on the citadel hill + broken cloud
     //     shade over the outer rings / plain (citadel separation)
@@ -160,14 +161,21 @@ export const LOOKS = {
       uSkyGlowW: [34, 12], uZenith: [0.06, 0.135, 0.29],
       uCloudLight: [20, 0.6], uCloudAmbient: 2.6, uCloudBright: 10, uCloudSunTint: [1, 0.6, 0.32], uCloudHaze: 0.4 }, // r4: GOLD_SKY4 volumetric cumulus, seen from below at water level → lit from 20°, brighter ambient (bright gold-peach heaps, ref 2) // r3: glow 52 → 34° wide (gold left, blue-lavender right as ref 2) // r2: gold-peach left half, muted blue right (ref top ≈ 93,114,143)
     grade: { ...SUN_LENS, ...GOLD_GRADE, ...LV(18, 46, 109, 203, 242), uWhiteBalance: [1.02, 1, 1.01] /* r6: yb 29 → 33 (ref 33; the r6 turquoise canal cooled the frame) */, uSaturation: 0.88 /* r5: sat 49 → ref 45 */, // r5: yb 36 → 34 (ref 33) // r3: yb 42 → 33 (ref 33)
-      uHueShift: [0, 3, -3, -3, 0, 0, -8, -8], uHueSat: [0.95, 1.05, 1.0, 0.85, 0.92, 1.12, 0.95, 0.75] }, // r2: canal water toward turquoise
+      uHueShift: [0, 3, -3, -3, 0, 0, -8, -8], uHueSat: [0.95, 1.05, 1.0, 0.85, 0.92, 1.12, 0.95, 0.75], // r2: canal water toward turquoise
+      uSaturation: 0.86, uShadowSat: 0.18, uWhiteBalance: [1.025, 1, 1.0] /* r7: sat 48.5 → 46.8, colourfulness 68.5 → 66.2 (ref 45 / 67) after the r7 water, yb 33 */ },
     atmo: GOLD_ATMO, clouds: { uBankAmount: 0.6 }, terrain: GOLD_TERRAIN, water: GOLD_WATER },
   // 3 — temple from the citadel stair: sun low over the sea at the left (ref px 165,272), temple front lit from
   //     the left, orange left half of the sky, deep blue top-right.
   3: { sun: sunRel(3, -100, 17, { color: GOLD_SUN }), sky: { ...GOLD_SKY4, ...diskRel(3, 165, 2.0),
       // r5: smaller, denser cumulus puffs lit from 8° with gold tops / darker bodies (r4 flat lavender slabs; ref 3 textured heaps)
       uCloudLight: [8, 0.9], uCloudAmbient: 1.4, uCloudBright: 10, uCloudSunTint: [1, 0.55, 0.28], uCloudHaze: 0.25, uCloudScale: 1.8, uCloudCover: 0.44 }, // r4: GOLD_SKY4 (cover 0.34 → 0.4, glow 34 × 5°) // r3: blue top-right, gold only low around the sun
-    grade: { ...SUN_LENS, ...GOLD_GRADE, ...LV(14, 41, 112, 197, 229), uShoulder: [0.84, 1.0] /* r3: p98 215 → 227 (ref 229) */, uWhiteBalance: [0.98, 1, 1.06] /* r6: yb 40 → 36, sat 48 → 46 (ref 36 / 46); r5: yb 40 → ref 36 */, uSaturation: 0.88, uLensRays: 0.04 /* r4: the screen-space rays drew a white beam down across the plaza */ }, atmo: { ...GOLD_ATMO, uMie: [0.76, 0.15, 0.8] } /* r4: weaker Mie (blue haze + orange Mie = pink-mauve sky band) */, clouds: { uBankAmount: 0.8 }, terrain: GOLD_TERRAIN, water: GOLD_WATER },
+    grade: { ...SUN_LENS, ...GOLD_GRADE, ...LV(14, 41, 112, 197, 229), uShoulder: [0.84, 1.0] /* r3: p98 215 → 227 (ref 229) */, uWhiteBalance: [0.98, 1, 1.06] /* r6: yb 40 → 36, sat 48 → 46 (ref 36 / 46); r5: yb 40 → ref 36 */, uSaturation: 0.88, uLensRays: 0.04 /* r4: the screen-space rays drew a white beam down across the plaza */,
+      // r7: colourfulness 59.7 → 64 (ref 64) at sat / yb / rg ≈ ref: lavender-pink cloud shade toward blue (magenta band -16°), bluer
+      //     sky (blue band chroma), orange-red warms (warm bands -3 / -5°), cooler white balance + less shadow / more highlight chroma
+      uHueShift: [-2, -3, -5, -3, 0, 0, -4, -16], uHueSat: [1.0, 1.12, 1.0, 0.85, 0.92, 1.0, 1.15, 0.95], uWhiteBalance: [0.97, 1, 1.08],
+      uSaturation: 0.85, uShadowSat: 0.15, uHighSat: 0.3 },
+    // r7: the far island toward the sun read as a pale veiled shape (ref 3: a dark slate silhouette) → far haze 0.28 → 0.05, Mie 0.15 → 0.05
+    atmo: { ...GOLD_ATMO, uMie: [0.76, 0.05, 0.8], uHazeFar: [0.05, 10000] } /* r4: weaker Mie (blue haze + orange Mie = pink-mauve sky band) */, clouds: { uBankAmount: 0.8 }, terrain: GOLD_TERRAIN, water: GOLD_WATER },
   // 4 — inner ring, ship-sheds: sun behind the citadel hill at the left (ref px 110,215), right wall lit,
   //     banks in the mountain valley right of centre.
   // r3 (director): camera re-composed (bearing 163 near the l1 face, heading 5); light from az ≈ 305 / el 18 (dAz -60): it
@@ -180,13 +188,21 @@ export const LOOKS = {
     grade: { ...SUN_LENS, ...GOLD_GRADE, uSaturation: 0.86, uVibrance: 0.04, ...LV(18, 47, 111, 189, 232),
       // r5: cooler (yb 35 → 26, ref 25: the r3 warm balance + warm water glitter made the whole frame amber; ref 4 blue 96 mean)
       uWhiteBalance: [0.985, 1, 1.07] /* r6: yb 27 → 25 (ref 25) */, uHighTint: [0.008, 0.004, -0.004],
-      uHueShift: [0, 3, -3, -3, 0, -6, -6, -8], uHueSat: [0.95, 1.05, 1.0, 0.85, 0.92, 0.9, 0.85, 0.75], uHueLum: [0, 0, -0.02, -0.06, -0.08, -0.05, -0.04, 0] }, // r2: ring water ref ≈ rgb 46,105,126 (teal, deeper)
+      uHueShift: [0, 3, -3, -3, 0, -6, -6, -8], uHueSat: [0.95, 1.05, 1.0, 0.85, 0.92, 0.9, 0.85, 0.75], uHueLum: [0, 0, -0.02, -0.06, -0.08, -0.05, -0.04, 0],
+      // r7: colourfulness 60.5 → 62.4 (ref 62.4), rg 16 → 19 (ref 18.6), sat 42.9 → 41.9: orange-red warms (gold reflections, sheds),
+      //     richer turquoise (cyan band), less shadow / more highlight chroma
+      uHueShift: [-2, -5, -7, -3, 0, 0, -6, -8], uHueSat: [1.0, 1.12, 1.02, 0.85, 0.92, 1.05, 0.9, 0.85], uSaturation: 0.82,
+      uShadowSat: 0.15, uHighSat: 0.3, uWhiteBalance: [0.99, 1, 1.065] }, // r2: ring water ref ≈ rgb 46,105,126 (teal, deeper)
     atmo: GOLD_ATMO, clouds: { uBankAmount: 1.1 }, terrain: GOLD_TERRAIN, water: { uSunSpec: [0.35, 0], uGlitterTint: [1.0, 0.72, 0.48] } }, // r5: 0.5 → 0.35, paler glitter (the ring water read amber, ref 4 turquoise with gold building reflections) // r4: sun glitter 1.2 → 0.5 (a smooth gold sheen covered the left half of w1; ref 4 turquoise + streaks)
   // 5 — garden terrace toward the citadel: sun over the sea left of the citadel (ref px 365,185), cumulus rows,
   //     low banks at the mountain foot to the right.
   5: { sun: sunRel(5, -95, 16, { color: GOLD_SUN }), sky: { ...GOLD_SKY4, ...diskRel(5, 500, 5.8), uSkyGlowW: [30, 9], // r4: disk px 362 → ≈ 480 (r4 camera: column 2 spans px 300-425 at the sun row; the disk now sits in the open sky right of it, ref 365 right of its column 2); GOLD_SKY4, weather shifted 4 km (heaps above, the sun's glow clear)
       uCloudLight: [10, 0.8], uCloudAmbient: 2.2, uCloudBright: 8, uCloudSunTint: [1, 0.58, 0.32], uCloudHaze: 0.35, uCloudOffset: [1, 4], uCloudFar: [7000, 20000] }, // offset [1, 4]: clear sky around the disk
-    grade: { ...SUN_LENS, ...GOLD_GRADE, uLensGlare: 0.6 /* r4: 0.45 → 0.6, the disk in the open sky glows like ref 5 */, uSaturation: 0.76, uVibrance: 0.04, uWhiteBalance: [1.02, 1, 0.96] /* r6: sat 55 → 53 (ref 51) keeping yb ≈ 37 (ref 39); r5: 0.86, sat 56 → ref 51 */, ...LV(9, 30, 102, 202, 241), uShoulder: [0.84, 1.0] /* r3: p98 222 → 239 (ref 241) */ }, atmo: { ...GOLD_ATMO, uMie: [0.76, 0.15, 0.3] }, clouds: { uBankAmount: 1.0, uBankAlt: [-150, 0.9] }, terrain: GOLD_TERRAIN, water: GOLD_WATER },
+    grade: { ...SUN_LENS, ...GOLD_GRADE, uLensGlare: 0.6 /* r4: 0.45 → 0.6, the disk in the open sky glows like ref 5 */, uSaturation: 0.76, uVibrance: 0.04, uWhiteBalance: [1.02, 1, 0.96] /* r6: sat 55 → 53 (ref 51) keeping yb ≈ 37 (ref 39); r5: 0.86, sat 56 → ref 51 */, ...LV(9, 30, 102, 202, 241), uShoulder: [0.84, 1.0] /* r3: p98 222 → 239 (ref 241) */,
+      // r7: colourfulness 59.8 → 63 (ref 64.5), rg 22 → 28 (ref 31), sat 52.9 → 51.6 (ref 50.9): the warms read yellow (ref red-orange
+      //     marble / roofs / sky) → warm bands toward red + chroma, turquoise water (cyan band), warmer balance, lower base saturation
+      uHueShift: [-3, -10, -10, -3, 0, -8, -4, -8], uHueSat: [1.12, 1.25, 1.0, 0.85, 0.92, 1.25, 0.95, 0.8], uShadowSat: 0.1, uHighSat: 0.3,
+      uWhiteBalance: [1.06, 1, 0.9], uSaturation: 0.68 }, atmo: { ...GOLD_ATMO, uMie: [0.76, 0.15, 0.3] }, clouds: { uBankAmount: 1.0, uBankAlt: [-150, 0.9] }, terrain: GOLD_TERRAIN, water: GOLD_WATER },
 
   // ---------------------------------------------------------------- sunken (refs 6-9) — r2 look-sunken. The medium
   // defaults live in core/underwater.js (UW: visibility, colour with depth, rays, caustics); `uw:` = per-shot overrides.
@@ -216,7 +232,7 @@ export const LOOKS = {
   7: { sun: sunRel(7, 20, 68), uw: { uUwAmbTint: [2.3, 2.5, 2.7], uUwSigma: [0.006, 0.001, 0.0008], uUwFar: [1800, 0, 0, 0],
       uUwSunSurf: 0.35, uUwAmbColor: [0.005, 0.48, 1.2], uUwSunScatter: [0.0, 0.1, 0.17], uUwCaustic: [1.0, 0.2, 140, 0.02],
       uUwShaft: [4.0, 12, 240, 4.5], uUwShaft2: [1.4, 2.0, 0.35, 0], uUwKdScat: [0.03, 0.014, 0.011] },
-    grade: { ...UW_HUE, uWhiteBalance: [1.02, 1, 0.98], ...LV(5, 25, 77, 157, 211) } },
+    grade: { ...UW_HUE, uWhiteBalance: [1.02, 1, 0.98], ...LV(5, 25, 77, 157, 211), uExposure: 0.55, uSaturation: 0.85 /* r7: p02 13 → 9 (ref 5): darker into the auto curve (see shot 9), saturation compensates */ } },
   // 8 — fallen head of Poseidon: face lit from the front-left, shafts from above
   // r4: bluer, more saturated water (ref 8 top ≈ rgb 57,142,179), red absorbed faster with range
   // r5: longer far range (uUwFar 150 → 260): the far city on the citadel shore (sets/backdrop8.js farCity8, 110-200 m)
@@ -237,7 +253,11 @@ export const LOOKS = {
     //     horizon (max dist 80 km: the r5 50 km cut left a flat orange band under the cloud deck at the left)
     // r3: richer orange sky / clouds (ref top-left ≈ rgb 211,147,94), the backlit mountains get sky fill + haze
     // r4: underwater half azure instead of teal-grey (ref ≈ rgb 53,122,151): cyan band pushed toward blue, more chroma
-    grade: { ...SUN_LENS, ...UW_HUE, uHueShift: [0, 3, -3, -3, 0, 30, 6, -8], uHueSat: [1.2, 1.35, 1.2, 0.9, 0.92, 1.45, 1.3, 0.8], uVibrance: 0.2, ...LV(12, 35, 93, 168, 202) },
+    grade: { ...SUN_LENS, ...UW_HUE, uHueShift: [0, 3, -3, -3, 0, 30, 6, -8], uHueSat: [1.2, 1.35, 1.2, 0.9, 0.92, 1.45, 1.3, 0.8], uVibrance: 0.1, ...LV(12, 35, 93, 168, 202),
+      // r7: p02 29 → ≈ 15 (ref 12): the auto tone curve cannot pull the darkest 2 % below 0.35 × their pre-curve level, and
+      //     the frame entered the curve at p02 79 / p50 144 (too bright, flat) → lower exposure into the curve (it re-lifts
+      //     p10-p98 to the targets) = deeper blacks in the water half; saturation 0.96 → 0.8 / vibrance 0.2 → 0.1 compensate the steeper curve
+      uExposure: 0.35, uSaturation: 0.8 },
     atmo: { uMie: [0.76, 1.1, 0.8], uHazeColor: [2.0, 1.1, 1.2], uHaze: [0.00003, 1600, 0] }, clouds: { uBankAmount: 0.4 }, // r5: the backlit range is lit mostly by the pink sunset haze (ref 9 ≈ rgb 150-170 / 113 / 115; r4 46-80 grey)
     envIntensity: 3.0, terrain: { uTBounce: 10, uFarTint: [1.25, 0.85, 0.8], uSnowLine: 9000, uFarRock: [0.6, 1, 1, 1] } /* r4: warmer, brighter backlit range (ref 9 pink-tan rock); r5: 14 / [1.7, 1.3, 1.2] → 24 / [2.2, 1.6, 1.45] + terrain sun = the shot light (core/underwater.js); r6: the peaks read snow-white → bounce 10, tint 1.25, no snow, haze 7 → 2 (horizon tint compensates): dark mauve rock like ref 9 */, water: { uGlitterTint: [1.0, 0.42, 0.12] }, // r6: saturated orange glitter
     // water half (r2 look-sunken): the refracted light comes from the visible sun ON the horizon (grazing, Fresnel ≈ 0.2)
@@ -248,7 +268,9 @@ export const LOOKS = {
     // r4: red absorbed faster, bluer in-scatter, weaker sun in-scatter (ref 9 right half deep blue under the meniscus)
     uw: { uUwLightMode: 1, uUwSigma: [0.012, 0.0022, 0.001], uUwFar: [2500, 0, 0, 0], uUwSunSurf: 1.6, uUwAmbTint: [1.6, 1.7, 1.9], // r6: clearer (ruins / rings beyond the temple), brighter lit facade
       uUwAmbColor: [0.0, 0.55, 2.6], uUwSunScatter: [0.03, 0.2, 0.38], uUwKdSun: [0.02, 0.006, 0.0045], uUwKd: [0.02, 0.006, 0.0045],
-      uUwCaustic: [0.55, 0.2, 140, 0.03] },
+      uUwCaustic: [0.55, 0.2, 140, 0.03],
+      uUwMenBand: [0.65, 0.025, 0.5, 0.5] }, // r7: navy wave-underside band under the waterline (ref 9)
+    terrainSunEl: 8, // r7: the far range lit from the visible sun's azimuth at 8° (r6: the behind-left water light lit it flat grey-white; ref 9 dusk peaks)
     // r4 (sunken): the open plateau paving read as a tiled pool (ref 9: drifted sand, growth, rubble) → sand drifts over the
     //     open paving too (core/sunken.js overlay, per-shot via underwater.js)
     //     + more (darker) algae turf and a greyer dust: the plateau reads as reef floor, not a bright beach

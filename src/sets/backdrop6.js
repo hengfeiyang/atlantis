@@ -14,6 +14,10 @@ import { frameFromShot } from './frame.js';
 import { towerInto } from './precinct.js';
 
 const PI = Math.PI;
+// r7: darker blue-grey marble — at 200-300 m the lit white marble matched the water's in-scatter and the city vanished;
+//     ref 6 reads it as deeper-blue silhouettes against the bright water (the gilded crowns stay bright)
+const FAR_TINT = 0x828c98;
+const FAR_CLEAR = '0.35';
 
 /**
  * @param {object} engine
@@ -45,7 +49,7 @@ export function buildBackdrop6(engine, G, q) {
     const gy = G(s.p.x, s.p.z), yT = top(px, row, s.d);
     const colH = w * 0.5, hT = yT - gy - colH - 3.5;     // shaft height so the dome top lands on the row
     if (hT < 10) continue;
-    const B = new Building('set6-tower', { detail: det, seed: 61 + nT, variant: 'ruined', weather: 0.8 });
+    const B = new Building('set6-tower', { detail: det, seed: 61 + nT, variant: 'ruined', weather: 0.8, tint: FAR_TINT });
     towerInto(B, { w, h: hT, broken: false });
     meshes.push(B.finalize({ position: [s.p.x, gy, s.p.z], rotY: yaw + rng.range(-0.3, 0.3), ao: false }));
     const T = tholos({ radius: w * 0.42, columns: 8, colH, order: 'corinthian', gild: 1, detail: det, seed: 61 + nT, name: 'set6-towerTholos', steps: 2, stepH: 0.28, tread: 0.3, foundation: 1.0 });
@@ -58,7 +62,7 @@ export function buildBackdrop6(engine, G, q) {
     const px = 300, s = spot(px, 165, 12);
     if (s) {
       const gy = G(s.p.x, s.p.z), yT = top(px, 330, s.d), R = 8;
-      const B = new Building('set6-rotunda', { detail: det, seed: 69, variant: 'ruined', weather: 0.8 });
+      const B = new Building('set6-rotunda', { detail: det, seed: 69, variant: 'ruined', weather: 0.8, tint: FAR_TINT });
       const mw = B.marble, mi = B.mb.interior, mg = B.gold, mr = B.get('red');
       const aux = [0.1, 0.3, 0.6, 3.05];
       const yD = yT - gy - R * 0.85 - 7;                   // podium top (local)
@@ -79,7 +83,7 @@ export function buildBackdrop6(engine, G, q) {
   // ---- two-tier arcade (aqueduct) across the left (ref 6 px ≈ 0-560, top row ≈ 360), partly ruined
   {
     const d = 230, pa = F.at(-40, 470, d), pb = F.at(560, 470, d);
-    const B = new Building('set6-aqueduct', { detail: det, seed: 68, variant: 'ruined', weather: 0.9 });
+    const B = new Building('set6-aqueduct', { detail: det, seed: 68, variant: 'ruined', weather: 0.9, tint: FAR_TINT });
     const mw = B.marble, mr = B.get('red');
     const aux = [0.1, 0.3, 0.6, 3.05];
     const n = 11;
@@ -108,7 +112,9 @@ export function buildBackdrop6(engine, G, q) {
   }
   for (const m of meshes) {
     group.add(m);
-    m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; } });
+    // r7: far term of the water medium × CG_UW_CLEAR on these materials only (core/underwater.js uwTau): at 230-300 m the
+    //     city dissolved into the in-scatter; ref 6 reads it as deeper-blue silhouettes (own materials, not shared)
+    m.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; o.material.defines = { ...(o.material.defines || {}), CG_UW_CLEAR: FAR_CLEAR }; } });
   }
   return { group, towers: nT };
 }

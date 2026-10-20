@@ -55,9 +55,16 @@ export const SHOT_TUNE = {
   // mirrored low sky (an orange band all along the horizon) is tinted cool (uReflTint, open sea only), the slate body a
   // little lighter, the sun term narrow (small extra lobe) and strong, denser sparse glints inside the column
   9: {
-    uWaveAmp: [0.06, 0.05, 0.03, 0.004], uUwWaveK: 5.0, uSeaOpaque: 0.88, uSeaBody: [0.12, 0.16, 0.26],
-    uSkyReflSea: [1.15, 0.8, 0.62], uGlint: [0.9, 0.35, 1, 1], uGlintVar: 0.004, uReflSmear: 0.3, uReflLod: 0.0,
-    uReflTint: [0.6, 0.68, 0.95], uSunLobe: [0.0015, 2.5, 12.0],
+    uSeaOpaque: 0.88, uReflSmear: 0.3, uReflLod: 0.0, uSunLobe: [0.0015, 2.5, 12.0],
+    // (r6: uWaveAmp [0.06, 0.05, 0.03, 0.004], uUwWaveK 5, uSeaBody [0.12, 0.16, 0.26], uSkyReflSea [1.15, 0.8, 0.62],
+    //  uGlint [0.9, 0.35, 1, 1], uGlintVar 0.004, uReflTint [0.6, 0.68, 0.95])
+    // r7: the r6 sea read dark brown with smooth streaks (≈ 69,47,41; ref 9 steel-blue 97,103,121 with small waves + orange
+    // glints): the mirror at 0.15 m eye height shows the dark maroon upper sky / unlit far range only, the core swells (×5)
+    // drew long smooth bands. Short chop instead (FFT octaves 3-4 up, core swells ×1.5), Fresnel over the sub-pixel slopes
+    // (uFresVar: the steel-blue body shows between the mirrored crests), neutral sky tint + cooler mirror, the glitter column
+    // soft-capped so it stays orange (uGlitMax), more and wider-spread sparse glints
+    uWaveAmp: [0.06, 0.1, 0.5, 0.25], uUwWaveK: 1.5, uSkyReflSea: [1.0, 1.0, 1.1], uReflTint: [0.75, 0.9, 1.3], uFresVar: 1,
+    uSeaBody: [0.24, 0.32, 0.5], uGlitMax: 20, uGlintVar: 0.05, uGlint: [2, 0.3, 1, 1], uGlintR: 1.5,
   },
   // r4: the r3 sparse glints read as white dots → a wind-ruffled mirror instead: livelier ripples (mid octaves) that break
   // the reflected sheds into wavy bands, a broad second sun lobe for the gold field (uSunLobe), almost no point glints,
@@ -66,8 +73,12 @@ export const SHOT_TUNE = {
   // broad sun lobe painted one gold sheen over the whole ring and hid them → calmer short octaves (the reflections stay
   // vertical streaks, not a mush), a little vertical smear, reflection gain 2, less body light, a faint narrow lobe
   4: {
-    uRingCalm: 1.05, uRingAmp: [0.5, 0.6, 0.5, 0.4], uGlint: [0.02, 0.5, 1.0, 1.0], uBodyLight: [0.3, 0.45, 0.5],
-    uScatter: [0.006, 0.085, 0.12], uReflGain: 2.0, uReflSmear: 0.3, uSunLobe: [0.06, 0.1, 8.0],
+    uRingCalm: 1.05, uRingAmp: [0.5, 0.6, 0.5, 0.4], uGlint: [0.02, 0.5, 1.0, 1.0],
+    uScatter: [0.003, 0.1, 0.19], uReflGain: 2.0, uReflSmear: 0.3, uSunLobe: [0.06, 0.1, 8.0],
+    // r7: colourfulness 56 vs ref 62 — the water read grey-green teal with white mirrored stone: a bluer turquoise body
+    // (uScatter r5 [0.006, 0.085, 0.12], uBodyLight r5 [0.3, 0.45, 0.5]) + cyan sky tint, and the mirrored lit stone gold
+    // (uReflTintRing: geometry only, the sky in the mirror keeps its colour) like ref 4's gold columns under the piers
+    uBodyLight: [0.45, 0.6, 0.5], uSkyRefl: [0.22, 0.55, 0.8], uReflTintRing: [1.24, 0.91, 0.56],
   },
   // r4 (shot 1, the opening aerial at 1.4 km): the rings read as concentric bands of turquoise water (ref 1 rings p50 ≈ 76,112,125)
   // — less of the white city mirrored at the grazing view (ring-only reflection gain), the body not weighted down by
@@ -76,6 +87,13 @@ export const SHOT_TUNE = {
   // r6: shot 2 (canal, eye 5 m): turquoise-teal canal like ref 2 (p10 ≈ 16,54,68, p50 ≈ 44,88,104; r5 read navy 2,42,69 — the
   // water at the camera counted as open sea, fixed by uCanalRingC): a bluer teal body that shows through the grazing Fresnel
   2: { uScatter: [0.004, 0.095, 0.15], uRingLook: [1.0, 0.65, 1.0, 0], uSkyRefl: [0.2, 0.5, 0.64] },
+  // r7: shot 3's far sea toward the sun read as a pale grey veil (≈ 199,182,170 with the surface black: the haze dominates at
+  // 3-30 km) with a white clipped glitter blob; ref 3: orange-peach sea (≈ 224,159,112) and a pale-gold path. The haze over
+  // the open sea is tinted warm toward the sun (uSeaHaze, water pixels only), the sea mirrors the warm low sky (uSunSide /
+  // uReflTint), the glitter is soft-capped so it stays gold (uGlitMax) with a slightly broader lobe, no sub-pixel whitecaps
+  // (white specks across the far sea)
+  3: { uSeaHaze: [1.25, 0.85, 0.55, 1], uSeaHazeK: [2, 0.4], uSunSide: [1.4, 0.85, 0.5, 1], uSunSideK: 2, uReflTint: [1.1, 0.72, 0.45],
+    uSeaWave: [2.6, 1.7, 1.0, 0.0], uGlitMax: 60, uSunLobe: [0.003, 2.0, 6] },
   1: { uRingLook: [0.45, 0.2, 1.8, 0], uScatter: [0.006, 0.12, 0.2], uSkyRefl: [0.2, 0.55, 0.75], uScatterSea: [0.001, 0.022, 0.045], uSkyReflSea: [0.07, 0.17, 0.3],
     uSeaWave: [2.6, 1.7, 1.0, 0.07], uCanalSea: 1.0, uReflClamp: 1.0, uCanalRingC: 0,
     // r6: the sea toward the low sun mirrors the warm horizon (ref 1: cream-gold under the sun, navy away from it)
@@ -236,7 +254,8 @@ export async function build(engine) {
     const U = water.uniforms;
     U.uDebug.value = shot.waterDebug ?? debug0;
     // r3: per-shot water look (restore the defaults of every tuned key first)
-    for (const t of Object.values(SHOT_TUNE)) for (const k of Object.keys(t)) if (U[k] && !(k in tuneDefaults)) tuneDefaults[k] = U[k].value?.clone ? U[k].value.clone() : U[k].value;
+    // (r7: also the keys of look-dev waterTune overrides — they stuck across shots in a session)
+    for (const t of [...Object.values(SHOT_TUNE), ptune, shot.waterTune || {}]) for (const k of Object.keys(t)) if (U[k] && !(k in tuneDefaults)) tuneDefaults[k] = U[k].value?.clone ? U[k].value.clone() : U[k].value;
     for (const [k, v] of Object.entries(tuneDefaults)) { if (U[k].value?.copy) U[k].value.copy(v); else U[k].value = v; }
     for (const [k, v] of Object.entries(SHOT_TUNE[shot.id] || {})) setU(U, k, v);
     for (const [k, v] of Object.entries({ ...ptune, ...(shot.waterTune || {}) })) setU(U, k, v);

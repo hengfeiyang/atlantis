@@ -263,7 +263,7 @@ function addMist(mist, f, rng, density, level, farFactor = 1) {
     mist.add({
       pos: [end.x + Math.cos(ang) * rr, level + wdt * st * 0.22, end.z + Math.sin(ang) * rr],
       size: wdt, life: rng.range(1.4, 2.8), vel: [Math.cos(ang) * 0.4, rng.range(0.3, 0.9), Math.sin(ang) * 0.4],
-      growth: 0.35, density: rng.range(0.8, 1.0), kind: 4, stretch: st,
+      growth: 0.35, density: rng.range(0.8, 1.0), kind: small ? 4.5 : 4, stretch: st,   // r7: 4.5 = small-spout boil (fades out when only a few px wide)
     });
   }
   if (small) return;

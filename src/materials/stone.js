@@ -38,6 +38,7 @@
 import * as THREE from 'three';
 import { proceduralMaterial } from '../core/materials.js';
 import { mulberry32 } from '../core/rng.js';
+import { TONE, TONE_HEAD } from './tone.js';
 
 // --------------------------------------------------------------------------- palette
 export const STONE_SRGB = {
@@ -157,6 +158,7 @@ const HEAD = (kind) => /* glsl */ `
 #define ST_KIND ${KIND_ID[kind] ?? 0}
 ${NOISE_TEX_HEAD}
 ${AO_HEAD}
+${TONE_HEAD}
 uniform vec3 uC0; uniform vec3 uC1; uniform vec3 uC2; uniform vec3 uC3;
 uniform vec3 uSTint;
 uniform vec4 uSP;   // x weather, y lichen, z streaks, w veins
@@ -462,6 +464,13 @@ const COLOR = /* glsl */ `
   col = mix(col, col * vec3(0.68, 0.66, 0.62), chip * 0.7);
   col *= 1.0 - uSR.x;
   col = mix(col, col * 0.62, uSR.y * (0.4 + 0.6 * vert));
+  // r7 per-shot tone (src/materials/tone.js; identity unless a shot sets it): warmer pale stone facing the sun + chroma
+  {
+    float sunF = smoothstep(0.0, 0.45, dot(n, normalize(uToneSun)));
+    float paleF = smoothstep(0.10, 0.30, cgLuma(col * uSTint));
+    col *= mix(vec3(1.0), mix(uStoneShade, uStoneWarm, sunF), paleF);
+    col = max(vec3(0.0), mix(vec3(cgLuma(col)), col, mix(uStoneSat, 1.0, paleF * 0.8)));   // chroma: the red / navy / dark accents
+  }
   diffuseColor.rgb *= col * uSTint;
   diffuseColor.a = 1.0;
 `;
@@ -532,6 +541,7 @@ export function stoneMaterial(o = {}) {
     uPat: { value: pat },
     uRose: { value: new THREE.Vector4(ctr[0], ctr[1], o.radius ?? 8, (o.kind === 'mosaic' ? (o.roseRotation ?? 0) : 0)) },
     uBounce: BOUNCE,
+    ...TONE,
     ...aoUniforms(o.ao),
   };
   const mat = proceduralMaterial({

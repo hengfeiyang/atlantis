@@ -105,6 +105,7 @@ uniform float uLevel;
 uniform vec3 uSunCol;
 uniform vec3 uSkyAmb;
 uniform vec4 uMistK;      // x: global opacity, y: sun gain, z: ambient gain, w: erosion
+uniform sampler2D tSceneDepth; uniform float uDepthValid; uniform vec2 uNearFar; uniform vec2 uRes;   // r7: soft particles
 varying vec2 vUv; varying vec3 vW; varying float vA; varying float vSeed; varying float vAge; varying float vShadow;
 varying float vKind; varying float vSize; varying vec2 vSun2;
 void main(){
@@ -121,9 +122,15 @@ void main(){
     // (granular churn: bubbles and torn spray in the crown, not a smooth cotton dome)
     float n2 = cgVnoise3(np * 3.4 + vec3(0.0, -uTime * 1.6, 0.0));
     float dd = length(vec2(vUv.x, yy * 1.1)) + (n - 0.5) * 0.65 + (n2 - 0.5) * 0.3 + vAge * 0.1;
-    float dome = 1.0 - smoothstep(0.38, 0.9, dd);
+    // r7: a dome only tens of px wide resolves none of its torn crown → smooth white half-disc with a crisp rim (shot 4):
+    // the rim softens with the on-screen size
+    float pxB = 2.0 / max(fwidth(vUv.x), 1e-4), sB = 1.0 - smoothstep(30.0, 140.0, pxB);
+    float dome = 1.0 - smoothstep(mix(0.38, 0.12, sB), mix(0.9, 1.05, sB), dd);
     a = dome * (0.5 + 0.5 * smoothstep(0.3, 0.7, n)) * (0.6 + 0.4 * smoothstep(0.2, 0.65, n2 + 0.25 * (1.0 - yy))) * vA * (1.0 - smoothstep(0.8, 1.0, abs(vUv.x))) * (1.0 - smoothstep(0.75, 1.0, vUv.y));
     lit = clamp(0.62 + 0.8 * (n - 0.5) + 0.25 * (n2 - 0.5) + 0.3 * yy, 0.2, 1.0);
+    // r7: small-spout boils (kind 4.5) seen from afar: a few px of smooth white = a hard-edged disc (shot 4, shed spouts
+    // beside the mole bridge) → they fade out below ~40 px (the surface foam of the impact stays); close up (shot 2) unchanged
+    if (vKind > 4.25) a *= smoothstep(14.0, 44.0, 2.0 / max(fwidth(vUv.x), 1e-4));
   } else if (vKind > 2.5) {
     // droplet streak: bright thin core, tapered ends, beaded
     float across = vUv.x, along = vUv.y;
@@ -154,12 +161,14 @@ void main(){
     if (vKind > 1.5) {
       float pxS = 2.0 / max(fwidth(vUv.x), 1e-4);
       float soft = mix(0.75, 0.35, smoothstep(40.0, 160.0, pxS));
-      a = mix(a, exp(-2.6 * r2) * clamp(0.3 + 0.9 * billow, 0.0, 1.0) * vA * 0.55, soft);
+      // r7: the soft body is broken up by the billows (a smooth gaussian read as a grey disc, shot 4)
+      a = mix(a, exp(-2.6 * r2) * smoothstep(0.38, 0.78, billow) * vA * 0.55, soft);
     }
     // big mist banks (> ~10 m): a soft gaussian body modulated by the billows — from afar the ragged
     // threshold edge of a single puff reads as a hard ellipse
     if (vKind > 0.5 && vKind < 1.5) {
-      float soft = smoothstep(7.0, 16.0, vSize);
+      // r7: small banks too, mostly (their threshold edge read as hard grey discs at 50-150 m, shot 4 under the bridge)
+      float soft = max(smoothstep(7.0, 16.0, vSize), 0.65);
       a = mix(a, exp(-3.2 * r2) * clamp(0.35 + 1.1 * (billow - 0.35), 0.0, 1.0) * vA, soft);
     }
     // self-shadow: the sun side of the puff is brighter, dense cores darker underneath
@@ -178,6 +187,18 @@ void main(){
   float dc = distance(cameraPosition, vW);
   a *= smoothstep(1.0, 6.0, dc) * smoothstep(0.4, 1.6, dc / max(vSize, 0.5));
   a *= uMistK.x;
+  // r7: rim fade (the gaussian blends of spray / mist kept ~5 % alpha at the quad's circle: hard-edged discs, shot 4) and
+  // soft-particle fade against the opaque scene depth (registry.sceneDepth; boil domes / puffs cut by the bridge piers
+  // read as straight hard edges)
+  if (vKind < 3.5) a *= 1.0 - smoothstep(0.7, 1.0, r2);
+  if (uDepthValid > 0.5) {
+    float z = texture2D(tSceneDepth, gl_FragCoord.xy / uRes).r;
+    if (z < 0.999999) {
+      float sceneD = -(uNearFar.x * uNearFar.y) / ((uNearFar.y - uNearFar.x) * z - uNearFar.y);
+      float fragD = -(viewMatrix * vec4(vW, 1.0)).z;
+      a *= smoothstep(0.0, clamp(vSize * 0.35, 0.25, 3.0), sceneD - fragD);
+    }
+  }
   // thin mist in the shade of the cliffs reads as a grey veil (washed-out frame): it thins there and
   // glows where it catches the sun (spray and boiling water stay dense)
   if (vKind < 1.5) a *= mix(0.12, 1.0, vShadow);
@@ -226,7 +247,7 @@ export class MistSystem {
     const iPos = new Float32Array(n * 3), iP = new Float32Array(n * 4), iM = new Float32Array(n * 4), iL = new Float32Array(n * 4);
     // a global far-to-near sort is impossible for all views; draw the thin mist first (it sits
     // behind and around the dense spray), then low dense churn, streaks last
-    const order = (it) => (it.kind === 1 ? 0 : it.kind === 0 ? 1 : it.kind === 4 ? 2 : it.kind === 2 ? 3 : 4);
+    const order = (it) => (it.kind === 1 ? 0 : it.kind === 0 ? 1 : it.kind >= 4 ? 2 : it.kind === 2 ? 3 : 4);
     this.items.sort((a, b) => order(a) - order(b) || a.pos[1] - b.pos[1]);
     this.items.forEach((it, i) => {
       iPos.set(it.pos, i * 3);
@@ -252,6 +273,7 @@ export class MistSystem {
       // (z: sky ambient gain — uSkyAmb is IBL-scaled, the visible sky is ~2-3x brighter: thick mist in the shade reads as bright as the sky)
       uMistK: { value: new THREE.Vector4(1.0, 1.7, 2.4, 0.0) },
       tHS: { value: near.tex }, uHSB: { value: new THREE.Vector4(...near.bounds) }, uHSK: { value: 0 },
+      tSceneDepth: { value: null }, uDepthValid: { value: 0 }, uNearFar: { value: new THREE.Vector2(0.5, 60000) }, uRes: { value: new THREE.Vector2(1, 1) },
     };
     const mat = new THREE.ShaderMaterial({
       name: 'waterMist',
@@ -271,6 +293,14 @@ export class MistSystem {
     mesh.castShadow = false; mesh.receiveShadow = false;
     mesh.userData.castShadow = false; mesh.userData.receiveShadow = false;
     mesh.userData.noPatch = true;
+    // r7: soft particles — the opaque depth of the main HDR pass (clouds module depth grabber, registry.sceneDepth)
+    const U = this.uniforms, engine = this.engine;
+    mesh.onBeforeRender = (renderer) => {
+      const d = engine.registry?.sceneDepth, cur = renderer.getRenderTarget();
+      const ok = !!(d && d.texture && cur && cur === engine.pipeline?.target && d.valid.value > 0.5 && d.frame === engine.sampleSerial);
+      U.uDepthValid.value = ok ? 1 : 0;
+      if (ok) { U.tSceneDepth.value = d.texture; U.uNearFar.value.copy(d.nearFar.value); U.uRes.value.set(cur.width, cur.height); }
+    };
     this.mesh = mesh;
     this.count = n;
     return mesh;

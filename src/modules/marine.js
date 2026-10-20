@@ -213,7 +213,7 @@ function framingKelp(engine, maps) {
   if (!s7 || !zone) return;
   const F = frameOf(s7);
   // r6: the two nearest pairs pushed out (the dolly-back at u = 0 brought the 8 m kelp to ndc 0.69, over the right tower)
-  const spots = [[-1.06, 9], [-0.98, 15], [-1.02, 22], [-0.8, 34], [1.08, 8], [0.98, 13], [1.0, 20], [0.82, 31]];
+  const spots = [[-1.06, 9], [-0.98, 15], [-1.02, 22], [-0.8, 34], [1.45, 8], [1.12, 13], [1.0, 20], [0.82, 31]]; // r7: right pair at 8 / 13 m pushed out (their 15-25 m tall stalks lean in toward the vanishing point: at u = 0 they spanned ndc 0.66-0.84 and swept out across the right fifth during the dolly)
   let n = 0;
   for (const [x, d] of spots) {
     for (let k = 0; k < 6; k++) {

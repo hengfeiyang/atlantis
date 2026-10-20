@@ -107,6 +107,9 @@ uniform vec4 uWakeA[${MAX_WAKES}]; uniform vec4 uWakeB[${MAX_WAKES}]; uniform ve
 uniform vec4 uWakeShape;    // r6: x far-line gain, y Kelvin-arm reach (hull lengths, broken wakes), z far-arm gain, w unused
 uniform vec4 uSunSide;      // r6: sun-side sky-reflection tint (rgb) + weight (w): the open sea mirrors the warm low sky toward the sun (ref 1)
 uniform float uSunSideK;    // r6: azimuthal sharpness of that tint
+uniform vec4 uSeaHaze;      // r7: tint (rgb) + weight (w) of the aerial perspective over the open sea toward the sun (ref 3: the far sea under
+uniform vec2 uSeaHazeK;     //     the low sun reads orange-gold, ours a grey veil): x azimuthal sharpness, y floor away from the sun
+float wSeaCg; float wSunAl;
 uniform vec3 uScatter;      // ring / canal body (turquoise)
 uniform vec3 uScatterSea;   // open sea body (cobalt)
 uniform vec3 uFoamCol;
@@ -134,6 +137,8 @@ uniform vec3 uFoamLight;    // foam: x sky ambient gain, y sun scatter gain, z f
 vec3 wBody;
 uniform vec3 uSunIrrW;      // sun irradiance (SKY.uSunIrr)
 uniform vec2 uSunSpec;      // x: visible-sun glitter gain, y: CSM-light specular kept (0 = replaced)
+uniform float uGlitGain;    // r7: water-side gain on top of the look's uSunSpec.x (shot 3: the path clipped to white, ref 3 pale gold)
+uniform float uGlitMax;     // r7: soft cap of the glitter radiance (luminance, linear; 0 = off): keeps the path gold instead of tone-mapped white
 uniform float uBodyFres;    // r3: body in-scatter weighted by the transmitted fraction (1 - Fresnel)
 uniform float uSeaOpaque;   // r3: opacity of the sea body seen from above (sunken era)
 uniform vec3 uSeaBody;      // r3: its radiance
@@ -143,6 +148,8 @@ uniform vec3 uGlitterTint;  // colour of the glitter path (the low sun's disk is
 uniform vec4 uRingLook;     // r4 (rings / canal only, 1 - seaK): x reflection gain, y body Fresnel weight, z body gain, w unused
 float wRingK;
 uniform vec3 uSunLobe;      // r4: x extra GGX alpha² of the sun glitter (broad gold field, ref 4), y its gain, z ripple contrast
+uniform float uFresVar;     // r7: Fresnel over the sub-pixel slope variance (0 = off)
+uniform vec3 uReflTintRing; // r7: tint of mirrored geometry (not sky) in the rings / canal (1 - seaC)
 uniform vec3 uReflTint;     // r5: tint of everything mirrored (planar reflection), open sea only (seaC) — ref 9's dusk sea reads steel-blue
 
 // values shared between the hooks of this material
@@ -189,6 +196,9 @@ const SURF_COLOR = /* glsl */`
   // metres per pixel (geometric mean of the two pixel axes)
   float pxw = sqrt(max(length(dFdx(P.xz)), length(dFdy(P.xz))) * min(length(dFdx(P.xz)), length(dFdy(P.xz))));
   wSkyT = mix(uSkyRefl, uSkyReflSea, seaC);
+  wSeaCg = seaC;
+  { vec2 vh = -V.xz; float lv = length(vh); vec2 sh = uSunDir.xz; float lsn = length(sh);
+    wSunAl = lv > 1e-4 && lsn > 1e-4 ? max(dot(vh / lv, sh / lsn), 0.0) : 0.0; }
   if (uSunSide.w > 0.0) {
     // r6: toward the low sun the sea mirrors the warm horizon sky (ref 1: cream-gold sea under the sun, navy away from it)
     vec2 vh = -V.xz; float lv = length(vh); vec2 sh = uSunDir.xz; float lsn = length(sh);
@@ -409,7 +419,10 @@ const SURF_COLOR = /* glsl */`
   vec3 body = scat * (1.0 - Tv) * uBodyK;
   body = mix(body, uAerCol * (0.75 + 0.5 * fine), aerW * 0.75 * uBodyK);
   vec3 foamAlb = uFoamCol * (0.82 + 0.18 * fine);
-  float F = 0.02 + 0.98 * pow(1.0 - cv, 5.0);
+  // r7: Fresnel over the unresolved facet slopes (uFresVar × LEAN variance): at grazing views the sub-pixel wave faces
+  // tilted toward the eye transmit — the body shows between the mirrored crests (shot 9: ref's steel-blue sea)
+  float cvF = sqrt(cv * cv + uFresVar * wVar);
+  float F = 0.02 + 0.98 * pow(1.0 - min(cvF, 1.0), 5.0);
   // the body is light scattered inside the sunlit water column: emitted (not shadowed by the walls the
   // way a diffuse surface would be — the column under a shadow edge is still lit at depth)
   // r3: only the light refracted OUT of the water reaches the eye (1 - F): at grazing views (water-level shots 2, 4)
@@ -463,7 +476,8 @@ const SURF_COLOR = /* glsl */`
     if (d1 < 0.99999) { vec4 o = uReflInvVP * vec4(uv1 * 2.0 - 1.0, d1 * 2.0 - 1.0, 1.0); rc = atmoApplyFrom(rc, P + vec3(0.0, 0.05, 0.0), o.xyz / o.w); }
 #endif
     wReflW = uReflOn * mix(outW, 1.0, uReflClamp) * step(0.0, c1.w);
-    wRefl = rc * mix(vec3(1.0), uReflTint, seaC);
+    // r7: reflected GEOMETRY in the rings / canal tinted (uReflTintRing; shot 4: the lit sheds / bridge mirror gold, ref 4)
+    wRefl = rc * mix(d1 < 0.99999 ? uReflTintRing : vec3(1.0), uReflTint, seaC);
     if (uDebug > 6.5 && uDebug < 7.5) wRefl = textureLod(tRefl, uv0, 0.0).rgb;
   }
   float a2 = pow(0.05, 4.0) + 1.0 * wVar;
@@ -503,7 +517,9 @@ const SUN_SPEC = /* glsl */`
   float Gs = (NoL / (NoL * (1.0 - k) + k)) * (NoV / (NoV * (1.0 - k) + k));
   float Fs = 0.02 + 0.98 * pow(1.0 - VoH, 5.0);
   vec3 spec = uSunIrrW * (D * Gs * Fs / (4.0 * NoV)) * step(0.0, Ls.y);
-  reflectedLight.directSpecular = reflectedLight.directSpecular * uSunSpec.y + spec * uGlitterTint * (1.0 - wFoam) * uSunSpec.x;
+  vec3 glit = spec * uGlitterTint * (1.0 - wFoam) * uSunSpec.x * uGlitGain;
+  if (uGlitMax > 0.0) { float gl = dot(glit, vec3(0.2126, 0.7152, 0.0722)); glit *= uGlitMax / (uGlitMax + gl); }
+  reflectedLight.directSpecular = reflectedLight.directSpecular * uSunSpec.y + glit;
 }
 `;
 const FOG_PREMUL = /* glsl */`
@@ -511,6 +527,7 @@ const FOG_PREMUL = /* glsl */`
 {
   vec3 cgA = atmoApply(vec3(0.0), vAtmoWorldPos);
   vec3 cgB = atmoApply(vec3(1.0), vAtmoWorldPos) - cgA;
+  if (uSeaHaze.w > 0.0) cgA *= mix(vec3(1.0), uSeaHaze.rgb, uSeaHaze.w * wSeaCg * mix(uSeaHazeK.y, 1.0, pow(wSunAl, uSeaHazeK.x)));
   float a = gl_FragColor.a;
   gl_FragColor.rgb = gl_FragColor.rgb * cgB + cgA * a + (1.0 - a) * cgA * (1.0 - wTbed);
 }
@@ -616,6 +633,7 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uWakeA: { value: wakesA }, uWakeB: { value: wakesB }, uWakeC: { value: wakesC }, uWakeN: { value: 0 },
     uWakeShape: { value: new THREE.Vector4(1.6, 2.2, 1.1, 0) },
     uSunSide: { value: new THREE.Vector4(1, 0.8, 0.6, 0) }, uSunSideK: { value: 6 },
+    uSeaHaze: { value: new THREE.Vector4(1, 1, 1, 0) }, uSeaHazeK: { value: new THREE.Vector2(2, 0.3) },
     uScatter: { value: new THREE.Vector3(0.004, 0.085, 0.19) },
     uScatterSea: { value: new THREE.Vector3(0.001, 0.01, 0.06) },
     uFoamCol: { value: new THREE.Vector3(0.80, 0.83, 0.84) },
@@ -634,6 +652,7 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uSunIrrW: SKY.uSunIrr,
     uSunSpec: { value: new THREE.Vector2(2.5, 0) },
     uGlitterTint: { value: new THREE.Vector3(1.0, 0.82, 0.55) },
+    uGlitGain: { value: 1 }, uGlitMax: { value: 0 },
     uBodyFres: { value: 1.0 },
     uGlintVar: { value: 0.0 },
     uGlintR: { value: 1.0 },
@@ -641,6 +660,7 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uRingLook: { value: new THREE.Vector4(1, 1, 1, 0) },
     uSunLobe: { value: new THREE.Vector3(0, 0, 0) },
     uReflTint: { value: new THREE.Vector3(1, 1, 1) },
+    uReflTintRing: { value: new THREE.Vector3(1, 1, 1) }, uFresVar: { value: 0 },
     uCanalSea: { value: 0 },
     uReflClamp: { value: 0 },
   };

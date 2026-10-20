@@ -244,6 +244,9 @@ async function buildColossus(engine, reg, stats) {
   const tg = await statueGeometry('stat-trident-colossus');
   grp.add(mesh(tg, statueMat(engine, 'gold'), { pos: [T.base[0] * s, T.base[1] * s, T.base[2] * s], s, name: 'colossus-trident' }));
   engine.add(grp);
+  // r7 director D1 (docs/COMPOSITION.md): hidden in shot 3 only — from the stair head the figure's upper body shows above the
+  // pediment apex and reads as a seated rooftop statue (ref 3: nothing above the apex); refs 1, 4, 5 keep it
+  engine.onShot((shot) => { grp.visible = String(shot.id) !== '3'; });
   stats.tris += tris(g) + tris(tg);
   grp.updateMatrixWorld(true);
   reg.colossus = { pos: grp.position.toArray(), height: H, tridentTop: new THREE.Vector3(T.base[0] * s, T.top[1] * s, T.base[2] * s).applyMatrix4(grp.matrixWorld).toArray() };

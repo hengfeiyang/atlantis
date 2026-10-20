@@ -32,12 +32,15 @@
 import * as THREE from 'three';
 import { proceduralMaterial } from '../core/materials.js';
 import { AUX_VERTEX_HEAD, AUX_VERTEX_PRE, AO_HEAD, NOISE_TEX_HEAD, aoUniforms } from './stone.js';
+import { TONE, TONE_HEAD } from './tone.js';
 
 export const METAL_SRGB = { orichalcum: '#c8703e', gold: '#d9a441', bronze: '#9a6a3a', tin: '#a9aaa6', silver: '#c9cdd2', verdigris: '#3f8c7a' };
 
 const METAL_HEAD = /* glsl */ `
 ${NOISE_TEX_HEAD}
 ${AO_HEAD}
+${TONE_HEAD}
+uniform float uToneGold; // r7: 1 = gold / gilt / orichalcum (per-shot tone applies)
 uniform vec3 uBase;     // bright metal colour (linear F0)
 uniform vec3 uDark;     // tarnish colour
 uniform vec4 uMet;      // x wear, y patina, z roughness, w hammered
@@ -104,6 +107,7 @@ const METAL_COLOR = /* glsl */ `
     cc *= 0.7 + 0.45 * cn.z;
     c = mix(c, cc, crs);
   }
+  if (uToneGold > 0.5) c = cgToneGold(c);
   diffuseColor.rgb *= c;
 `;
 
@@ -114,6 +118,7 @@ const METAL_ROUGH = /* glsl */ `
     float pv = smoothstep(0.45, 0.7, cgN4(cgP * 1.7 + 2.0).w + cav * 0.5 + max(cgN.y, 0.0) * 0.2) * uMet.y;
     roughnessFactor = clamp(uMet.z + 0.12 * (n - 0.5) + 0.3 * cav + 0.45 * pv + 0.25 * cgPanelSeam, 0.08, 1.0);
     roughnessFactor = mix(roughnessFactor, 0.92, cgCrust(cgP, cgN, cav));
+    if (uToneGold > 0.5) roughnessFactor = clamp(roughnessFactor * uGoldRough, 0.05, 1.0);
   }
 `;
 
@@ -179,6 +184,8 @@ export function metalMaterial(o = {}) {
     uPanel: { value: new THREE.Vector4(pn ? pn.w ?? 1.2 : 0, pn ? pn.h ?? 0.9 : 1, pn ? pn.seam ?? 0.006 : 0, pn && pn.rivets ? 1 : 0) },
     uCrust: { value: new THREE.Vector4(Math.max(0, Math.min(1, o.crust ?? 0)), 1 / (o.crustScale ?? 0.35), o.crustUp ?? 1, o.crustSeed ?? 3.1) },
     uCrustCol: { value: (() => { const c = lin(o.crustColor) || new THREE.Color(0.14, 0.24, 0.17); return new THREE.Vector3(c.r, c.g, c.b); })() },
+    uToneGold: { value: kind === 'gold' || kind === 'gilt' || kind === 'orichalcum' ? 1 : 0 },
+    ...TONE,
     ...aoUniforms(o.ao),
   };
   const mat = proceduralMaterial({

@@ -24,6 +24,7 @@ import { poseidonTemple } from '../arch/poseidon.js';
 import { palace, basin, trident, silhouette, pinnacle, simpleColumnGeometry, rampart, pavilion, greatRampart } from '../arch/atlantis.js';
 import * as S from '../materials/stone.js';
 import * as MT from '../materials/metal.js';
+import { setTone } from '../materials/tone.js';
 
 const PI = Math.PI;
 const SUMMIT = L.CITADEL.summit;
@@ -1054,8 +1055,17 @@ export async function build(engine) {
   run('plateau', buildPlateauBuildings);
   run('palaces', buildPalaces);
   run('honor', buildHonorColumns);
+  // r7: per-shot material tone (src/materials/tone.js), golden era only; a shot / --set may carry `tone: {...}` for look-dev
+  if (!isSunken(engine)) engine.onShot((shot) => setTone({ ...(SHOT_TONE[shot.id] || {}), ...(shot.tone || {}) }));
   console.log(`[temple] built in ${Math.round(performance.now() - t0)} ms, ${(ctx.tris / 1e6).toFixed(2)} M tris`, JSON.stringify(time));
 }
+
+// r7 (citadel): shot 3 colourfulness (ref 3: sun-warmed marble, red-gold glints) without touching the grade
+// (high 8 spp, same build: colourfulness 57.4 → 59.9, rg 25.0 → 29.4 (ref 29.0), yb 38.6 → 38.8, percentiles unchanged)
+const SHOT_TONE = {
+  3: { uStoneWarm: [1.12, 0.965, 0.99], uStoneShade: [0.97, 0.975, 1.05], uStoneSat: 1.35,
+    uGoldTint: [1.06, 0.87, 1.02], uGoldSat: 1.05, uGoldRough: 0.64, uGoldFill: 0.68 },
+};
 
 // ------------------------------------------------------------------------------------------- test
 export async function test(engine) {

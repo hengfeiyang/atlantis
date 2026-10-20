@@ -9,6 +9,7 @@
 // Tag: golden 'gold'; sunken 'metal' (core/sunken.js turns it to verdigris).
 import * as THREE from 'three';
 import { proceduralMaterial, cached } from '../core/materials.js';
+import { TONE, TONE_HEAD } from '../materials/tone.js';
 
 export function statueMetal(o = {}) {
   const era = o.sunken ? 'sunken' : 'golden';
@@ -24,6 +25,7 @@ export function statueMetal(o = {}) {
     const m = proceduralMaterial({
       name: 'statueMetal-' + era,
       params: { color: 0xffffff, metalness: 1, roughness: 0.3, vertexColors: true },
+      uniforms: sunk ? {} : { ...TONE }, head: sunk ? '' : TONE_HEAD,
       color: /* glsl */ `
         vec3 vc = vColor.rgb;
         float ao = vc.r, cav = vc.g, msk = vc.b;
@@ -41,12 +43,14 @@ export function statueMetal(o = {}) {
         float gl = smoothstep(0.9, 0.98, msk) * 0.6 + smoothstep(0.55, 0.8, cav) * 0.25;
         c = mix(c, vec3(0.55, 0.38, 0.14) * (0.8 + 0.3 * n1), gl * smoothstep(0.45, 0.7, cgVfbm3(P * 1.7 + 9.0, 2)));
         ` : ''}
+        ${sunk ? '' : 'c = cgToneGold(c); // r7 per-shot tone'}
         diffuseColor.rgb = c;
       `,
       roughness: /* glsl */ `
         {
           vec3 vc2 = vColor.rgb;
           roughnessFactor = clamp(${rough} + 0.08 * (cgVnoise3(cgP * ${sc} * 2.3) - 0.5) + 0.3 * vc2.g - 0.08 * smoothstep(0.9, 0.98, vc2.b), 0.08, 1.0);
+          ${sunk ? '' : 'roughnessFactor = clamp(roughnessFactor * uGoldRough, 0.05, 1.0);'}
         }
       `,
       metalness: /* glsl */ `
@@ -62,9 +66,9 @@ export function statueMetal(o = {}) {
           float E = max(Ls.y, 0.12);
           float side = 0.55 + 0.45 * max(0.0, -dot(normalize(vec3(R.x, 0.0, R.z) + 1e-5), normalize(vec3(Ls.x, 0.0, Ls.z) + 1e-5)));
           vec3 gnd = vec3(0.62, 0.56, 0.48) * directionalLights[0].color * E * RECIPROCAL_PI;
-          totalEmissiveRadiance += diffuseColor.rgb * gnd * below * side * ${fill} * mix(0.15, 1.0, vColor.r * vColor.r);
+          totalEmissiveRadiance += diffuseColor.rgb * gnd * below * side * ${fill} * ${sunk ? '1.0' : 'uGoldFill'} * mix(0.15, 1.0, vColor.r * vColor.r);
           // diffuse-like warm interreflection in occluded gold (folds between the horses)
-          totalEmissiveRadiance += diffuseColor.rgb * directionalLights[0].color * E * 0.025 * ${fill} * (1.0 - vColor.r);
+          totalEmissiveRadiance += diffuseColor.rgb * directionalLights[0].color * E * 0.025 * ${fill} * ${sunk ? '1.0' : 'uGoldFill'} * (1.0 - vColor.r);
         }
         #endif
       `,

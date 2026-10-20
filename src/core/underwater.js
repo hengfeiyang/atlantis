@@ -27,7 +27,8 @@
 //   uUwDomeWave  float  scale of the wave height used for the waterline on the dome (gentler meniscus)
 //   uUwSigma     vec3   view-path extinction per channel (1/m) at short range
 //   uUwFar       vec4   x: range Lf (m) of the far term — optical depth = sigma · s · (1 + s / Lf): crisp to
-//                       ≈ 60-80 m, blue silhouettes at 150-250 m, gone by ≈ 300 m (refs 6, 7, 9); 0 = off
+//                       ≈ 60-80 m, blue silhouettes at 150-250 m, gone by ≈ 300 m (refs 6, 7, 9); 0 = off;
+//                       yzw (r7): per-channel extra factor on the far term only (sigma·s²/Lf · (1 + yzw)), 0 = off
 //   uUwKd        vec3   ambient (downwelling) attenuation with depth (1/m) of the IBL on surfaces
 //   uUwKdScat    vec3   depth attenuation of the in-scattered ambient (water lighter toward the surface)
 //   uUwKdSun     vec3   sun attenuation along the refracted path (1/m)
@@ -126,6 +127,9 @@ export const UW = {
   uUwSteps: { value: 16 },
   uUwWaves: { value: makeWaves() },
   uUwMeniscus: { value: new THREE.Vector4(0.55, 0.0022, 0.5, 1) },
+  // r7: dark wave-underside band just below the waterline (ref 9: a navy band ≈ 2 % of the frame height under the
+  //     meniscus): x darkness, y gaussian width (waterline units ≈ 4 × uv), z navy tint, w width wobble along the line (0 = off: default)
+  uUwMenBand: { value: new THREE.Vector4(0, 0.012, 0, 0) },
   uUwSnow: { value: new THREE.Vector4(1.0, 1.0, 1.0, 26) },
   uUwTime: { value: 0 },
   uUwFrame: { value: 0 },
@@ -324,7 +328,14 @@ vec3 uwPhaseSun(vec3 dir, vec3 sw){
 }
 
 // view-path optical depth over s metres (linear + far term)
-vec3 uwTau(float s){ return uUwSigma * (s * (1.0 + (uUwFar.x > 0.0 ? s / uUwFar.x : 0.0))); }
+// r7: uUwFar.yzw = per-channel extra on the far term only (0 = r6 exactly): red lost faster with range, green / blue
+//     clearer far away, the near range (sand, foreground colour) unchanged
+// r7: material define CG_UW_CLEAR (0..1) scales the far term for art-directed far silhouettes (sets/backdrop6.js far city)
+vec3 uwTau(float s){ float f = uUwFar.x > 0.0 ? s / uUwFar.x : 0.0;
+#ifdef CG_UW_CLEAR
+  f *= float(CG_UW_CLEAR);
+#endif
+  return uUwSigma * (s * (vec3(1.0) + f * (vec3(1.0) + uUwFar.yzw))); }
 // the water medium on the segment a (near the eye) → b (far)
 vec3 uwMedium(vec3 col, vec3 a, vec3 b){
   vec3 V = b - a; float L = length(V);
@@ -507,6 +518,7 @@ uniform sampler2D tSrc;
 uniform mat4 uInvProjView;
 uniform vec3 uCam;
 uniform vec4 uUwMeniscus;
+uniform vec4 uUwMenBand;
 uniform float uLensMode;     // 1: tSrc is the lens-effects image → keep it only in the air part
 varying vec2 vUv;
 ${UW_GLSL}
@@ -531,6 +543,13 @@ void main(){
   // dark meniscus with a thin bright rim on the air side
   c *= 1.0 - uUwMeniscus.x * band;
   c += c * 1.4 * exp(-pow((e - w * 1.6) / (w * 0.5), 2.0)) * step(0.0, e);
+  // r7: wave-underside band on the water side (seen through the thickness of the swell, ref 9)
+  if (uUwMenBand.x > 0.0 && e < 0.0) {
+    float wob = 1.0 + uUwMenBand.w * (sin(vUv.x * 41.0 + uUwTime * 0.6) * 0.6 + sin(vUv.x * 13.0 - uUwTime * 0.35) * 0.4);
+    float ub = exp(-pow(e / (uUwMenBand.y * max(wob, 0.2)), 2.0)); // e is in the (stretched) waterline-normal units of the dome
+    c *= 1.0 - uUwMenBand.x * ub;
+    c *= mix(vec3(1.0), vec3(0.55, 0.8, 1.15), uUwMenBand.z * ub);
+  }
   gl_FragColor = vec4(c, texture2D(tSrc, vUv).a);
 }`;
 
@@ -911,6 +930,14 @@ export function installUnderwater(engine, deps) {
   if (tu && tu.uTSun === deps.ATMO.uSunDir) { terrainSun = { value: SUN.dir.clone() }; tu.uTSun = terrainSun; }
   engine.onShot((shot) => {
     if (terrainSun) terrainSun.value.copy(SUN.dir).normalize();
+    // r7: look `terrainSunEl` (deg): the far range is lit from the VISIBLE disk's azimuth (ATMO.uSunDir, set by clouds' onShot first) at this elevation instead
+    //     (shot 9: the decoupled water light from behind-left lit the range flat grey-white; ref 9: peach faces toward
+    //     the low sun at the left, blue-mauve shade)
+    const tsEl = shot?.terrainSunEl ?? (LOOKS[shot?.id] || {}).terrainSunEl;
+    if (terrainSun && tsEl != null) {
+      const d = deps.ATMO.uSunDir.value, h = Math.hypot(d.x, d.z) || 1, e = (tsEl * Math.PI) / 180;
+      terrainSun.value.set((d.x / h) * Math.cos(e), Math.sin(e), (d.z / h) * Math.cos(e));
+    }
     for (const [k, v] of Object.entries(skDefaults)) { const u = SK[k]; if (u.value?.copy) u.value.copy(v); else u.value = v; }
     const o = { ...((LOOKS[shot?.id] || {}).sk || {}), ...(shot?.sk || {}) };
     for (const [k, v] of Object.entries(o)) skSet(k, v);

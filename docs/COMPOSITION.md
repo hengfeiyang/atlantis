@@ -272,3 +272,35 @@ any segment; 3 → 6 dissolve still pixel-aligned (t = 30.8 s); shot 5 now calm;
 kelp stalks sweep from centre-right to the right edge during the dolly (parallax, sunken's placement — ref 7 has kelp framing both
 sides; dolly kept at 5 m); shot 6 opens with the broken stair-head pier at the bottom right (ref 3/6 have it). Disk: the shared volume
 fell to 3 GB free during the round (other projects' /private/tmp) → RENDER.md `--prune-frames` + the `--min-free` pause.
+
+### Round 7 (director) — announcements first (work in out/director/r7/)
+
+**D1 (binding, colossus in shot 3): HIDE it for shot 3 only** (golden era; `engine.onShot`, `visible = shot.id != 3`).
+Ref 3 shows nothing above the pediment apex but the apex trident; ours shows the colossus' upper body cut by the pediment
+(reads as a seated rooftop statue). Moving / scaling it would re-break refs 1, 4, 5 (the figure right behind the temple)
+and the sunken trident position of shot 9 → rejected. Hiding covers the whole video segment 5 (shot 3, applyShot is called
+once per segment) and the still; shot 6 is sunken (the figure is gone, the stump + trident sit below the ridge line from
+that eye) → unchanged. **Implemented by the director** (src/modules/statues.js `buildColossus`, one onShot hook, tagged
+"r7 director D1") — citadel: please do not move / rescale the colossus or the pedestal; the shot-3 apex skyline is now the
+apex acroterion + tridents only (if you add ornaments there, keep them within the ref-3 silhouette).
+**D1 verified** (out/director/r7/s3_d1_cmp.png, high 8 spp): apex skyline = acroterion + corner tridents, the chariot Poseidon's
+trident is the only figure above the roof (as ref 3).
+**D2 (shot 3 right side): no camera change.** Tested pan +3° / +6°, crane +4 m, crane +8 m & pan +4°
+(out/director/r7/s3v_sheet.jpg, top-left ref): right of the temple a pan only adds the NE pinnacle tower, a column and the flat
+plateau / far plain; a crane shows more plateau roofs and domes — the ref-3 cascades + terraced city lie below the plateau rim
+from any eye near the stair head (rim y 62, eye 79-87). Both break the r3 temple fit (rms 16 px) and the 3 → 6 path. The ref-3
+right side is a world feature (a stepped cliff with falls right of the temple), not reachable by the camera → open for after
+the film; not attempted in the last round.
+**QA pass A (01:05, mid-round snapshot with D1; out/director/r7/qaA/, strips qaA_strip_segNN.jpg = a frame every 0.5 s,
+640x360, 2 spp; tool out/director/r7/strips.sh):** pop scan (r6 popscan.py) clean in all 9 segments; paths unchanged.
+Seen: seg 3 (shot 4) the stair water-channel pools read as bright white diagonal bars on the hill (sky reflection, same as r6);
+seg 5 (shot 3) colossus gone over the whole move; seg 7 (shot 7) kelp still sweeps centre-right → right edge (sunken fixing);
+seg 9 the waterline / sun glint jumps between 0.5-s samples (lens-level waves; water agent is re-working the shot-9 sea).
+**QA pass B = final preview (02:10, after citadel / water / sunken / look-golden reported done and src was quiet 10 min):**
+`out/video_preview/atlantis_final_preview.mp4` (640x360, 2 spp, music from 53.5 s + CC-BY card, 59.4 s, -16.6 LUFS, LRA 14.5,
+peak -1.8 dBFS); frames + strips `out/director/r7/qaB/`, `qaB_strip_segNN.jpg`. No page errors, no held frames; pop scan clean
+in all 9 segments; 3 → 6 dissolve pixel-aligned (t = 30.8 s, qaB_diss_card.png); colossus absent through segment 5 and present
+in shot 5 (final_s5_temple.png). Remaining (accepted for the film): shot 7 framing kelp still crosses the right quarter during
+the dolly (sunken pushed it out; ref 7 frames both sides with kelp); shot 4 stair-channel pools read as bright bars; shot 3
+right side has no cascades (D2). High stills of the touched shot: out/director/r7/final_s3(_cmp).png, final_s5(_cmp).png
+(16 spp). RENDER.md: commands unchanged, round-7 note + QA tools added.
