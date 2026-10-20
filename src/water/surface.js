@@ -57,13 +57,28 @@ float wSeaK(vec2 xz){
   // north of it water ring 3 stays a sheltered ring
   float sec = smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0));
   float k = max(sec * smoothstep(uSea.x, uSea.y, r), smoothstep(uSeaSector.z, uSeaSector.w, r));
-  float canal = (1.0 - smoothstep(uSea.z, uSea.z + 30.0, abs(xz.x))) * (1.0 - smoothstep(uSea.w - 60.0, uSea.w + 140.0, xz.y));
-  return k * (1.0 - 0.75 * canal);
+  // r5: the mole basin is sheltered (calmer chop) — a soft lee that rounds off south of the mole tips (the r4 box
+  // |x| < 70-100, z < 1000-1200 drew a hard-edged rectangle across the shot-1 sea)
+  float canal = 1.0 - smoothstep(0.0, 150.0, length(vec2(max(abs(xz.x) - uSea.z * 0.7, 0.0), max(xz.y - uSea.w, 0.0))));
+  return k * (1.0 - 0.6 * canal);
+}
+// r5: open-sea factor for the COLOUR of the water (body, sky tint, optical depth): no canal shelter (ref 1: the water
+// between the moles is the same navy as the sea) and a short ramp off land ring 2
+float wSeaC(vec2 xz){
+  float r = length(xz);
+  float sec = smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0));
+  return max(sec * smoothstep(uSea.x - 16.0, uSea.x + 6.0, r), smoothstep(uSeaSector.z, uSeaSector.w, r));
+}
+// r5: the sea canal south of the gate bridge takes the sea's colour gradually (shot 1: the cut through land ring 2 read as
+// a bright-cyan strip ending in a hard line at the wall)
+uniform float uCanalSea;   // r5: 0 (canal = ring water, shot 2 turquoise) … 1 (shot 1 aerial: the canal reads as sea)
+float wCanalSea(vec2 xz){
+  return uCanalSea * (1.0 - smoothstep(uSea.z * 0.45, uSea.z * 0.75, abs(xz.x))) * smoothstep(uSea.x - 240.0, uSea.x - 6.0, xz.y) * step(0.0, uSea.w);
 }
 // r4: 1 outside land ring 2 in the open south sector (incl. the sheltered canal mouth between the moles), 0 in the rings
 float wOutK(vec2 xz){
   float r = length(xz);
-  return max(smoothstep(uSeaSector.z, uSeaSector.w, r), smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0)) * smoothstep(uSea.x - 6.0, uSea.x + 30.0, r));
+  return max(smoothstep(uSeaSector.z, uSeaSector.w, r), smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0)) * smoothstep(uSea.x - 16.0, uSea.x + 6.0, r));   // r5: 820-856 → 810-832 (cyan band at the l2 wall foot)
 }
 vec3 wBedTransmittance(float depth, float cv, float ls){
   float ct = sqrt(max(0.0, 1.0 - (1.0 - cv * cv) / 1.777));
@@ -96,6 +111,7 @@ uniform vec3 uSkyReflSea;   // reflected-sky tint, open sea
 uniform float uFrameW;
 uniform float uReflGain;
 uniform float uReflSmear; uniform float uReflLod;
+uniform float uReflClamp;   // r5: 1 = clamp reflection lookups onto the mirror image edge (no IBL fallback blocks)
 uniform vec4 uSeaWave;      // x: large-octave gain at sea, y: mid gain, z: swell gain, w: whitecap density
 uniform vec4 uShoreK;       // x: foam line width rings (m), y: surf band width sea (m), z: line strength rings, w: surf strength
 uniform vec4 uGlint;        // x: density, y: cell size (m), z: open sea weight, w: rings weight
@@ -119,6 +135,7 @@ uniform vec3 uGlitterTint;  // colour of the glitter path (the low sun's disk is
 uniform vec4 uRingLook;     // r4 (rings / canal only, 1 - seaK): x reflection gain, y body Fresnel weight, z body gain, w unused
 float wRingK;
 uniform vec3 uSunLobe;      // r4: x extra GGX alpha² of the sun glitter (broad gold field, ref 4), y its gain, z ripple contrast
+uniform vec3 uReflTint;     // r5: tint of everything mirrored (planar reflection), open sea only (seaC) — ref 9's dusk sea reads steel-blue
 
 // values shared between the hooks of this material
 vec2 wSlopeDbg; vec3 wSkyT; float wGlint; vec3 wN; float wVar; float wFoam; vec3 wRefl; float wReflW; vec3 wTbed; float wRough;
@@ -157,13 +174,14 @@ const SURF_COLOR = /* glsl */`
   float depth = max(0.0, uLevel - hT);
   float sd = wShoreDist(P.xz, 0.0);
   float seaK = wSeaK(P.xz);
+  float seaC = max(wSeaC(P.xz), wCanalSea(P.xz) * 0.85);
   // wind chop: the open sea, and (sheltered, but open to the sea wind) the sea canal up to the gate bridge (ref 2)
   float canalC = (1.0 - smoothstep(uSea.z * 0.5, uSea.z * 0.5 + 25.0, abs(P.x))) * smoothstep(560.0, 760.0, P.z);
   float chopK = max(seaK, canalC * uCanalChop);
   // metres per pixel (geometric mean of the two pixel axes)
   float pxw = sqrt(max(length(dFdx(P.xz)), length(dFdy(P.xz))) * min(length(dFdx(P.xz)), length(dFdy(P.xz))));
-  wSkyT = mix(uSkyRefl, uSkyReflSea, seaK);
-  wRingK = 1.0 - max(seaK, wOutK(P.xz));
+  wSkyT = mix(uSkyRefl, uSkyReflSea, seaC);
+  wRingK = 1.0 - max(max(seaK, wOutK(P.xz)), wCanalSea(P.xz));
   // ---- waterfall impacts: boiling white core, broken foam spreading outward, downstream trail,
   //      radial swell rings (normals only)
   float churn = 0.0, tailF = 0.0; vec2 ringSlope = vec2(0.0);
@@ -192,7 +210,7 @@ const SURF_COLOR = /* glsl */`
   }
   // ---- ship wakes (registry.water.addWake): Kelvin V arms, transverse waves inside the V, bow wave
   //      collar along the hull, white turbulent trail astern, oar splashes for rowed ships
-  float wakeF = 0.0, wakeTurb = 0.0; vec2 wakeSlope = vec2(0.0);
+  float wakeF = 0.0, wakeTurb = 0.0, wakeFar = 0.0; vec2 wakeSlope = vec2(0.0);
   for (int i = 0; i < ${MAX_WAKES}; i++) {
     if (i >= uWakeN) break;
     vec4 A = uWakeA[i]; vec4 B = uWakeB[i];   // A: bow x, z, forward dir x, z   B: hull length, beam, speed, oars (0/1)
@@ -229,6 +247,8 @@ const SURF_COLOR = /* glsl */`
     arm *= (0.35 + 0.9 * smoothstep(0.3, 0.75, armN)) * spk;
     // turbulent trail astern
     float sa = max(along - Lh * 0.85, 0.0);
+    // r5: seen from 1.4 km (shot 1) a trail is 1-3 px wide and its lace averages out: keep it ≥ ~1.2 px wide, solid white
+    float farW = smoothstep(0.15, 0.6, pxw);
     float trW = hw * 0.8 + bm * 0.25 + sa * 0.045;
     float trail = exp(-pow(ac / trW, 2.0)) * smoothstep(Lh * 0.6, Lh * 0.95, along) * exp(-sa / (Lh * 0.9 + sp * 12.0 + 12.0));
     float trN = cgVnoise2(vec2(across * 0.6, sa * 0.12 - uTime * 0.25) + float(i) * 1.9);
@@ -246,6 +266,10 @@ const SURF_COLOR = /* glsl */`
       oars = (spot * env + sw * 0.5) * min(foamK, 1.8);
     }
     wakeF = max(wakeF, max(max(collar, arm * 0.8), max(trail, oars)));
+    // (the far trail: twice as long, a thin continuous white line breaking up toward its end — ref 1)
+    float trWf = max(bm * 0.35 + sa * 0.012, pxw * 0.9);
+    float trFar = exp(-pow(ac / trWf, 2.0)) * smoothstep(Lh * 0.6, Lh * 0.95, along) * exp(-sa / (0.75 * (Lh * 0.9 + sp * 12.0 + 12.0))) * (0.35 + 0.65 * smoothstep(0.3, 0.7, trN));
+    wakeFar = max(wakeFar, farW * 0.6 * min(1.0, trFar * 0.9 + collar));
     wakeTurb = max(wakeTurb, trail + collar * 0.6);
     // transverse waves inside the V + diverging waves along the arms (slope only)
     float kx = 9.81 / max(sp * sp, 1.0);
@@ -319,6 +343,7 @@ const SURF_COLOR = /* glsl */`
   float coreBreak = mix(smoothstep(0.42, 0.6, ft * 0.75 + fine * 0.45), 1.0, smoothstep(0.04, 0.2, pxw));
   wFoam = max(wFoam, smoothstep(0.55, 1.0, max(wakeF * 0.9 * (1.0 - rk), max(wc, line * 0.8))) * (0.55 + 0.45 * ft) * coreBreak);
   wFoam = max(wFoam, wakeLace * rk * 0.95);
+  wFoam = max(wFoam, wakeFar * (0.55 + 0.35 * ft));
   // aerated water between the foam patches (milky turquoise: plunge pools, wake trails)
   float aerW = clamp(churn * 1.3 + wakeTurb * 0.5, 0.0, 1.0) * (1.0 - wFoam);
   // ---- sparse sun glints (tiny facets mirroring the sun; re-rolled a few times a second, smooth
@@ -351,9 +376,9 @@ const SURF_COLOR = /* glsl */`
   float cv = max(dot(wN, V), 0.02);
   float ls = max(uSunDir.y, 0.03);
   float turbid = 1.0 + 2.0 * churn + 1.0 * wakeTurb;
-  vec3 Tv = exp(-uAbsorb * depth * mix(1.0, uSeaDeep, seaK) * turbid / max(sqrt(max(0.0, 1.0 - (1.0 - cv * cv) / 1.777)), 0.05));
-  wTbed = mix(vec3(1.0), wBedTransmittance(depth * turbid * mix(1.0, uSeaDeep, seaK), max(V.y, 0.02), ls), uBodyK);
-  vec3 scat = mix(uScatter, uScatterSea, seaK * smoothstep(1.5, 7.0, depth));   // r4: 4-16 → 1.5-7 m (the shelf of the south sea read ring-turquoise)
+  vec3 Tv = exp(-uAbsorb * depth * mix(1.0, uSeaDeep, seaC) * turbid / max(sqrt(max(0.0, 1.0 - (1.0 - cv * cv) / 1.777)), 0.05));
+  wTbed = mix(vec3(1.0), wBedTransmittance(depth * turbid * mix(1.0, uSeaDeep, seaC), max(V.y, 0.02), ls), uBodyK);
+  vec3 scat = mix(uScatter, uScatterSea, seaC * smoothstep(1.5, 7.0, depth));   // r4: 4-16 → 1.5-7 m (the shelf of the south sea read ring-turquoise)
   vec3 body = scat * (1.0 - Tv) * uBodyK;
   body = mix(body, uAerCol * (0.75 + 0.5 * fine), aerW * 0.75 * uBodyK);
   vec3 foamAlb = uFoamCol * (0.82 + 0.18 * fine);
@@ -389,6 +414,11 @@ const SURF_COLOR = /* glsl */`
     float D = iD > 1e-5 ? 1.0 / iD : 1e6;
     vec4 c1 = D > 3e4 ? uReflMatrix * vec4(R, 0.0) : uReflMatrix * vec4(P + R * D, 1.0);
     vec2 uv1 = c1.xy / c1.w;
+    // r5: rays leaving the mirror image: clamp onto its edge instead of the IBL fallback (shot 1: the ring water near the
+    // frame-edge / behind walls flipped to bright sky-blue patches with hard borders)
+    vec2 e0 = min(uv1, 1.0 - uv1);
+    float outW = smoothstep(0.0, 0.06, min(e0.x, e0.y));
+    uv1 = mix(uv1, clamp(uv1, vec2(0.003), vec2(0.997)), uReflClamp);
     float lod = clamp(log2(max(1.0, 2.0 * sqrt(wVar) / max(uReflPix, 1e-5))) * 0.5, 0.0, 2.5);
     float vs = clamp(sqrt(wVar) * uReflSmear, 0.0, 0.03);
     float jt = cgHash12(gl_FragCoord.xy + vec2(uFrameW * 7.13, uFrameW * 3.71)) - 0.5;
@@ -405,9 +435,8 @@ const SURF_COLOR = /* glsl */`
 #else
     if (d1 < 0.99999) { vec4 o = uReflInvVP * vec4(uv1 * 2.0 - 1.0, d1 * 2.0 - 1.0, 1.0); rc = atmoApplyFrom(rc, P + vec3(0.0, 0.05, 0.0), o.xyz / o.w); }
 #endif
-    vec2 e = min(uv1, 1.0 - uv1);
-    wReflW = uReflOn * smoothstep(0.0, 0.06, min(e.x, e.y)) * step(0.0, c1.w);
-    wRefl = rc;
+    wReflW = uReflOn * mix(outW, 1.0, uReflClamp) * step(0.0, c1.w);
+    wRefl = rc * mix(vec3(1.0), uReflTint, seaC);
     if (uDebug > 6.5 && uDebug < 7.5) wRefl = textureLod(tRefl, uv0, 0.0).rgb;
   }
   float a2 = pow(0.05, 4.0) + 1.0 * wVar;
@@ -483,7 +512,7 @@ varying vec3 vW;
 uniform vec3 uSunDir;
 ${WATER_COMMON_GLSL}
 void main(){
-  float depth = max(0.0, uLevel - wTerrainH(vW.xz, 0.0)) * mix(1.0, uSeaDeep, wSeaK(vW.xz));
+  float depth = max(0.0, uLevel - wTerrainH(vW.xz, 0.0)) * mix(1.0, uSeaDeep, wSeaC(vW.xz));
   vec3 V = normalize(cameraPosition - vW);
   vec3 T = wBedTransmittance(depth, max(V.y, 0.02), max(uSunDir.y, 0.03));
   gl_FragColor = vec4(T, 1.0);
@@ -535,7 +564,7 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     tSNear: { value: shore.near.tex }, tSFar: { value: shore.far.tex },
     uLevel: { value: level },
     uAbsorb: { value: new THREE.Vector3(0.32, 0.075, 0.05) },
-    uSea: { value: new THREE.Vector4(826, 980, 70, 1060) },
+    uSea: { value: new THREE.Vector4(826, 980, 70, 930) },   // r5: w = the mole tips (lighthouses, L.MOLES), was 1060
     uSeaSector: { value: new THREE.Vector4(0.2, 0.42, 1300, 1900) },
     uSeaDeep: { value: 1.6 },
   };
@@ -581,6 +610,9 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uSeaOpaque: { value: 0.0 }, uSeaBody: { value: new THREE.Vector3(0.02, 0.05, 0.1) },
     uRingLook: { value: new THREE.Vector4(1, 1, 1, 0) },
     uSunLobe: { value: new THREE.Vector3(0, 0, 0) },
+    uReflTint: { value: new THREE.Vector3(1, 1, 1) },
+    uCanalSea: { value: 0 },
+    uReflClamp: { value: 0 },
   };
   for (const [k, v] of Object.entries(look)) setU(uniforms, k, v);
   const mat = makeSurfaceMaterial(uniforms);

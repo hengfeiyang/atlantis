@@ -120,7 +120,8 @@ export class Lighting {
     this.csm.lightDirection.copy(d).negate();
     this.csm.update();
     // volumetrics decorrelate their ray-march jitter per accumulated sub-frame
-    SKY.uFrame.value = (SKY.uFrame.value + 1) % 4096;
+    // r5: deterministic per still / video frame (engine.renderSample sets subFrame before this call; shared with UW.uUwFrame)
+    SKY.uFrame.value = this.engine.subFrame ?? 0;
     this.updateLens();
   }
 

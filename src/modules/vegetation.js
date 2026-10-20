@@ -12,15 +12,35 @@ import { WIND } from '../vegetation/foliage.js';
 import { RNG } from '../core/rng.js';
 import { ATMO } from '../core/atmosphere.js';
 import { isSunken } from '../world/era.js';
+import { SEQUENCE, cameraAt } from '../video/sequence.js';
+
+/** cameras sampled along the video segment of this shot (+ the still camera itself), or null */
+function pathCameras(engine, shot) {
+  if (!shot || shot.id === undefined || !SEQUENCE) return null;
+  const seg = SEQUENCE.find((g) => String(g.shot) === String(shot.id));
+  if (!seg) return null;
+  const N = 24, cams = [engine.camera.clone()];
+  for (let i = 0; i <= N; i++) {
+    const c = cameraAt(shot, seg, i / N);
+    const cam = engine.camera.clone();
+    cam.fov = c.fov; cam.position.set(...c.pos); cam.up.set(0, 1, 0); cam.lookAt(c.target[0], c.target[1], c.target[2]);
+    if (shot.roll) cam.rotateZ((shot.roll * Math.PI) / 180);
+    cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    cams.push(cam);
+  }
+  return cams;
+}
 
 function hookSystem(engine, sys) {
   if (engine.params.get('vegNoAtmo')) ATMO.uAtmoEnabled.value = 0;
   if (engine.params.get('vegLod')) sys.forceLod = Number(engine.params.get('vegLod'));
   engine.add(sys.group);
-  engine.onShot(() => {
+  engine.onShot((shot) => {
     sys.resetHistory();
-    const s = sys.update(engine.camera);
-    console.log(`[vegetation] shot LOD: drawn ${s.drawn}/${s.instances} instances, ~${(s.tris / 1e6).toFixed(2)} M tris (LOD scale ${s.lodScale}), ${s.updateMs} ms`);
+    // (r5) LODs / culling frozen for the shot's whole video segment (src/video/sequence.js): no popping in motion
+    const cams = engine.params.get('vegNoPath') ? null : pathCameras(engine, shot);
+    const s = cams ? sys.setPath(cams) : sys.update(engine.camera);
+    console.log(`[vegetation] shot LOD: drawn ${s.drawn}/${s.instances} instances, ~${(s.tris / 1e6).toFixed(2)} M tris (LOD scale ${s.lodScale}${cams ? `, ${cams.length} path cameras` : ''}), ${s.updateMs} ms`);
   });
   engine.onUpdate((t) => { WIND.uWindTime.value = t; sys.maybeUpdate(engine.camera); });
   engine.registry.vegetation = sys;

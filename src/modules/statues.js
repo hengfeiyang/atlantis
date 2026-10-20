@@ -312,7 +312,7 @@ async function buildSmall(engine, reg, stats) {
     let rotY = L.headingToRotY(s.facing ?? 180) + rng.range(-0.15, 0.15);
     pv.set(...s.pos);
     let quat = q.setFromAxisAngle(Y, rotY);
-    const gilt = s.tag === 'pinnacle';                              // r2: gold figures on pinnacles / roof corners
+    const gilt = s.tag === 'pinnacle' || s.tag === 'stair-channel';   // r2: gold figures on pinnacles / roof corners; r5: + the gilt triton over the stair-channel source
     if (sunken) {
       if (ruined('statue:' + i, 0.3)) continue;                    // gone (buried / broken up)
       if (!gilt && ruined('statue-top:' + i, 0.35)) {                        // toppled off its pedestal, lying beside it

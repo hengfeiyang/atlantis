@@ -52,7 +52,9 @@ export function bridgePlan() {
       if (special) {
         // tower standing in w1 just off the citadel quay (the grand stair lands behind it); the outer end
         // abuts the curtain of land ring 1 above the canal-tunnel portal
-        towers.push({ x0: g.r0 + 2, x1: g.r0 + 2 + 12, halfW: 7, top: deck + 13.5 });
+        // r5 (citadel request, shot 1): low pavilion top (deck + 4.2, statue instead of a tholos) so the grand-stair foot
+        // and its water channel read over it from the air (was deck + 13.5 + tholos ≈ 52 m)
+        towers.push({ x0: g.r0 + 2, x1: g.r0 + 2 + 12, halfW: 7, top: deck + 4.2, low: true });
         x0 = towers[0].x1; x1 = fOut - 4.5;
       } else {
         // r2: gate towers clearly taller than the curtain they interrupt (l1 wall top 28, wall towers 37)

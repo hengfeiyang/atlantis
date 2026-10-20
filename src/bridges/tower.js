@@ -73,6 +73,25 @@ export function gateTower(kit, o) {
     const [ax, az] = F.map(u0, d0), [bx, bz] = F.map(u1, d1);
     boxA(mb, Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz), aux, bev);
   };
+  // r5 (ref 7, sunken): dark round-headed opening on a face (box + stepped semicircle), front at d = dF, with a hood
+  const archDark = (F, uc, hw2, y0, y1, dF, hood) => {
+    const r = hw2, ys = y1 - r;
+    if (ys - y0 < 0.4) return;
+    fbox(dk, F, uc - r, uc + r, y0, ys, dF - 0.5, dF, AUX.dark, 0);
+    const n = 7;
+    for (let k = 0; k < n; k++) {
+      const ua = uc - r + (2 * r * k) / n, ub = uc - r + (2 * r * (k + 1)) / n, um = (ua + ub) / 2 - uc;
+      fbox(dk, F, ua, ub, ys - 0.01, ys + Math.sqrt(Math.max(0, r * r - um * um)), dF - 0.5, dF, AUX.dark, 0);
+    }
+    if (hood) {
+      fbox(w, F, uc - r - 0.3, uc + r + 0.3, y0 - 0.28, y0, dF - 0.05, dF + 0.18, AUX.mould, 0.02);   // sill
+      for (let k = 0; k < 9; k++) {
+        const a0 = PI * k / 9, a1 = PI * (k + 1) / 9, R1 = r + 0.32;
+        const ua = uc + Math.cos(a1) * R1, ub = uc + Math.cos(a0) * R1, yb = ys + Math.min(Math.sin(a0), Math.sin(a1)) * r;
+        fbox(w, F, Math.min(ua, ub), Math.max(ua, ub), Math.max(ys, yb), ys + Math.max(Math.sin(a0), Math.sin(a1)) * R1, dF - 0.05, dF + 0.12, AUX.mould, 0.01);
+      }
+    }
+  };
   for (const F of faces) {
     const L = F.L, hL = L / 2;
     const isGate = P && (F.id === '+x' || F.id === '-x');
@@ -101,12 +120,18 @@ export function gateTower(kit, o) {
       if (giltHere) {
         // framed gilt relief panel in the lower half
         const [px0, pz0] = F.map(uA, -0.16), [px1, pz1] = F.map(uB, -0.16);
-        fbox(w, F, uA, uB, yS0, yMid, -ins - 0.05, -0.36, AUX.ashlar(0.6));
+        const darkField = kit.sunken && o.sunkenNiche;   // r5 (ref 7): dark relief field underwater
+        fbox(darkField ? dk : w, F, uA, uB, yS0, yMid, -ins - 0.05, -0.36, darkField ? AUX.dark : AUX.ashlar(0.6));
         if (F.id === '+z' || F.id === '-z') {
           const f = F.id === '+z' ? 1 : -1;
           reliefPanelZ(kit, Math.min(px0, px1), Math.max(px0, px1), yS0 + 0.25, yMid - 0.15, (f > 0 ? z1 : z0) + f * -0.36, f,
-            { kind: hash3(seed, s + 3, 5) < 0.5 ? 'hippocamp' : 'figure', seed: seed * 7 + s, depth: 0.3, frame: Math.max(0.25, L * 0.016), frameProj: 0.2, density: F.id === '+z' ? 8 : 4 });
+            { kind: hash3(seed, s + 3, 5) < 0.5 ? 'hippocamp' : 'figure', seed: seed * 7 + s, depth: kit.sunken && o.sunkenNiche ? 0.55 : 0.3, frame: Math.max(0.25, L * 0.016), frameProj: 0.2, density: F.id === '+z' ? 8 : 4 });
         }
+      }
+      // r5 (ref 7): sunken gate towers — an arched window (dark) in the banded upper half of every side bay
+      if (kit.sunken && o.sunkenNiche) {
+        const uc = (uA + uB) / 2, hw2 = Math.min((uB - uA) * 0.26, 1.5);
+        archDark(F, uc, hw2, yMid + (yF - yMid) * 0.3, yF - (yF - yMid) * 0.14, -0.15, false);
       }
       // string course at mid height on the bay
       fbox(w, F, uA - pil * 0.5, uB + pil * 0.5, yMid - 0.18, yMid + 0.12, -ins, -0.04, AUX.mould, 0.02);
@@ -135,6 +160,13 @@ export function gateTower(kit, o) {
         const [sx, sz] = F.map(0, -ins + 0.55);
         kit.slots.statue.push({ pos: kit.W(sx, yS0 + 0.3 + pH, sz), facing: kit.compass(F.nrm[0], F.nrm[1]), size: Math.min(nh - pH - 0.4, 5.6), tag: 'pedestal', source: 'bridges-' + (o.tag || 'tower') + '-niche' });
       }
+    }
+    if (kit.sunken && o.sunkenNiche) {
+      // r5 (ref 7): the banner bay of the golden era is a tall dark loggia opening with a white hood + sill underwater
+      const top = yF - 1.3, bot = isGate && P ? Math.max(yMid + 0.9, yDeck + P.h + 2.2) : yMid + 0.9;
+      archDark(F, 0, Math.min((cB - cA) * 0.3, 2.4), bot, top, -ins + 0.01, true);
+      const [qx, qz] = F.map(0, -ins + 0.2);
+      kit.coralAt(qx, bot + 0.02, qz, F.nrm[0] * 0.5, 1, F.nrm[1] * 0.5, 0.8, 'tower-sill');
     }
     if (!kit.sunken && o.bannerFaces && o.bannerFaces.includes(F.id)) {
       const [bx, bz] = F.map(0, -ins + 0.06);

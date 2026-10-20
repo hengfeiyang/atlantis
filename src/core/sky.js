@@ -65,6 +65,10 @@ export const SKY = {
   // r3 (look-golden): density exponent (> 1 = thinner, softer edges, the cores unchanged: the r2 cumulus read as paper cut-outs
   // with a bright outline when lit from a low sun)
   uCloudEdge: { value: 1.0 },
+  // r5 (look-golden): fragment suppression (speckled cloud bits around the cumulus, shots 2 / 4): x = weather-coverage
+  // floor (clouds fade in over x .. x + 0.25 of the clump coverage: no puffs in the clump fringes), y = density floor
+  // removed BEFORE the detail erosion (thin fringe blobs vanish, the cores keep their shape). 0, 0 = off (r4 look)
+  uCloudFrag: { value: new THREE.Vector2(0, 0) },
   // r4 (look-golden): scale of the aerial haze between the eye and the cumulus (1 = physical; < 1 keeps distant cloud
   // bodies their own warm colour instead of the blue-lavender haze: refs 2, 3, 5 peach / brown-grey shaded bodies)
   uCloudHaze: { value: 1.0 },
@@ -215,6 +219,7 @@ uniform float uCloudErode;
 uniform vec2 uCloudFar;
 uniform float uCloudFarMin;
 uniform float uCloudEdge;
+uniform vec2 uCloudFrag;
 uniform float uCloudHaze;
 uniform vec2 uCloudStep;
 uniform float uCloudGlowAmb;
@@ -269,6 +274,8 @@ float skyDensity(vec3 p, float hf, float detail){
   float fbm = clamp((n.g * 0.625 + n.b * 0.25 + n.a * 0.125 - 0.6) / 0.3, 0.0, 1.0);
   float shape = pw * 0.6 + fbm * 0.4;
   float base = cgRemapU(shape * grad, 1.0 - w.x, 1.0, 0.0, 1.0) * w.x;
+  if (uCloudFrag.x > 0.0) base *= smoothstep(uCloudFrag.x, uCloudFrag.x + 0.25, w.x);
+  if (uCloudFrag.y > 0.0) base = max(base - uCloudFrag.y, 0.0) / (1.0 - uCloudFrag.y);
   if (base <= 0.0) return 0.0;
   if (detail > 0.0) {
     vec3 dn = textureLod(tCloudDetail, vec3(q.x, p.y, q.y) * (1.0 / 430.0) + vec3(0.0, uSkyTime * 0.002, 0.0), 0.0).rgb;

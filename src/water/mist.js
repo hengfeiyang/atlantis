@@ -26,6 +26,7 @@ uniform float uTime;
 uniform sampler2D tHNear; uniform vec4 uHNearB;
 uniform vec3 uSunDir;
 uniform vec3 uWind;
+uniform vec3 uOffset;   // r5: rigid offset of the whole system (bow spray riding with the advancing hero trireme)
 uniform float uLevel;
 uniform sampler2D tHS; uniform vec4 uHSB; uniform float uHSK;   // terrain + architecture height (shadows)
 varying vec2 vUv; varying vec3 vW; varying float vA; varying float vSeed; varying float vAge; varying float vShadow;
@@ -46,7 +47,7 @@ void main(){
   float kind = iL.y;
   float g = iL.z;
   // drag: spray (kinds 2/3) keeps its launch speed; mist drifts with the air
-  vec3 c = iPos + iM.xyz * t + vec3(0.0, -0.5 * g * t * t, 0.0) + uWind * t * (kind < 1.5 ? 1.0 : 0.25);
+  vec3 c = iPos + uOffset + iM.xyz * t + vec3(0.0, -0.5 * g * t * t, 0.0) + uWind * t * (kind < 1.5 ? 1.0 : 0.25);
   float size = iP.x * (0.55 + iM.w * age);
   // boil quads heave up but their bottom edge must stay under the water (no hard white rectangles)
   if (kind > 3.5) c.y = min(c.y, uLevel + size * iL.w * 0.7);
@@ -245,6 +246,7 @@ export class MistSystem {
       tHNear: { value: near.tex }, uHNearB: { value: new THREE.Vector4(...near.bounds) },
       uLevel: { value: 0 },
       uWind: { value: new THREE.Vector3(0.35, 0.0, 0.25) },
+      uOffset: { value: new THREE.Vector3(0, 0, 0) },
       uSunCol: { value: new THREE.Color(4.2, 3.6, 2.8) },
       uSkyAmb: { value: new THREE.Color(0.9, 1.0, 1.15) },
       // (z: sky ambient gain — uSkyAmb is IBL-scaled, the visible sky is ~2-3x brighter: thick mist in the shade reads as bright as the sky)

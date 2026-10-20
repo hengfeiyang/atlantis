@@ -169,14 +169,17 @@ function consumeSlots(engine, lib, rng, dens, maps, stats) {
     }
     let n = s.normal ? toV(s.normal).normalize() : UP.clone();
     if (!Number.isFinite(n.x) || n.lengthSq() < 0.5) n = UP.clone();
-    const w = dens(p.x, p.y, p.z);
+    // r5: arch-a's gate-tower ledges (tags tower-cornice / tower-plinth): always crusted, fuller clumps even at the
+    //     shot-7 range (≈ 120 m: ref 7's towers carry dark coral / weed clumps along every cornice and plinth)
+    const tower = s.tag === 'tower-cornice' || s.tag === 'tower-plinth';
+    const w = tower ? Math.max(dens(p.x, p.y, p.z), 0.3) : dens(p.x, p.y, p.z);
     lib.w = w;
-    const size = THREE.MathUtils.clamp(s.size ?? 1, 0.2, 4);
+    const size = THREE.MathUtils.clamp((s.size ?? 1) * (tower ? 1.3 : 1), 0.2, 4);
     if (w < 0.03 && rng.random() > 0.06) continue;
     if (w < 0.15 && rng.random() > 0.3) continue;
     const map = maps.find((m) => m && m.sample(p.x, p.z));
     const mode = n.y > 0.7 ? 'stone' : 'wall';
-    const lod = w > 0.4 ? 1 : w > 0.15 ? 0.35 : 0;
+    const lod = tower ? Math.max(0.6, w > 0.4 ? 1 : 0.35) : w > 0.4 ? 1 : w > 0.15 ? 0.35 : 0;
     const dc = dens.dist(p.x, p.y, p.z);
     const lo = lodOf(dc), grow = 1 + THREE.MathUtils.clamp((0.6 - w) * 1.6, 0, 0.9);
     // hero structures at mid range (ref 6: the chariot group, fountains and podium smothered in coral): fuller patches

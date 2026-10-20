@@ -7,7 +7,7 @@
 // clouds (CLOUD_GLSL). It stops at the real scene depth: a tiny "depth grabber" (renderOrder -1e9) blits the
 // opaque depth of the main HDR pass into a depth texture, also published as engine.registry.sceneDepth for
 // other modules (soft particles): { texture, valid: {value}, nearFar: {value: Vector2}, size: Vector2, frame }.
-// Check renderer.getRenderTarget() === engine.pipeline.target and sceneDepth.frame === SKY.uFrame.value
+// Check renderer.getRenderTarget() === engine.pipeline.target and sceneDepth.frame === engine.sampleSerial
 // before use. If the blit is unavailable the banks fall back to the coarse terrain height map.
 //
 // Bank layout comes from a CPU map (deterministic: heightAt + seeded noise) over BANK_REGION:
@@ -391,7 +391,7 @@ function makeDepthGrabber(engine) {
       gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.DEPTH_BUFFER_BIT, gl.NEAREST);
       gl.bindFramebuffer(gl.FRAMEBUFFER, src);
       shared.valid.value = 1;
-      shared.frame = SKY.uFrame.value;
+      shared.frame = engine.sampleSerial; // r5: monotonic per-sample serial (uFrame now repeats across stills)
       shared.nearFar.value.set(camera.near, camera.far);
     } catch (e) {
       failed = true;
@@ -440,13 +440,13 @@ function makeBanks(engine, map, region, depth) {
     const cur = renderer.getRenderTarget();
     if (cur) U.uRes.value.set(cur.width, cur.height);
     else renderer.getDrawingBufferSize(U.uRes.value);
-    U.uDepthValid.value = (cur && cur === engine.pipeline?.target && depth.valid.value > 0.5 && depth.frame === SKY.uFrame.value && !CLOUDS.uBankNoDepth.value) ? 1 : 0;
+    U.uDepthValid.value = (cur && cur === engine.pipeline?.target && depth.valid.value > 0.5 && depth.frame === engine.sampleSerial && !CLOUDS.uBankNoDepth.value) ? 1 : 0;
     U.uInvVP.value.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
   };
   return mesh;
 }
 
-const TERRAIN_LOOK_KEYS = ['uFarTint', 'uRockTint', 'uGroundTint', 'uSnowLine', 'uTBounce'];
+const TERRAIN_LOOK_KEYS = ['uFarTint', 'uRockTint', 'uGroundTint', 'uSnowLine', 'uTBounce', 'uFarRock', 'uFarSky', 'uMtnK']; // r5: + terrain r5 look keys
 let terrainDefaults = null;
 const WATER_LOOK_KEYS = ['uSunSpec', 'uGlitterTint'];
 let waterDefaults = null;

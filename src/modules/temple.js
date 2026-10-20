@@ -6,6 +6,7 @@
 //                     stair:{steps:[[z,y]], x0, x1, pedestals, landings, flights}, plaza:{y, radius}, palaces[],
 //                     ramparts:[{r (outer face), rIn, y0, h, t, top}], towers:[[x, topY, z]] }
 //                     outlets:[{bearing, width, sill, top, r}] (r4: arched cascade outlets in the tier-1 face, from water spec.outlet)
+//                     stairChannel (r5: = stairChannelPlan(), the central water channel down the grand stair; water traces it)
 // r3 (citadel): great orichalcum ramparts (rampartPlan(): tier 1 = plateau retaining wall y 42 → 62.35, tier 2 above ledge 2
 // y 22 → 34 with a garden terrace), grand stair = 6 landings + flights (grandStairPlan()), planted cheek beds + two planted
 // dividers (slots.tree / slots.palm with y), low palaces / pavilions on the south face (bearings 110-250), ledge-1 south garden.
@@ -279,8 +280,12 @@ function buildColossusPedestal(engine, ctx) {
  * r3: pure plan of the grand stair (refs 1 / 4 / 5 read it as stepped marble, not a slab): `segments` of a landing followed by
  * a flight, every ≈ 12 m of drop. The landing comes first in each segment so the stair profile never dips under the
  * straight stair line the heightfield cuts the hill to (heightfield.js stairCut).
- * → { flights: [{ za, zb, ya, yb, n, riser, tread, k }], landings: [{ za, zb, y, k }], hw, zl, z1, profile(z) }
+ * → { flights: [{ za, zb, ya, yb, n, riser, tread, k }], landings: [{ za, zb, y, k }], hw (walking half-width), corridor (layout
+ *     half-width: hw + the wider planted cheek beds), zl, z1, profile(z) }
  */
+// r5: the stair proper is at most 25 m wide inside the 34 m layout corridor (CITADEL_STAIR.width): the rest becomes deeper planted cheek
+// beds (the 34 m marble face read as one tall tan column under the temple in shot 1); the stair head (STAIR_HEAD) keeps its width
+export const STAIR_WALK_HALF = 12.5;
 export function grandStairPlan() {
   const St = L.CITADEL_STAIR;
   const zl = L.STAIR_HEAD ? Math.max(St.from[2], L.STAIR_HEAD.landing[1]) : St.from[2];
@@ -302,7 +307,46 @@ export function grandStairPlan() {
     const j = Math.min(F.n - 1, Math.floor((z - F.za) / F.tread));
     return F.ya - (j + 1) * F.riser;
   };
-  return { flights, landings, hw: St.width / 2, zl, z1, seg, profile };
+  return { flights, landings, hw: Math.min(St.width / 2, STAIR_WALK_HALF), corridor: St.width / 2, zl, z1, seg, profile };
+}
+
+/**
+ * r5: the central WATER CHANNEL down the grand stair (ref 1: a white cascade on the citadel axis under the temple). Pure,
+ * layout-derived (the water module builds BEFORE the temple: import this from src/modules/temple.js). A raised marble trough on
+ * the stair centre line (never cut into the hill: the heightfield stair line stays under it):
+ *   - a POOL on every landing: floor = landing y, a lip (weir) across its downstream end, rims `rim` above the floor;
+ *   - a stepped CHUTE on every flight: the floor = the stair treads (one 0.3 m weir per riser), walls raked `rim` above;
+ *   - SOURCE: a gilt shell fountain on the top landing (z ≈ zl) pours into pool 0;
+ *   - SPOUT: the trough crosses the quay (y quayY) to the shore edge and pours ≈ 3 m into water ring 1 (y 0).
+ * → { x, half (inner half-width of the water), width (= 2 half), flow, points (= path), wall (wall thickness), rim, pools:[{k, za, zb, floorY, crestY, rimY}],
+ *     chutes:[{k, za, zb, ya, yb, n, riser, tread}], floor(z) → floor y, surface(z) → water surface y (pool: crest + 0.08,
+ *     chute: floor + 0.1), source:{pos, dir}, spout:{pos, dir, dropTo}, path:[[x, y, z]] floor polyline (each step corner) }
+ */
+export function stairChannelPlan() {
+  const SP = grandStairPlan();
+  const half = Math.max(2.4, Math.round(SP.hw * 0.24 * 10) / 10), wall = 0.55, rim = 0.5, lip = 0.22;
+  const pools = SP.landings.map((Ld) => ({ k: Ld.k, za: Ld.za, zb: Ld.zb, floorY: Ld.y, crestY: Ld.y + lip, rimY: Ld.y + rim }));
+  const chutes = SP.flights.map((F) => ({ k: F.k, za: F.za, zb: F.zb, ya: F.ya, yb: F.yb, n: F.n, riser: F.riser, tread: F.tread }));
+  const qz = L.CITADEL.radius + 0.4, qy = L.CITADEL.quayY + 0.2;   // the quay trough floor sits 0.2 above the quay paving (no z-fight)
+  const floor = (z) => (z >= SP.z1 ? qy : SP.profile(z));
+  const surface = (z) => {
+    if (z >= SP.z1) return qy + lip * 0.6 + 0.08;
+    for (const P of pools) if (z >= P.za && z <= P.zb) return P.crestY + 0.08;
+    return floor(z) + 0.1;
+  };
+  const path = [];
+  for (const P of pools) {
+    path.push([0, P.floorY, P.za], [0, P.floorY, P.zb]);
+    const F = chutes[P.k];
+    for (let j = 0; j < F.n; j++) { const y = F.ya - (j + 1) * F.riser, za = F.za + j * F.tread; path.push([0, y, za], [0, y, za + F.tread]); }
+  }
+  path.push([0, qy, SP.z1], [0, qy, qz]);
+  return {
+    x: 0, half, width: 2 * half, wall, rim, lip, flow: 0.85, pools, chutes, floor, surface, path, points: path,
+    source: { pos: [0, SP.landings[0].y + 0.33, SP.zl + 0.45], dir: [0, -0.3, 1] },   // the gilt spout under the shell (stele top ≤ 1.32 above the landing)
+    quay: { za: SP.z1, zb: qz, floorY: qy, crestY: qy + lip * 0.6 },
+    spout: { pos: [0, qy + lip * 0.6 + 0.08, qz + 0.45], dir: [0, 0, 1], dropTo: 0 },
+  };
 }
 
 /** prism over x ∈ [x0, x1] between the cross-sections z0 (y from b0 to t0) and z1 (b1 to t1): raked walls, copings, rails */
@@ -329,15 +373,83 @@ function blindArch(mI, mM, w, h) {
   box(mM, [-0.3, h - 0.1, -0.02], [0.3, h + 0.5, 0.25], 0.02, [0.1, 0.7, 0.3, 0]);           // keystone
 }
 
+/** r5: the stone of the central water channel (stairChannelPlan): pool basins + lips on the landings, raked chute walls on the
+ *  flights (the chute floor steps are built with the treads), the shell source on the top landing, the trough across the quay
+ *  and its spout lip. Publishes registry.temple.stairChannel (= the plan, for the water module / props). */
+function buildStairChannel(engine, B, CH, SP, groundMin, coral) {
+  const sunken = isSunken(engine);
+  const mb = B.marble, mg = B.gold, mP = B.get('pool'), mk = B.get('black');
+  const xi = CH.half, xo = CH.half + CH.wall, rim = CH.rim;
+  const wallPair = (za, zb, ya, yb, gl) => {
+    for (const s of [-1, 1]) {
+      const a = s * xi, b = s * xo, x0 = Math.min(a, b), x1 = Math.max(a, b);
+      rake(mb, x0, x1, za - 0.01, gl, ya + rim, zb + 0.01, gl, yb + rim, [0.05, 0.6, 0.4, 3.06]);
+      rake(mb, x0 - 0.07, x1 + 0.07, za - 0.01, ya + rim - 0.02, ya + rim + 0.14, zb + 0.01, yb + rim - 0.02, yb + rim + 0.14, [0.05, 0.9, 0.3, 0]);   // coping
+      if (!sunken) {
+        const xf = s * (xi - 0.01);   // gold fillet along the inner top edge (a glint line down the stair from the air)
+        rake(mg, Math.min(xf, xf - s * 0.05), Math.max(xf, xf - s * 0.05), za, ya + rim - 0.16, ya + rim - 0.06, zb, yb + rim - 0.16, yb + rim - 0.06, [0.1, 0.4, 0, 0]);
+      }
+    }
+  };
+  for (const P of CH.pools) {
+    const g = groundMin(-xo, xo, P.za, P.zb) - 1.0;
+    box(mP, [-xi, g, P.za - 0.01], [xi, P.floorY, P.zb + 0.01], 0, [0.05, 0.4, 0.1, 0]);
+    if (!sunken) for (const z of [P.za + 0.25, P.zb - 0.6]) box(mk, [-xi, P.floorY, z], [xi, P.floorY + 0.01, z + 0.12], 0, [0.05, 0, 0, 0]);   // dark tile bands
+    // weir lip across the downstream end (white, gold fillet on its face)
+    box(mb, [-xi, P.floorY, P.zb - 0.4], [xi, P.crestY, P.zb + 0.01], 0.02, [0.05, 0.9, 0.3, 0]);
+    if (!sunken) box(mg, [-xi, P.crestY - 0.09, P.zb + 0.01], [xi, P.crestY - 0.04, P.zb + 0.03], 0, [0.1, 0.4, 0, 0]);
+    wallPair(P.za, P.zb, P.floorY, P.floorY, g);
+    if (sunken) coral.push({ pos: [lerp(-xi, xi, ruinRand('chp' + P.k)), P.floorY + 0.05, (P.za + P.zb) / 2], normal: [0, 1, 0], size: 0.9, tag: 'stair-channel' });
+  }
+  for (const F of CH.chutes) {
+    const g = Math.min(F.yb - 1.2, groundMin(-xo, xo, F.za, F.zb) - 1.5);
+    wallPair(F.za, F.zb, F.ya, F.yb, g);
+  }
+  // source on the top landing: a marble stele with a gilt shell over a spout, a gilt triton on top (the channel's head)
+  {
+    // r5 (director B1b): everything on the stair head's south edge stays ≤ 1.5 m above the landing (shot-1 sightline to the colonnade)
+    const P0 = CH.pools[0], z0 = P0.za, y0 = P0.floorY, w = xi + 0.25;
+    box(mb, [-w, y0 - 0.5, z0 - 0.7], [w, y0 + 1.12, z0 + 0.25], 0.03, [0.05, 0.6, 0.4, 3.06]);
+    box(mb, [-w - 0.12, y0 + 1.12, z0 - 0.8], [w + 0.12, y0 + 1.32, z0 + 0.37], 0.02, [0.05, 0.9, 0.3, 0]);
+    if (!sunken) {
+      box(mg, [-w - 0.13, y0 + 1.0, z0 + 0.25], [w + 0.13, y0 + 1.08, z0 + 0.39], 0, [0.1, 0.4, 0, 0]);
+      // shell: a fan of gilt ribs over the spout
+      for (let i = 0; i < 9; i++) {
+        const a = PI * (0.1 + 0.8 * (i / 8));
+        mg.push(); mg.translate(0, y0 + 0.36, z0 + 0.27); mg.rotateZ(a - PI / 2);
+        box(mg, [-0.06, 0, 0], [0.06, 0.55, 0.07], 0.01, [0.1, 0.5, 0, 0]);
+        mg.pop();
+      }
+      box(mg, [-0.35, y0 + 0.26, z0 + 0.25], [0.35, y0 + 0.4, z0 + 0.42], 0.02, [0.1, 0.5, 0, 0]);   // spout lip
+    }
+  }
+  // the trough across the quay to the shore edge + the spout lip over water ring 1
+  {
+    const Q = CH.quay, za = Q.za, zb = Q.zb, qy = Q.floorY;
+    const g = qy - 2.2;
+    box(mP, [-xi, g, za - 0.01], [xi, qy, zb], 0, [0.05, 0.4, 0.1, 0]);
+    wallPair(za, zb, qy, qy, g);
+    box(mb, [-xi - 0.2, qy - 1.6, zb - 0.1], [xi + 0.2, Q.crestY, zb + 0.45], 0.02, [0.05, 0.9, 0.3, 0]);   // spout lip
+    if (!sunken) box(mg, [-xi - 0.2, Q.crestY - 0.2, zb + 0.45], [xi + 0.2, Q.crestY - 0.12, zb + 0.48], 0, [0.1, 0.4, 0, 0]);
+    // corbels under the lip
+    for (const s of [-1, 1]) box(mb, [s * xo - 0.35, qy - 2.6, zb - 0.1], [s * xo + 0.35, qy - 0.2, zb + 0.4], 0.03, [0.05, 0.7, 0.3, 0]);
+  }
+  const plan = { ...CH };
+  (engine.registry.temple ||= {}).stairChannel = plan;
+  engine.footprints.addPath([[0, SP.zl], [0, CH.spout.pos[2]]], xo + 0.3, 'stair-channel');
+}
+
 function buildStair(engine, ctx) {
   const sunken = isSunken(engine);
   const St = L.CITADEL_STAIR;
   const SP = grandStairPlan();
   const hw = SP.hw, z0 = St.from[2], z1 = St.to[2];
   const B = new Building('citadelStair', { detail: 1, seed: 41, variant: sunken ? 'ruined' : 'polished', weather: sunken ? 0.85 : 0.2,
-    materials: { soil: (ao) => S.stoneMaterial({ kind: 'limestone', ao, colors: { c0: '#3b2f22', c1: '#2a2118', c2: '#4a3b2a' }, veins: 0, weather: 0.6, rough: 0.95, polish: 0 }),
+    materials: { soil: (ao) => S.stoneMaterial({ kind: 'limestone', ao, colors: { c0: '#33361f', c1: '#252816', c2: '#45432a' }, veins: 0, weather: 0.6, rough: 0.95, polish: 0 }),
       // r4: treads + landings in warm honey travertine (the 34 m stair read as one bright white column in the shot-1 aerial)
-      tread: (ao) => S.marbleMaterial({ variant: sunken ? 'ruined' : 'weathered', tint: 0xdcc6a4, ao, seed: 41, overrides: { weather: sunken ? 0.85 : 0.35, streaks: 0.3 } }) } });
+      tread: (ao) => S.marbleMaterial({ variant: sunken ? 'ruined' : 'weathered', tint: 0xdcc6a4, ao, seed: 41, overrides: { weather: sunken ? 0.85 : 0.35, streaks: 0.3 } }),
+      // r5: glazed turquoise tiles lining the channel pools (the water reads turquoise even where it is thin, ref 1)
+      pool: (ao) => S.stoneMaterial({ kind: 'white', ao, colors: { c0: '#5fb3b0', c1: '#3f8f95', c2: '#7cc4bd', c3: '#2f7a82' }, veins: 0.05, weather: sunken ? 0.8 : 0.15, rough: 0.3, polish: 0.5, seed: 43 }) } });
   const mb = B.marble, mg = B.gold, mk = B.get('black'), mr = B.get('red'), mI = B.mb.interior, mS = B.get('soil'), mT = B.get('tread');
   const coral = [];
   const groundMin = (x0, x1, za, zb) => { let m = 1e9; for (let x = x0; x <= x1 + 1e-6; x += Math.max(0.5, (x1 - x0) / 6)) for (const z of [za, (za + zb) / 2, zb]) m = Math.min(m, heightAt(x, z)); return m; };
@@ -346,14 +458,19 @@ function buildStair(engine, ctx) {
   const bal = balusterTemplate(balH - 0.3, engine.quality.detail >= 1 ? 0.6 : 0.3);
   const m4 = new THREE.Matrix4();
   const ped = [];
-  // ---- landings: paving with a black border and a red / white centre panel; flat cheek walls with balustrades
+  // r5: the central water channel (stairChannelPlan) — the treads / landings stop at its walls (xo = outer half-width)
+  const CH = stairChannelPlan(), cxi = CH.half, cxo = CH.half + CH.wall;
+  const sides = [[-hw, -cxo], [cxo, hw]];
+  // ---- landings: paving with a black border and red panels in the lanes; flat cheek walls with balustrades
   for (const Ld of SP.landings) {
     const g = groundMin(-hw, hw, Ld.za, Ld.zb) - 1.0;
-    box(mT, [-hw, g, Ld.za - 0.02], [hw, Ld.y, Ld.zb + 0.02], 0.02, [0.05, 1, 0.05, 5.15]);
+    for (const [x0, x1] of sides) box(mT, [x0, g, Ld.za - 0.02], [x1, Ld.y, Ld.zb + 0.02], 0.02, [0.05, 1, 0.05, 5.15]);
     if (!sunken) {
-      box(mk, [-hw + 0.6, Ld.y, Ld.za + 0.35], [hw - 0.6, Ld.y + 0.012, Ld.za + 0.8], 0, [0.05, 0, 0, 0]);
-      box(mk, [-hw + 0.6, Ld.y, Ld.zb - 0.8], [hw - 0.6, Ld.y + 0.012, Ld.zb - 0.35], 0, [0.05, 0, 0, 0]);
-      for (const [xs, hx] of [[-hw * 0.48, hw * 0.1], [0, hw * 0.18], [hw * 0.48, hw * 0.1]]) box(mr, [xs - hx, Ld.y, Ld.za + 1.1], [xs + hx, Ld.y + 0.012, Ld.zb - 1.1], 0, [0.05, 0, 0, 5.1]);   // r4: panels in the lanes
+      for (const [x0, x1] of [[-hw + 0.6, -cxo - 0.3], [cxo + 0.3, hw - 0.6]]) {
+        box(mk, [x0, Ld.y, Ld.za + 0.35], [x1, Ld.y + 0.012, Ld.za + 0.8], 0, [0.05, 0, 0, 0]);
+        box(mk, [x0, Ld.y, Ld.zb - 0.8], [x1, Ld.y + 0.012, Ld.zb - 0.35], 0, [0.05, 0, 0, 0]);
+      }
+      for (const [xs, hx] of [[-hw * 0.48, hw * 0.1], [hw * 0.48, hw * 0.1]]) box(mr, [xs - hx, Ld.y, Ld.za + 1.1], [xs + hx, Ld.y + 0.012, Ld.zb - 1.1], 0, [0.05, 0, 0, 5.1]);   // r4: panels in the lanes
     }
     if (sunken) coral.push({ pos: [lerp(-hw, hw, ruinRand('stl' + Ld.k)), Ld.y, (Ld.za + Ld.zb) / 2], normal: [0, 1, 0], size: 0.9, tag: 'stair' });
   }
@@ -362,20 +479,23 @@ function buildStair(engine, ctx) {
     for (let j = 0; j < F.n; j++) {
       const za = F.za + j * F.tread, zb = za + F.tread, y = F.ya - (j + 1) * F.riser;
       const g = Math.min(y - 1.2, groundMin(-hw, hw, za, zb) - 1.0);
-      const parts = sunken ? 4 : 1;
-      for (let p = 0; p < parts; p++) {
-        const x0 = -hw + (St.width / parts) * p, x1 = x0 + St.width / parts;
-        const sag = sunken ? (ruinRand('stair:' + F.k + ':' + j + ':' + p) - 0.5) * 0.1 - (ruined('stair:c:' + F.k + ':' + j + ':' + p, 0.06) ? 0.14 : 0) : 0;
+      const parts = sunken ? 2 : 1;
+      for (const [sx0, sx1] of sides) for (let p = 0; p < parts; p++) {
+        const x0 = sx0 + ((sx1 - sx0) / parts) * p, x1 = x0 + (sx1 - sx0) / parts, pk = (sx0 < 0 ? 0 : 2) + p;
+        const sag = sunken ? (ruinRand('stair:' + F.k + ':' + j + ':' + pk) - 0.5) * 0.1 - (ruined('stair:c:' + F.k + ':' + j + ':' + pk, 0.06) ? 0.14 : 0) : 0;
         box(mT, [x0 + (sunken ? 0.01 : 0), g, za - 0.02], [x1 - (sunken ? 0.01 : 0), y + sag, zb + 0.01], 0.02, [0.05, 1, 0.05, 5.12]);
         if (!sunken) box(mb, [x0, y - 0.09, zb - 0.02], [x1, y, zb + 0.05], 0.015, [0.05, 0.9, 0.05, 0]);
       }
+      // channel floor step (white marble under the water: one weir per riser)
+      box(mb, [-cxi - 0.02, g, za - 0.02], [cxi + 0.02, y, zb + 0.01], 0.01, [0.05, 0.9, 0.1, 0]);
       steps.push([zb, y]);
       if (sunken && j % 6 === 3) coral.push({ pos: [lerp(-hw, hw, ruinRand('stairc' + F.k + j)), y, (za + zb) / 2], normal: [0, 1, 0], size: 0.7, tag: 'stair' });
     }
   }
+  buildStairChannel(engine, B, CH, SP, groundMin, coral);
   // ---- cheek walls (raked over the flights, level on the landings) with balustrades, pedestals on the landings,
   //      and stepped planted terraces outside them (cheek gardens, refs 4 / 5 greenery spilling down the hill)
-  const cw = 1.6, bedW = 3.8;
+  const cw = 1.6, bedW = 3.8 + Math.max(0, SP.corridor - hw);   // r5: beds widen by what the narrower stair gives back
   for (const s of [-1, 1]) {
     const xi = s * hw, xo = s * (hw + cw), xa = Math.min(xi, xo), xb = Math.max(xi, xo), xc = s * (hw + cw / 2);
     const segs = [];
@@ -409,7 +529,7 @@ function buildStair(engine, ctx) {
         }
       }
       // landing: a moulded pedestal mid-landing on the cheek (statue), braziers at the head of each flight
-      if (sg.land) {
+      if (sg.land && sg.k > 0) {   // r5 (director B1b): no statue / brazier on the top landing (it continues the stair head's south edge)
         const p = [xc, sg.ya + 0.52, (sg.za + sg.zb) / 2];
         mb.push(); mb.translate(p[0], p[1], p[2]); pedestal(mb, { w: 1.7, d: 1.7, h: 1.6, wreath: !sunken, panel: true, detail: 0.5 }); mb.pop();
         box(mg, [p[0] - 1.0, p[1] + 1.36, p[2] - 1.0], [p[0] + 1.0, p[1] + 1.42, p[2] + 1.0], 0, [0.1, 0.5, 0, 0]);
@@ -430,11 +550,16 @@ function buildStair(engine, ctx) {
         const g = groundMin(X0, X1, za, zb) - 1.5;
         if (top - g < 1.2) continue;
         const ruinTop = sunken ? top - 1.5 * ruinRand('bed' + s + bi) : top;
-        box(mb, [X0, g, za], [X1, ruinTop, zb], 0.03, [0.05, 0.5, 0.5, 3.06]);
+        box(B.get('limestone'), [X0, g, za], [X1, ruinTop, zb], 0.03, [0.05, 0.5, 0.5, 3.06]);   // r5: warm coursed limestone (the white bed faces drew the stair's edges as a white column in shot 1)
         if (!sunken) {
           box(mS, [X0 + 0.35, ruinTop, za + 0.3], [X1 - 0.35, ruinTop + 0.25, zb - 0.3], 0, [0.4, 0, 0, 0]);
-          // coping, red frieze, gold fillet on the outer face + the downhill (+z) face
-          box(mb, [X0 - 0.12, ruinTop - 0.05, za - 0.05], [X1 + 0.12, ruinTop + 0.3, zb + 0.12], 0.02, [0.05, 0.9, 0.3, 0], { bottom: false });
+          // coping (r5: a rim frame round the soil — the r3 full slab covered the bed: white bed tops from the air), red frieze,
+          // gold fillet on the outer face + the downhill (+z) face
+          const cA = [0.05, 0.9, 0.3, 0], yc0 = ruinTop - 0.05, yc1 = ruinTop + 0.32;
+          box(mb, [X0 - 0.12, yc0, za - 0.05], [X0 + 0.35, yc1, zb + 0.12], 0.02, cA, { bottom: false });
+          box(mb, [X1 - 0.35, yc0, za - 0.05], [X1 + 0.12, yc1, zb + 0.12], 0.02, cA, { bottom: false });
+          box(mb, [X0 + 0.35, yc0, za - 0.05], [X1 - 0.35, yc1, za + 0.3], 0.02, cA, { bottom: false });
+          box(mb, [X0 + 0.35, yc0, zb - 0.3], [X1 - 0.35, yc1, zb + 0.12], 0.02, cA, { bottom: false });
           const fx0 = s > 0 ? X1 : X0 - 0.1, fx1 = s > 0 ? X1 + 0.1 : X0;
           box(mr, [fx0, ruinTop - 1.4, za], [fx1, ruinTop - 0.3, zb], 0, [0.05, 0.4, 0.3, 0]);
           box(mg, [fx0 - 0.005 * s, ruinTop - 0.42, za], [fx1 + 0.005 * s, ruinTop - 0.34, zb], 0, [0.1, 0.4, 0, 0]);
@@ -449,8 +574,10 @@ function buildStair(engine, ctx) {
           }
           // planting: cypress / garden palm on the bed axis, shrubs, bougainvillea spilling over the outer edge
           const zc = (za + zb) / 2;
-          if (bi % 2 === 0) (engine.slots.tree ||= []).push({ pos: [xm + s * 0.4, ruinTop + 0.2, zc], tag: 'cypress', size: 8 + 3 * hash3(bi, s, 2) });
-          else (engine.slots.palm ||= []).push({ pos: [xm, ruinTop + 0.2, zc], size: 6 + 2 * hash3(bi, s, 3), tag: 'garden' });
+          const wide = X1 - X0 > 6.5, xr = wide ? xm - s * (X1 - X0) * 0.2 : xm;   // r5: wide beds get a second (outer) row
+          if (bi % 2 === 0) (engine.slots.tree ||= []).push({ pos: [xr + s * 0.4, ruinTop + 0.2, zc], tag: 'cypress', size: 8 + 3 * hash3(bi, s, 2) });
+          else (engine.slots.palm ||= []).push({ pos: [xr, ruinTop + 0.2, zc], size: 6 + 2 * hash3(bi, s, 3), tag: 'garden' });
+          if (wide) (engine.slots.tree ||= []).push({ pos: [xm + s * (X1 - X0) * 0.22, ruinTop + 0.2, zc + (hash3(bi, s, 6) - 0.5) * 2], tag: ['olive', 'broad', 'shrub'][bi % 3], size: [4.2, 5, 2.2][bi % 3] });
           (engine.slots.tree ||= []).push({ pos: [xm - s * 0.6, ruinTop + 0.2, za + 1.2], tag: 'shrub', size: 1.6 });
           (engine.slots.tree ||= []).push({ pos: [xm + s * 0.6, ruinTop + 0.2, zb - 1.2], tag: 'shrub', size: 1.4 });
           engine.slots.flowers.push({ pos: [xOut, ruinTop + 0.25, zc], facing: s > 0 ? 90 : 270, size: 3.0, tag: 'stair-bougainvillea' });
@@ -466,7 +593,8 @@ function buildStair(engine, ctx) {
     for (const F of SP.flights) segs.push({ za: F.za, zb: F.zb, ya: F.ya, yb: F.yb, land: false, k: F.k, r: F.riser });
     let pi = 0;
     // r4: four dividers (five lanes) and a cypress every second planter: green lines break the stair up from the air (shot 1)
-    for (const xd of [-hw * 0.66, -hw * 0.3, hw * 0.3, hw * 0.66]) for (const sg of segs) {
+    // r5: the inner pair gave way to the central water channel (stairChannelPlan): two planted dividers + the channel
+    for (const xd of hw > 14 ? [-hw * 0.66, hw * 0.66] : []) for (const sg of segs) {   // r5: no dividers on the 25 m stair (two 9 m lanes beside the channel)
       const lo = (sg.r ?? 0.3) + 0.7;
       if (sunken && ruined('stairdiv:' + xd + ':' + sg.k + sg.land, 0.4)) continue;
       rake(mb, xd - dw, xd + dw, sg.za, sg.ya - lo, sg.ya + 0.45, sg.zb, sg.yb - lo, sg.yb + 0.45, [0.05, 0.5, 0.3, 3.06]);
@@ -519,8 +647,10 @@ function buildStair(engine, ctx) {
         box(mb, [xc - 0.9, fy1 - 0.3, za - 0.02], [xc + 0.9, y + 1.0, zb + 0.02], 0.02, [0.05, 0.6, 0.4, 3.05]);
         box(mb, [xc - 1.0, y + 1.0, za - 0.03], [xc + 1.0, y + 1.18, zb + 0.03], 0.02, [0.05, 0.9, 0.3, 0]);
       }
-      const top = [xc, fy0 + 1.18, fz0 - 0.4], bot = [xc, fy1 + r + 1.18, fz1 + 0.8];
-      for (const [p, kind] of [[top, 'brazier'], [bot, 'urn']]) {
+      // r5 (director B1b): no brazier pedestals on the stair head (they stood 2.7 m above it in the shot-1 sightline to the colonnade;
+      // out of the shot-3 frame anyway) — only the foot pedestals with urns
+      const bot = [xc, fy1 + r + 1.18, fz1 + 0.8];
+      for (const [p, kind] of [[bot, 'urn']]) {
         mb.push(); mb.translate(p[0], p[1], p[2]); pedestal(mb, { w: 1.6, d: 1.6, h: 1.5, wreath: false, panel: true, detail: 0.5 }); mb.pop();
         box(mg, [p[0] - 0.95, p[1] + 1.28, p[2] - 0.95], [p[0] + 0.95, p[1] + 1.34, p[2] + 0.95], 0, [0.1, 0.5, 0, 0]);
         const slot = { pos: [p[0], p[1] + 1.5, p[2]], facing: 0, size: kind === 'brazier' ? 1.1 : 1.0, tag: 'stair-head' };
@@ -785,6 +915,9 @@ function buildPalaces(engine, ctx) {
   // r3: the great orichalcum ramparts (refs 1, 4, 5). Tier 1 IS the plateau retaining wall (y 42 → 62.35, the walkway flush
   // with the plateau balustrade), tier 2 retains the slope above ledge 2 (y 22 → 34, a 13 m garden terrace on top).
   const towersOut = [];
+  // r5: tier-1 parapet lowered to a curb where the shot-5 eye looks over the plateau rim at the temple (sightlines cross r 115.6 at
+  // bearings 185-205; the stair gap covers < 190) and its mirror (shot 1 symmetry)
+  const lowPar = (b) => { const d = Math.abs((((b % 360) + 360) % 360) - 180); return d > 8.5 && d < 29; };
   const RP = rampartPlan();
   const RB = new Building('citadelRamparts', { detail: 0.8, seed: 72, variant: sunken ? 'ruined' : 'weathered', weather: sunken ? 0.85 : 0.22 });
   RP.forEach((R, k) => {
@@ -805,7 +938,10 @@ function buildPalaces(engine, ctx) {
       // regular towers away from the south face (refs 4 / 5: the south face is one long panelled red wall), towers framing
       // the stair (both tiers) and the cascades pouring through the plateau wall (tier 1)
       towerAt: (b, since) => !south(b) && since > R.towerEvery,
-      flankAt: (b) => Math.abs(b - 180) < 15 || (k === 0 && !south(b)) || (k === 0 && Math.abs(b - 180) > 30),
+      // r5: no towers flanking the stair on either tier (with the stair they read as one tall column in shot 1; the tier-1 west one
+      // stood in front of the temple in shot 5, the tier-2 east one in front of the hill in shot 4)
+      flankAt: (b) => k === 0 && (!south(b) || Math.abs(b - 180) > 30),
+      lowParapetAt: k === 0 ? lowPar : null,
       onTower: (p, a, top) => {
         towersOut.push([p[0], top, p[2]]);
         if (!sunken) engine.slots.banner.push({ pos: p, facing: (a * 180) / PI, width: 1.8, height: 6, size: 6, tag: 'citadel-tower' });
@@ -814,11 +950,14 @@ function buildPalaces(engine, ctx) {
         const fac = (bay.a * 180) / PI;
         if (sunken) { if (bay.i % 3 === 0) coral.push({ pos: [Math.sin(bay.a) * (rr - 1.5), bay.top, -Math.cos(bay.a) * (rr - 1.5)], normal: [0, 1, 0], size: 1.3, tag: 'rampart' }); return; }
         // urns on the parapet merlons, bougainvillea spilling over the parapet, garden planting on the tier-2 terrace
-        if (bay.i % 2 === 0) engine.slots.urn.push({ pos: [Math.sin(bay.a) * (rr + 0.05), R.yTop + 1.7, -Math.cos(bay.a) * (rr + 0.05)], facing: fac, size: 0.9, tag: 'rampart' });
-        if (bay.i % 3 === 1) engine.slots.flowers.push({ pos: [Math.sin(bay.a) * (rr - 0.6), R.yTop, -Math.cos(bay.a) * (rr - 0.6)], facing: fac, size: 3.2, tag: 'rampart-bougainvillea' });
+        const lowHere = k === 0 && lowPar(fac);
+        if (bay.i % 2 === 0 && !lowHere) engine.slots.urn.push({ pos: [Math.sin(bay.a) * (rr + 0.05), R.yTop + 1.7, -Math.cos(bay.a) * (rr + 0.05)], facing: fac, size: 0.9, tag: 'rampart' });
+        if (bay.i % 3 === 1 && !lowHere) engine.slots.flowers.push({ pos: [Math.sin(bay.a) * (rr - 0.6), R.yTop, -Math.cos(bay.a) * (rr - 0.6)], facing: fac, size: 3.2, tag: 'rampart-bougainvillea' });
         if (k === 1) {
           const mid = (R.rIn + rr) / 2 - 1;
-          const kind = ['cypress', 'shrub', 'olive', 'shrub', 'cypress', 'broad'][bay.i % 6];
+          // r5: low planting only where shot 4 looks over the tier-2 terrace at the red tier 1 (water-level eye at bearing 163)
+          const lowPlant = fac > 118 && fac < 178;
+          const kind = lowPlant ? ['shrub', 'olive', 'shrub', 'shrub', 'olive', 'shrub'][bay.i % 6] : ['cypress', 'shrub', 'olive', 'shrub', 'cypress', 'broad'][bay.i % 6];
           const p = L.polar(mid + (hash3(bay.i, 4, 1) - 0.5) * 5, fac + (hash3(bay.i, 5, 1) - 0.5) * 2);
           if (kind === 'cypress' && bay.i % 4 === 0) (engine.slots.palm ||= []).push({ pos: [p[0], R.yTop, p[1]], size: 8 + 3 * hash3(bay.i, 6, 1), tag: 'garden' });
           else (engine.slots.tree ||= []).push({ pos: [p[0], R.yTop, p[1]], tag: kind, size: kind === 'cypress' ? 11 : kind === 'shrub' ? 1.8 : 5 });

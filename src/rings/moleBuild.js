@@ -28,10 +28,25 @@ export function buildMole(ctx, M) {
   }
   // ---- greenery on the top (golden): a cypress row behind the curtain (ref 4 skyline), palms near the head
   if (!ctx.sunken) {
+    // r5 (vegetation request, ref 4): the shot-4 eye (26 m off the curtain at y 2-3) sees the land side of the mole only
+    // through one window: between the -44 m and -71 m pylons, above the coping (the other gaps are hidden by the pylons
+    // overlapping in perspective). So the row hugs the curtain's land-side wall (lat ≈ 9.6-11), trees ≈ 4 m apart in
+    // groups between the pylons, tall (18-25 m above the mole top) so their spires clear the coping by 3-10 m there.
+    // Deterministic per index (no shared-rng drift).
     const tree = (ctx.engine.slots.tree ||= []);
-    for (let s = mp.sBack + 14; s < mp.sEnd - 6; s += 8.5) {
-      const [x, z] = P(s, mp.spec.depth + 7.5);
-      tree.push({ pos: [x, mp.spec.landY, z], tag: 'cypress', size: 13 + 4 * ctx.rng.random(), source: 'rings-mole' });
+    const hsh = (k, j) => { const v = Math.sin(k * 127.1 + j * 311.7) * 43758.5453; return v - Math.floor(v); };
+    const pyl = mp.towers.map((t) => t.s).sort((a, b) => a - b);
+    let k = 0;
+    for (let i = 0; i + 1 < pyl.length; i++) {
+      const a = pyl[i] + 3.4, b = pyl[i + 1] - 3.4;
+      if (b - a < 3 || b > mp.sEnd - 4) continue;
+      const n = Math.max(2, Math.round((b - a) / 4.1));
+      for (let j = 0; j < n; j++, k++) {
+        if (j > 0 && j < n - 1 && hsh(k, 9) < 0.18) continue;   // irregular gaps: not a copy-pasted row
+        const s = a + (b - a) * ((j + 0.5) / n) + (hsh(k, 1) - 0.5) * 1.3;
+        const [x, z] = P(s, mp.spec.depth + 5.7 + 1.4 * hsh(k, 2));
+        tree.push({ pos: [x, mp.spec.landY, z], tag: 'cypress', size: 18 + 7 * hsh(k, 3), source: 'rings-mole' });
+      }
     }
     for (let s = mp.sBack + 20; s < mp.sEnd - 6; s += 17) {
       const [x, z] = P(s, mp.latE - 5);

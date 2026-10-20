@@ -5,3 +5,6 @@ src/vegetation/library.js   buildLibrary(sys, engine) -> { palm[], cypress[], ol
 src/vegetation/instances.js VegSystem.add(variant, x, y, z, yaw, scale, {tint, width, up}) ; engine.registry.vegetation = VegSystem
 Inputs consumed: engine.slots.palm [{pos, size (m), tag: palm style}], engine.slots.tree [{pos, tag: palm|cypress|olive|broad|pine|shrub, size}],
   engine.registry.cypressRows, engine.registry.city.gardens, engine.footprints (all tags block), SHOTS (golden foregrounds kept clear).
+r5: VegSystem.setPath(cams[]) freezes LOD/culling for a whole camera path; modules/vegetation.js calls it on every applyShot with
+  26 cameras sampled from src/video/sequence.js cameraAt (the shot's segment) → no LOD pops in the video (vegNoPath=1 disables).
+  slots.tree size = the overall height of the picked variant (rings-mole cypress ×1.35, ≤ 32 m); slot trees skip the still-camera cone.

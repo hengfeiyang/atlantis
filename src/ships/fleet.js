@@ -32,6 +32,25 @@ export class Fleet {
     return v;
   }
   add(key, build, matrix) { const v = this.variant(key, build); v.mats.push(matrix.clone()); this.count++; return v; }
+  /** r5: an instance that sails along its heading during the video segments (dispAt(t) → metres along fwd) */
+  addMoving(key, build, matrix, fwd, speed, onMove) {
+    const v = this.add(key, build, matrix);
+    (this.movers ||= []).push({ v, i: v.mats.length - 1, base: matrix.clone(), fwd, speed, onMove, d: 0 });
+    return v;
+  }
+  /** move the sailing instances to time t (dispAt(t, speed) → displacement along the heading, m) */
+  update(t, dispAt) {
+    if (!this.movers?.length) return;
+    const dirty = new Set(), m = new THREE.Matrix4();
+    for (const mv of this.movers) {
+      const d = dispAt(t, mv.speed);
+      if (d === mv.d) continue;
+      mv.d = d; m.copy(mv.base); m.elements[12] += mv.fwd[0] * d; m.elements[14] += mv.fwd[1] * d;
+      for (const im of mv.v.meshes || []) { im.setMatrixAt(mv.i, m); dirty.add(im); }
+      mv.onMove?.(d);
+    }
+    for (const im of dirty) { im.instanceMatrix.needsUpdate = true; im.computeBoundingSphere(); }
+  }
   finalize() {
     const wm = shipWoodMaterial(), sm = sailMaterial();
     for (const v of this.variants.values()) {
@@ -43,6 +62,7 @@ export class Fleet {
         im.instanceMatrix.needsUpdate = true;
         im.computeBoundingSphere();
         im.name = `ships-${v.key}-${nm}`;
+        (v.meshes ||= []).push(im);
         im.castShadow = true; im.receiveShadow = true;
         this.group.add(im);
         this.tris += (geo.index.count / 3) * v.mats.length;
@@ -64,7 +84,7 @@ export class Wakes {
     const sorted = this.list.slice().sort((a, b) => d(a) - d(b));
     if (api) {
       let n = 0;
-      for (const w of sorted) { if (n >= max) break; try { api({ pos: w.pos, heading: w.heading, length: w.length, beam: w.beam, speed: w.speed, oars: !!w.oars, id: w.id }); n++; } catch (e) { console.warn('[ships] addWake failed', e); break; } }
+      for (const w of sorted) { if (n >= max) break; try { w.handle = api({ pos: w.pos, heading: w.heading, length: w.length, beam: w.beam, speed: w.speed, oars: !!w.oars, id: w.id }); n++; } catch (e) { console.warn('[ships] addWake failed', e); break; } }
       return { mode: 'water-api', n };
     }
     // fallback: foam decal meshes (V wake + bow churn) on the golden sea surface
@@ -131,8 +151,12 @@ export function buildHero(engine, spec) {
     oars.instanceMatrix.needsUpdate = true;
     oars.computeBoundingSphere();
   };
-  const [x, , z] = spec.pos;
+  const [x0, , z0] = spec.pos;
+  const [hfx, hfz] = fwdOf(spec.heading);
   const place = (t) => {
+    // r5: the hero advances along its heading during its video segment (spec.dispAt(t) → metres; 0 in stills)
+    const d = spec.dispAt ? spec.dispAt(t) : 0, x = x0 + hfx * d, z = z0 + hfz * d;
+    spec.onMove?.(d);
     const wr = engine.registry.water;
     const y = wr?.surfaceHeight ? wr.surfaceHeight(x, z, t) - (wr.level || 0) : 0;
     g.position.set(x, (spec.pos[1] || 0) + y * 0.8 + 0.03 * Math.sin(t * 2 * Math.PI * strokeHz), z);

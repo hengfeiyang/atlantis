@@ -23,6 +23,7 @@ export function setupVideo(engine, SHOTS) {
     const cam = engine.camera;
     const gl = engine.renderer.getContext();
     engine.ensurePatched();
+    engine.frameNo = si * 1000 + frame; // deterministic per-frame noise index (engine.subFrame)
     engine.pipeline.begin();
     for (let i = 0; i < spp; i++) {
       // sub-frame time within the shutter interval (centred on the frame time)

@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import * as L from '../world/layout.js';
 import { Building } from '../arch/build.js';
-import { box, extrudeOutline } from '../arch/geom.js';
+import { box, extrudeOutline, ellipsoid, cylinder } from '../arch/geom.js';
 import { tholos } from '../arch/tholos.js';
 import { RNG } from '../core/rng.js';
 import { towerInto } from './precinct.js';
@@ -142,6 +142,94 @@ export function buildBackdrop8(engine, F, G, q) {
     const tg = T.finalize({ position: [p.x, gy + t.h + 0.7 + 2 * 0.28, p.z], rotY: yaw, ao: false });
     group.add(tg);
   }
-  group.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  // ---- r5: the far city on the citadel shore (ref 8 right half: terraces climbing to the right, towers, domes, an arcade
+  //      left of the head) — blue silhouettes at 110-200 m that rise above the l1 curtain wall 44 m away
+  try { group.add(farCity8(engine, F, G, det)); } catch (e) { console.error('[sets] far city 8 failed', e.stack || e); }
+  group.traverse((m) => { if (m.isMesh && !m.userData.farCity) { m.castShadow = true; m.receiveShadow = true; } });
   return group;
 }
+
+/**
+ * r5 (sunken): far silhouettes for shot 8, laid out in REFERENCE PIXELS of the shot-8 design frame (px, top row, depth):
+ * stepped terrace walls climbing to the right, blocky houses on them, tall white/red towers with gilded tholoi and a
+ * domed temple. Modest detail: the medium turns them into blue shapes (ref 8 background). No shadows cast, no AO.
+ */
+function farCity8(engine, F, G, det) {
+  const g = new THREE.Group(); g.name = 'sets:farCity8';
+  const rng = new RNG('set8:farcity');
+  const top = (px, py, d) => F.at(px, py, d).y;
+  const base = (x, z) => Math.min(G(x, z), 4) - 1.5;
+  const B = new Building('set8-farcity', { detail: det * 0.7, seed: 85, variant: 'ruined', weather: 0.9 });
+  const mw = B.marble, mr = B.get('red'), mi = B.mb.interior, mg = B.gold;
+  const aux = [0.1, 0.3, 0.6, 3.05];
+  // local frame of the group: origin at the camera ground point, x = right, z = toward the camera (−fwd), y world
+  const O = new THREE.Vector3(F.pos.x, 0, F.pos.z);
+  const toLocal = (p) => { const d = p.clone().sub(O); return [d.dot(F.right), p.y, -d.dot(F.fwd)]; };
+  // terrace bands: [px0, px1, top row, depth]
+  const TER = [[690, 1700, 262, 150], [800, 1700, 218, 162], [930, 1700, 178, 174], [1060, 1640, 142, 186]];  // tops clear the l1 curtain wall (row ≈ 200-260)
+  const items = [];
+  for (const [a, b, row, d] of TER) {
+    const pa = F.at(a, 470, d), pb = F.at(b, 470, d), pc = F.at((a + b) / 2, 470, d);
+    const yT = top((a + b) / 2, row, d), yB = base(pc.x, pc.z);
+    const la = toLocal(pa), lb = toLocal(pb);
+    const x0 = Math.min(la[0], lb[0]), x1 = Math.max(la[0], lb[0]), z0 = la[2] - 7, z1 = la[2] + 3;
+    // the wall in stretches of unequal height (ruined crest), white with red courses, dark openings
+    for (let x = x0; x < x1; x += rng.range(7, 13)) {
+      const xe = Math.min(x1, x + rng.range(7, 13)), h = yT - rng.range(0, 2.5);
+      box(mw, [x, yB, z0], [xe, h, z1], 0.05, aux);
+      for (let y = yB + 4; y < h - 1; y += rng.range(3.5, 5)) box(mr, [x - 0.05, y, z1 - 0.02], [xe + 0.05, y + 0.6, z1 + 0.06], 0, [0.1, 0.4, 0.4, 0]);
+      if (rng.random() < 0.6) { const wx = (x + xe) / 2; box(mi, [wx - 0.8, h - 5, z1], [wx + 0.8, h - 1.8, z1 + 0.04], 0, [0.9, 0, 0, 0]); }
+      items.push([(x + xe) / 2, h, (z0 + z1) / 2, xe - x]);
+    }
+  }
+  // houses / blocks on the terrace crests
+  for (const [cx, h, cz, w] of items) {
+    if (rng.random() < 0.35) continue;
+    const bw = Math.min(w * 0.8, rng.range(4, 8)), bh = rng.range(3, 8), bd = rng.range(4, 7);
+    const ox = cx + rng.range(-1, 1) * (w - bw) * 0.4, oz = cz - rng.range(2, 6);
+    box(mw, [ox - bw / 2, h - 0.5, oz - bd / 2], [ox + bw / 2, h + bh, oz + bd / 2], 0.05, aux);
+    box(mi, [ox - 0.6, h + bh * 0.4, oz + bd / 2], [ox + 0.6, h + bh * 0.4 + 1.8, oz + bd / 2 + 0.04], 0, [0.9, 0, 0, 0]);
+    if (rng.random() < 0.2) { mg.push(); mg.translate(ox, h + bh, oz); ellipsoid(mg, bw * 0.38, bw * 0.34, bw * 0.38, 14, 8); mg.pop(); }
+  }
+  // tall towers: [px, top row, depth, width]
+  const TW = [[875, 72, 158, 6.5], [1440, 58, 176, 7], [1330, 110, 150, 6], [1010, 118, 140, 5]];
+  for (const [px, row, d, w] of TW) {
+    const p = F.at(px, 470, d), l = toLocal(p), yT = top(px, row, d), yB = base(p.x, p.z), hw = w / 2;
+    const ht = yT - 6;   // shaft top (the tholos-like crown above)
+    box(mw, [l[0] - hw, yB, l[2] - hw], [l[0] + hw, ht, l[2] + hw], 0.05, aux);
+    for (let y = yB + 5; y < ht - 1; y += 3.4) box(mr, [l[0] - hw - 0.06, y, l[2] - hw - 0.06], [l[0] + hw + 0.06, y + 0.7, l[2] + hw + 0.06], 0, [0.1, 0.4, 0.4, 0]);
+    for (const y of [ht - 7, ht - 14]) box(mi, [l[0] - 0.7, y, l[2] + hw], [l[0] + 0.7, y + 3, l[2] + hw + 0.04], 0, [0.9, 0, 0, 0]);
+    box(mw, [l[0] - hw - 0.5, ht, l[2] - hw - 0.5], [l[0] + hw + 0.5, ht + 0.8, l[2] + hw + 0.5], 0.04, aux);
+    // crown: a drum of piers + a gilded dome + finial
+    mw.push(); mw.translate(l[0], ht + 0.8, l[2]); cylinder(mw, hw * 0.8, hw * 0.8, 0, 3.2, 16, { capTop: true }); mw.pop();
+    mg.push(); mg.translate(l[0], ht + 4.0, l[2]); ellipsoid(mg, hw * 0.85, hw * 0.75, hw * 0.85, 16, 9); mg.pop();
+    mg.push(); mg.translate(l[0], ht + 4.0, l[2]); cylinder(mg, 0.18, 0.08, 0, hw * 0.75 + 2.2, 6, { capTop: true }); mg.pop();
+  }
+  // domed temple high on the hill (ref 8 px ≈ 1090-1290, row ≈ 150-230)
+  {
+    const px = 1085, d = 190, p = F.at(px, 470, d), l = toLocal(p), yT = top(px, 95, d), R = 10;
+    const yB = top(px, 178, d);
+    box(mw, [l[0] - R - 2, yB - 6, l[2] - R - 2], [l[0] + R + 2, yB, l[2] + R + 2], 0.05, aux);
+    mw.push(); mw.translate(l[0], yB, l[2]); cylinder(mw, R, R, 0, (yT - yB) * 0.55, 28, { capTop: true }); mw.pop();
+    for (let k = 0; k < 14; k++) { const a = (k / 14) * PI * 2; box(mi, [l[0] + Math.cos(a) * R - 0.5, yB + 2, l[2] + Math.sin(a) * R - 0.5], [l[0] + Math.cos(a) * R + 0.5, yB + (yT - yB) * 0.45, l[2] + Math.sin(a) * R + 0.5], 0, [0.9, 0, 0, 0]); }
+    mg.push(); mg.translate(l[0], yB + (yT - yB) * 0.55, l[2]); ellipsoid(mg, R * 0.95, (yT - yB) * 0.45, R * 0.95, 24, 12); mg.pop();
+  }
+  // ruined aqueduct arcade left of the head (ref 8 px ≈ 430-700, rows ≈ 300-420)
+  {
+    const d = 112, pa = F.at(430, 470, d), pb = F.at(700, 470, d), la = toLocal(pa), lb = toLocal(pb);
+    const yB = base((pa.x + pb.x) / 2, (pa.z + pb.z) / 2), yT = top(560, 300, d);
+    const n = 6, span = (lb[0] - la[0]) / n, zc = (la[2] + lb[2]) / 2;
+    for (let i = 0; i <= n; i++) {
+      const x = la[0] + i * span, h = (i === 2 || i === 5) ? yT - rng.range(4, 8) : yT;
+      box(mw, [x - 1.4, yB, zc - 1.2], [x + 1.4, h, zc + 1.2], 0.04, aux);
+      if (i < n && i !== 2 && i !== 4) box(mw, [x + 1.4, yT - 3.2, zc - 1.2], [x + span - 1.4, yT, zc + 1.2], 0.04, aux); // lintel band (arches read as openings at this range)
+    }
+  }
+  const grp = B.finalize({ position: [O.x, 0, O.z], rotY: yawFrame(F), ao: false });
+  grp.traverse((m) => { if (m.isMesh) { m.castShadow = false; m.receiveShadow = true; m.userData.farCity = true; } });
+  g.add(grp);
+  return g;
+}
+
+/** rotation about Y that maps the group's local (x right, z toward the camera) onto the frame's right / −fwd */
+function yawFrame(F) { return Math.atan2(-F.right.z, F.right.x); }

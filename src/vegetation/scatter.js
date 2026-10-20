@@ -12,6 +12,7 @@ import { heightAt, slopeAt } from '../world/heightfield.js';
 import { noiseA, noiseB, noiseC, smoothstep, clamp } from '../core/noise.js';
 import { RNG } from '../core/rng.js';
 import { SHOTS } from '../world/shots.js';
+import { SEQUENCE, cameraAt } from '../video/sequence.js';
 import { surfaceMap } from './surface.js';
 
 class Occ {
@@ -81,6 +82,24 @@ export function scatterWorld(engine, sys, lib) {
     const f = [s.target[0] - s.pos[0], s.target[2] - s.pos[2]], l = Math.hypot(f[0], f[1]) || 1;
     return { x: s.pos[0], z: s.pos[2], fx: f[0] / l, fz: f[1] / l, half: Math.atan(Math.tan((s.fov * D2R) / 2) * 1672 / 941) + 0.25 };
   });
+  // (r5) ... and the whole video-segment camera path of the low golden shots (src/video/sequence.js): no plant within
+  // a few metres of the lens anywhere along the move (the still-camera cone above only covers u = 0.5)
+  const pathPts = [];
+  for (const s of SHOTS.filter((q) => q.era === 'golden' && q.pos[1] < 80)) {
+    const seg = SEQUENCE.find((g) => String(g.shot) === String(s.id));
+    if (seg) for (let i = 0; i <= 32; i++) pathPts.push(cameraAt(s, seg, i / 32).pos);
+  }
+  const HK = { palm: 12, cypress: 17, olive: 5, broad: 8, pine: 13, shrub: 1.6, thicket: 3 };
+  const nearPath = (kind, x, y, z, s) => {
+    const rr = OCC[kind] * s * 0.8 + 2.5, top = y + HK[kind] * s;
+    for (const p of pathPts) {
+      const dx = x - p[0], dz = z - p[2];
+      if (Math.abs(dx) > rr + 1 || Math.abs(dz) > rr + 1) continue;
+      const dy = Math.max(y - p[1], 0, p[1] - top);
+      if (dx * dx + dy * dy + dz * dz < rr * rr) return true;
+    }
+    return false;
+  };
   const G5 = L.polar(L.GARDEN_TERRACE.r + 14, L.GARDEN_TERRACE.bearing);
   const protectedAt = (x, z) => {
     for (const c of cams) {
@@ -106,13 +125,14 @@ export function scatterWorld(engine, sys, lib) {
     const rng = o.rng;
     let s = o.s ?? rng.range(...SCALE[kind]);
     let y = o.y;
-    if (!o.hero && protectedAt(x, z)) { rej.cam = (rej.cam || 0) + 1; return false; }
+    if (!o.hero && !o.slot && protectedAt(x, z)) { rej.cam = (rej.cam || 0) + 1; return false; }
     if (y === undefined) {
       y = heightAt(x, z);
       if (y < (o.minH ?? 1.0)) { rej.low++; return false; }
       if ((o.maxSlope ?? 0.35) < 1 && slopeAt(x, z, 1.2) > (o.maxSlope ?? 0.35)) { rej.slope++; return false; }
       if (edgeDist(x, z) < (o.edge ?? 5)) { rej.edge++; return false; }
     }
+    if (!o.hero && pathPts.length && nearPath(kind, x, y, z, s)) { rej.path = (rej.path || 0) + 1; return false; }
     const rOcc = OCC[kind] * s * (o.occK ?? 1);
     if (!occ.free(x, z, rOcc)) { rej.occ++; return false; }
     if (!o.noFp && fp && !fp.isFree(x, z, FPR[kind] * Math.max(0.7, s) * (o.fpK ?? 1), o.fpIgnore || null)) { rej.fp++; return false; }
@@ -122,7 +142,7 @@ export function scatterWorld(engine, sys, lib) {
     const cap = heightCap(kind, x, z);
     if (cap && v.H * s > cap) s = cap / v.H;
     const tint = o.tint ? o.tint : kind === 'palm' ? [rng.range(0.92, 1.08), rng.range(0.95, 1.06), rng.range(0.88, 1.02)] : [rng.range(0.9, 1.08), rng.range(0.92, 1.05), rng.range(0.88, 1.0)];
-    sys.add(v, x, y, z, o.yaw ?? rng.random() * Math.PI * 2, s, { tint, width: rng.range(0.92, 1.08), up: o.up });
+    sys.add(v, x, y, z, o.yaw ?? rng.random() * Math.PI * 2, s, { tint, width: rng.range(0.92, 1.08) * (o.width || 1), up: o.up });
     occ.add(x, z, rOcc);
     st[kind]++;
     return true;
@@ -178,9 +198,16 @@ export function scatterWorld(engine, sys, lib) {
     }
     for (const sl of engine.slots?.tree || []) {
       const kind = lib[sl.tag] ? sl.tag : 'shrub';
-      const H0 = { palm: 12, cypress: 17, olive: 5, broad: 8, pine: 13, shrub: 1.6, thicket: 3 }[kind];
-      const s = sl.size ? clamp(sl.size / H0, 0.3, 1.6) : rng.range(...SCALE[kind]);
-      place(kind, sl.pos[0], sl.pos[2], { rng, s, y: sl.pos[1], noFp: true, occK: 0.5 });
+      // (r5) size = the overall height asked for: scale the PICKED variant to it (the young / pencil cypress variants are
+      // 11-26 m at scale 1, so a 20 m mole-row slot came out 13 m and vanished behind the shot-4 curtain)
+      const variant = pickVar(kind, rng, kind === 'palm' ? PALMY : null);
+      // shed-mole cypress row (rings-mole, 18-25 m): from the shot-4 eye (2.5 m, 32 m away) the 26 m curtain + pylons hide
+      // everything below ≈ 33 m → ×1.35 (≤ 32 m tall): the spires rise well above the curtain like the ref-4 skyline
+      const size = sl.size && kind === 'cypress' && sl.source === 'rings-mole' ? Math.min(32, sl.size * 1.35) : sl.size;
+      const s = size ? clamp(size / variant.H, 0.3, 2.0) : rng.range(...SCALE[kind]);
+      // slots are placed deliberately by the architecture (e.g. the mole-top cypress row above the shot-4 curtain): the
+      // still-camera foreground cone does not apply (the 3D camera-path clearance still does)
+      place(kind, sl.pos[0], sl.pos[2], { rng, s, y: sl.pos[1], noFp: true, occK: 0.5, variant, slot: true });
     }
     for (const row of engine.registry?.cypressRows || []) {
       const pts = row.points, sp = row.spacing || 7;
@@ -257,11 +284,30 @@ export function scatterWorld(engine, sys, lib) {
         const r = Math.hypot(x, z) || 1, k = Math.min(0.55, (st0.grad - 1.1) * 0.3) * rng.range(0.6, 1.2);
         up = [(x / r) * k, 1, (z / r) * k];
       }
-      return place(kind, x, z, { rng, s, y: st0.y - sink, up, style: o.style || PALMY, occK: o.occK ?? 1, fpK: o.fpK ?? 1, noFp: o.noFp, variant: o.variant, fpIgnore: FP_IGNORE });
+      // (r5) maquis on the steep faces: wide, low cushions draped over the rock (from the shot-1 aerial the narrow
+      // bushes left the cliff bands under the ledges bare grey; ref 1 reads green there)
+      let width;
+      if ((kind === 'shrub' || kind === 'thicket') && st0.grad > 0.8) width = (1.3 + Math.min(0.55, (st0.grad - 0.8) * 0.45)) * rng.range(0.85, 1.15);
+      return place(kind, x, z, { rng, s, y: st0.y - sink, up, width, style: o.style || PALMY, occK: (o.occK ?? 1) * (width ? Math.sqrt(width) : 1), fpK: o.fpK ?? 1, noFp: o.noFp, variant: o.variant, fpIgnore: o.fpIgnore || FP_IGNORE });
     };
     const mixPick = (mix) => choose(mix, rng);
     // planting reservations of the citadel module (its own garden slots are placed above): fill between them
     const FP_IGNORE = ['citadel-ledge-garden'];
+    const FP_IGNORE_FALL = [...FP_IGNORE, 'waterfall'], FP_IGNORE_SLOPE = [...FP_IGNORE_FALL, 'rampart'];
+    // (r5) the rampart footprint is the wall + 1.6 m each side: test the wall ring itself (registry.temple.ramparts) so the
+    // maquis reaches down to the rampart's inner face (the rock band above the tier-2 rampart read bare from the air)
+    const RAMP = (engine.registry?.temple?.ramparts || []).map((R) => [R.rIn - 0.4, R.r + 0.6]);
+    const nearFall = (x, z) => {
+      if (RAMP.length) { const r = Math.hypot(x, z); for (const [a, b] of RAMP) if (r > a && r < b) return true; }
+      else if (fp && fp.query(x, z, 0.8).some((it) => it.tag === 'rampart')) return true;
+      for (const it of fp ? fp.query(x, z, 0.5, null) : []) {
+        if (it.tag !== 'waterfall' || it.type !== 'r') continue;
+        const dx = x - it.x, dz = z - it.z;
+        const lx = dx * it.cos - dz * it.sin, lz = dx * it.sin + dz * it.cos;
+        if (Math.abs(lx) < it.hw - 1.2 && Math.abs(lz) < it.hd) return true;
+      }
+      return false;
+    };
     // no tall trees on the near (south) plateau rim: from the water-level cameras (shots 4 / 5) they hide the temple
     const southRim = (b) => b > 112 && b < 245;
     const stairSector = (b, r) => Math.abs(r * Math.sin((b - 180) * D2R)) < L.CITADEL_STAIR.width / 2 + 5 && b > 90 && b < 270;
@@ -312,7 +358,8 @@ export function scatterWorld(engine, sys, lib) {
           const [x, z] = L.polar(r + rng.range(-1.5, 1.5), b);
           const m = noiseB.fbm2(x * 0.03, z * 0.03, 3);
           if (m < -0.55 || !rng.chance(0.95 * Math.sqrt(D) * smoothstep(-0.55, -0.05, m))) continue;
-          plant(mixPick({ broad: 4.2, palm: 2.0, cypress: 0.9, olive: 1.5, shrub: 3.5, thicket: 0.8 }), x, z, { maxGrad: 0.35 });
+          if (nearFall(x, z)) continue;
+          plant(mixPick({ broad: 4.2, palm: 2.0, cypress: 0.9, olive: 1.5, shrub: 3.5, thicket: 0.8 }), x, z, { maxGrad: 0.35, fpIgnore: FP_IGNORE_FALL });
         }
       }
     }
@@ -326,9 +373,14 @@ export function scatterWorld(engine, sys, lib) {
         for (let b = rng.random() * step; b < 360; b += step * rng.range(0.8, 1.25)) {
           const [x, z] = L.polar(r + rng.range(-1.0, 1.0), b);
           const m = noiseB.fbm2(x * 0.025 + 11, z * 0.025, 3) + 0.25 * noiseC.noise2(x * 0.11, z * 0.11);
-          if (m < -0.7 || !rng.chance(0.97 * Math.sqrt(D) * smoothstep(-0.7, -0.1, m))) continue;
-          const k = mixPick({ shrub: 1.8, thicket: 3.4, broad: 3.6, cypress: 1.2, olive: 0.8, palm: 0.4, pine: 0.4 });
-          plant(k, x, z, { style: ['leaning', 'medium'], occK: 0.6, noFp: false, k: k === 'shrub' ? 1.45 : k === 'thicket' ? 1.3 : 1 });
+          if (m < -0.85 || !rng.chance(0.97 * Math.sqrt(D) * smoothstep(-0.85, -0.3, m))) continue;   // r5: greener (was -0.7 / -0.1)
+          let k = mixPick({ shrub: 2.2, thicket: 4.2, broad: 3.6, cypress: 1.2, olive: 0.8, palm: 0.4, pine: 0.4 });
+          // the strip just inside a rampart (the old footprint margin): low maquis only, nothing that rises over the wall
+          if (k !== 'shrub' && k !== 'thicket' && RAMP.some(([a]) => { const rr = Math.hypot(x, z); return rr > a - 3.2 && rr <= a; })) k = 'thicket';
+          // (r5) green right up to the cascades (refs 1 / 4 / 5): the waterfall corridors (water half-width + 1.5 m) are
+          // tested 1.2 m narrower here, so the crowns reach the spray instead of leaving a bare rock band beside each fall
+          if (nearFall(x, z)) { rej.fall = (rej.fall || 0) + 1; continue; }
+          plant(k, x, z, { style: ['leaning', 'medium'], occK: 0.6, noFp: false, fpIgnore: FP_IGNORE_SLOPE, k: k === 'shrub' ? 1.45 : k === 'thicket' ? 1.3 : 1 });
         }
       }
     }

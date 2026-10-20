@@ -366,7 +366,12 @@ export class Pipeline {
           // lateral chromatic aberration grows toward the frame edge
           vec2 d = (uv - 0.5);
           float k = uChroma * dot(d, d) * 4.0;
-          return vec3(texture2D(tHDR, uv - d * k).r, texture2D(tHDR, uv).g, texture2D(tHDR, uv + d * k).b);
+          vec3 c0 = texture2D(tHDR, uv).rgb;
+          // r5 (look-golden): the shifted channels are limited to 2× / 0.5× of the centre sample: a sub-pixel shift across
+          // the HDR sun disk (radiance ~1000× the sky) otherwise painted a magenta / blue ring around it (shot 1, in motion)
+          float r = clamp(texture2D(tHDR, uv - d * k).r, c0.r * 0.5, c0.r * 2.0 + 0.02);
+          float b = clamp(texture2D(tHDR, uv + d * k).b, c0.b * 0.5, c0.b * 2.0 + 0.02);
+          return vec3(r, c0.g, b);
         }
         void main(){
           vec2 px = 1.0 / uRes;
@@ -374,7 +379,15 @@ export class Pipeline {
           // unsharp mask (restores crispness lost to supersampling)
           vec3 blur = (texture2D(tHDR, vUv + vec2(px.x, 0.0)).rgb + texture2D(tHDR, vUv - vec2(px.x, 0.0)).rgb
                      + texture2D(tHDR, vUv + vec2(0.0, px.y)).rgb + texture2D(tHDR, vUv - vec2(0.0, px.y)).rgb) * 0.25;
-          c = max(c + (c - blur) * uSharpen, vec3(0.0));
+          // r5 (look-golden): luminance-only unsharp mask in a compressed domain Y/(1+Y). The r4 per-channel HDR unsharp
+          // (c + (c - blur) k) drove the pixels next to the sun disk / bright cloud rims negative per channel → a pink-blue
+          // ring around the disk and violet fringes on lit cloud edges; same response for small contrasts, bounded at HDR edges
+          {
+            float Yc = luma(c), Yb = luma(blur);
+            float ca = Yc / (1.0 + Yc), cb = Yb / (1.0 + Yb);
+            float cn = clamp(ca + (ca - cb) * uSharpen, 0.0, 0.9995);
+            c *= (cn / (1.0 - cn)) / max(Yc, 1e-6);
+          }
           // bloom: the mip chain sums ~7 octaves → normalise so uBloom is the veil fraction
           vec3 bl = texture2D(tBloom, vUv).rgb * uBloomNorm;
           float mL = uMeterOn > 0.5 ? meterLum() : 0.18;

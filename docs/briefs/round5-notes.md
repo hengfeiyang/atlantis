@@ -48,3 +48,9 @@
 - percentiles match refs within ~2 levels (shot 3 p98 224 vs 229).
 - gaps: speckled cloud fragments in shots 2/4; shot 4 water warmer than ref (yb 34 vs 25).
 - requests: WATER → shot-1 sea has a hard-edged bright-cyan RECTANGLE (not the sky) — likely uSeaSector / ring tune boundary; terrain → far range flat hazy-grey vs ref 1 lit rock.
+
+## director-in-chief notes after r4 (out/r4/cmp_*.jpg)
+- SHOT 2 REGRESSION (top priority): a second trireme's swan-neck bow post + rigging line sits right in front of the lens (bottom-centre / left diagonal) — the "nothing within 25 m of a golden camera" rule doesn't cover it (moored? quay ship?) → ships owner.
+- shot 1: rings turquoise, islets, fleet — good; the citadel is still small/low and the stair column; city reads better.
+- shot 4: strong; sky clouds big white heaps (ok). shot 5: good; stair has dark stripes from above.
+- shots 6-9: richer coral; shot 7 reads; shot 9 improved.

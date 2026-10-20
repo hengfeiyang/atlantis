@@ -7,7 +7,7 @@ import { GeoBuilder, tube, lin, mixC, scaleC } from './geo.js';
 
 const V = THREE.Vector3;
 
-export const KELP_COL = { stipe: lin(96, 86, 40), blade: lin(138, 140, 58), bladeTip: lin(168, 150, 66), cyst: lin(150, 130, 60) };
+export const KELP_COL = { stipe: lin(84, 74, 34), blade: lin(112, 112, 46), bladeTip: lin(146, 128, 56), cyst: lin(132, 112, 52) }; // r5: darker olive (ref 7 frame-edge kelp reads dark, ours mustard-bright)
 
 // ------------------------------------------------------------------ kelp blade atlas (4 cells side by side)
 /** canvas atlas of ruffled kelp blades (greyscale albedo × alpha); cell k spans u ∈ [k/4, (k+1)/4] */

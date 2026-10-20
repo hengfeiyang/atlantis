@@ -241,6 +241,10 @@ export class Engine {
 
   renderSample(i, { jitter = true, softShadows = this.quality.softShadows } = {}) {
     const dof = this.shot?.dof;
+    // shared deterministic sub-frame index (sunken + look-golden, r5): SKY.uFrame / UW.uUwFrame read it.
+    // frameNo = 0 for stills (renderStill resets it), video player sets si*1000+frame → same frame ⇒ same noise.
+    this.subFrame = (((this.frameNo | 0) * 64 + (i | 0)) % 4096 + 4096) % 4096;
+    this.sampleSerial = (this.sampleSerial | 0) + 1; // monotonic, never reset (cache-validity checks)
     if (jitter) this._jitter(i, dof);
     this.lighting.update(softShadows && jitter ? [halton(i + 1, 11), halton(i + 1, 13)] : null);
     if (this.underwater) this.underwater.afterLightUpdate(); // sunken: refracted sun for the CSM light
@@ -250,6 +254,7 @@ export class Engine {
 
   async renderStill(spp = this.quality.spp) {
     const t0 = performance.now();
+    this.frameNo = 0; // stills: deterministic sub-frame index 0..spp-1 (see renderSample)
     this.ensurePatched();
     this.pipeline.begin();
     const gl = this.renderer.getContext();

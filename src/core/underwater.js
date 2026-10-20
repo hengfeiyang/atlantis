@@ -702,7 +702,7 @@ export function installUnderwater(engine, deps) {
       const t = refract(d.clone().negate(), 1 / 1.333);
       csm.lightDirection.copy(t);
       csm.update();
-      UW.uUwFrame.value = (UW.uUwFrame.value + 1) % 4096;
+      UW.uUwFrame.value = engine.subFrame ?? 0; // deterministic per still / video frame (engine.renderSample)
       const cam = engine.camera;
       if (LENS && cam.position.y < UW.uUwSurface.value - UW.uUwDome.value) {
         const sw = t.clone().negate();
@@ -902,7 +902,15 @@ export function installUnderwater(engine, deps) {
   // r4 (sunken): per-shot overrides of the material overlay (core/sunken.js SK uniforms): looks.js `sk: {...}` or shot.sk
   const skSet = (k, v) => { const u = SK[k]; if (!u || k.startsWith('t')) return; if (Array.isArray(v)) u.value.fromArray(v); else if (u.value?.copy && v?.isVector4) u.value.copy(v); else u.value = v; };
   const skDefaults = Object.fromEntries(Object.entries(SK).filter(([k]) => !k.startsWith('t') && k !== 'uSkDrift').map(([k, u]) => [k, u.value?.clone ? u.value.clone() : u.value]));
+  // r5 (sunken): the terrain's far-field heightfield shadow + sun bounce read registry.terrain.uniforms.uTSun = ATMO.uSunDir,
+  // i.e. the VISIBLE disk — in shot 9 ON the horizon (2.5°), so the whole range above the water sat in a grazing-sun
+  // shadow (near-black mountains, ref 9: pink-tan lit rock). Same decoupling as the golden era (modules/clouds.js):
+  // the terrain follows the shot's light (SUN.dir). Identical for shots 6-8 (no disk mode there: ATMO.uSunDir = SUN.dir).
+  const tu = engine.registry.terrain?.uniforms;
+  let terrainSun = null;
+  if (tu && tu.uTSun === deps.ATMO.uSunDir) { terrainSun = { value: SUN.dir.clone() }; tu.uTSun = terrainSun; }
   engine.onShot((shot) => {
+    if (terrainSun) terrainSun.value.copy(SUN.dir).normalize();
     for (const [k, v] of Object.entries(skDefaults)) { const u = SK[k]; if (u.value?.copy) u.value.copy(v); else u.value = v; }
     const o = { ...((LOOKS[shot?.id] || {}).sk || {}), ...(shot?.sk || {}) };
     for (const [k, v] of Object.entries(o)) skSet(k, v);

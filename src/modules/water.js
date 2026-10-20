@@ -37,6 +37,8 @@ import { makeGround } from '../water/trace.js';
 import { planCascades, traceCascades, cascadeFootprints, buildCascadeMeshes, SPOUT_R, SPOUT_Y } from '../water/cascades.js';
 import { buildFountains } from '../water/fountains.js';
 import { buildBowSpray } from '../water/bowSpray.js';
+import { stairChannelSpec, buildStairChannelWater } from '../water/stairChannel.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { LOOKS } from '../world/looks.js';
 import { UW } from '../core/underwater.js';
 
@@ -49,24 +51,33 @@ export const SHOT_TUNE = {
   // the resolved core waves (uUwWaveK, same pattern as the meniscus / caustics) carry the shape, the sub-pixel FFT
   // octaves are lowered (their LEAN variance blurred the mirror into flat bands), a mostly opaque navy body,
   // a warm (and > 1) sky-reflection tint, sharper reflection lookups, more sunset glints
+  // r5: ref 9's sea is steel-blue / mauve away from the sun with ONE narrow orange-gold glitter column under the disk: the
+  // mirrored low sky (an orange band all along the horizon) is tinted cool (uReflTint, open sea only), the slate body a
+  // little lighter, the sun term narrow (small extra lobe) and strong, denser sparse glints inside the column
   9: {
-    uWaveAmp: [0.06, 0.05, 0.03, 0.004], uUwWaveK: 5.0, uSeaOpaque: 0.88, uSeaBody: [0.04, 0.12, 0.3],
-    uSkyReflSea: [1.15, 0.8, 0.62], uGlint: [0.6, 0.4, 1, 1], uGlintVar: 0.01, uReflSmear: 0.3, uReflLod: 0.0,
+    uWaveAmp: [0.06, 0.05, 0.03, 0.004], uUwWaveK: 5.0, uSeaOpaque: 0.88, uSeaBody: [0.12, 0.16, 0.26],
+    uSkyReflSea: [1.15, 0.8, 0.62], uGlint: [0.9, 0.35, 1, 1], uGlintVar: 0.004, uReflSmear: 0.3, uReflLod: 0.0,
+    uReflTint: [0.6, 0.68, 0.95], uSunLobe: [0.0015, 2.5, 12.0],
   },
   // r4: the r3 sparse glints read as white dots → a wind-ruffled mirror instead: livelier ripples (mid octaves) that break
   // the reflected sheds into wavy bands, a broad second sun lobe for the gold field (uSunLobe), almost no point glints,
   // less body light so the reflections win (ref 4 right half: teal troughs p50 ≈ 39,120,129 + gold crests p90 ≈ 214,161,113)
+  // r5: ref 4's water is a MIRROR of the lit sheds / bridge (gold columns under every pier) with turquoise between: the r4
+  // broad sun lobe painted one gold sheen over the whole ring and hid them → calmer short octaves (the reflections stay
+  // vertical streaks, not a mush), a little vertical smear, reflection gain 2, less body light, a faint narrow lobe
   4: {
-    uRingCalm: 1.05, uRingAmp: [0.7, 1.2, 1.2, 0.7], uGlint: [0.02, 0.5, 1.0, 1.0], uBodyLight: [0.5, 0.6, 0.5],
-    uScatter: [0.008, 0.11, 0.16], uReflGain: 1.6, uReflSmear: 1.0, uSunLobe: [0.12, 0.25, 8.0],
+    uRingCalm: 1.05, uRingAmp: [0.5, 0.6, 0.5, 0.4], uGlint: [0.02, 0.5, 1.0, 1.0], uBodyLight: [0.3, 0.45, 0.5],
+    uScatter: [0.006, 0.085, 0.12], uReflGain: 2.0, uReflSmear: 0.3, uSunLobe: [0.06, 0.1, 8.0],
   },
   // r4 (shot 1, the opening aerial at 1.4 km): the rings read as concentric bands of turquoise water (ref 1 rings p50 ≈ 76,112,125)
   // — less of the white city mirrored at the grazing view (ring-only reflection gain), the body not weighted down by
   // Fresnel, a cyan body + sky tint. The open sea (seaK) keeps its navy body, chop and whitecaps.
-  1: { uRingLook: [0.45, 0.2, 1.8, 0], uScatter: [0.006, 0.12, 0.2], uSkyRefl: [0.2, 0.55, 0.75] },
+  // r5: the open sea navy-teal like ref 1 (sea p50 ≈ 7-33 / 46-69 / 77-90; r4 read royal blue 26,55,101)
+  1: { uRingLook: [0.45, 0.2, 1.8, 0], uScatter: [0.006, 0.12, 0.2], uSkyRefl: [0.2, 0.55, 0.75], uScatterSea: [0.001, 0.022, 0.045], uSkyReflSea: [0.07, 0.17, 0.3],
+    uSeaWave: [2.6, 1.7, 1.0, 0.07], uCanalSea: 1.0, uReflClamp: 1.0 },   // r5: fewer whitecaps (ref 1: the white on the sea is ship wakes + surf at the rocks)
 };
 const tuneDefaults = {};
-const HERO_FOAM = 1.5;   // r4: 1.0 → 1.5 (ref 2: a broad breaking bow wave)
+const HERO_FOAM = 2.0;   // r4: 1.0 → 1.5 (ref 2: a broad breaking bow wave); r5: 2.0 (the hero now advances: a bigger bow wave)
 
 export const NEAR_BOUNDS = [-1100, -1000, 1100, 1400];
 export const FAR_BOUNDS = [-7000, -7000, 7000, 7000];
@@ -152,6 +163,13 @@ export async function build(engine) {
         g2 = makeGround([archMap, maps.near, maps.far]);
       } catch (e) { console.warn('[water] architecture capture failed:', e.message); }
       const falls = traceCascades(engine, g2, specs, level);
+      // r5: the water channel down the grand stair (citadel trough, ref 1) — guided along the published centreline
+      const stair = buildStairWater(engine, g2, ground, level);
+      if (stair) {
+        falls.push(...stair.falls);
+        if (stair.poolMesh) { engine.add(stair.poolMesh, { castShadow: false, receiveShadow: true }); late.groups.push(stair.poolMesh); }
+        late.stairU = stair.uniforms;
+      }
       const cm = buildCascadeMeshes(engine, falls, { maps, ground: g2, shadowMap: archMap, level });
       engine.add(cm.group, { castShadow: false, receiveShadow: false });
       late.groups.push(cm.group);
@@ -164,7 +182,17 @@ export async function build(engine) {
       water.syncWakes();
       const bow = buildBowSpray(engine, maps, water.wakes, level);
       if (bow) { engine.add(bow.mesh, { castShadow: false, receiveShadow: false }); late.groups.push(bow.mesh); }
-      late.update = (t) => { cm.update(t); fn?.update(t); if (bow) bow.uniforms.uTime.value = t; };
+      // r5: the hero trireme advances during its segment (ships: registry.ships.hero.offsetAt(t)): the bow spray (built at
+      // the hull's position at this instant) rides with it; the shader wake follows through the addWake handle
+      const heroR = engine.registry.ships?.hero;
+      const heroRec = water.wakes.find((w) => w.id === 'hero');
+      const bow0 = heroRec && heroR?.bowAt ? [heroRec.x, heroRec.z] : null;   // (where the spray was built)
+      const moveBow = (t) => {
+        if (!bow || !bow0) return;
+        const o = heroR.bowAt(t);
+        if (o && Number.isFinite(o[0]) && Number.isFinite(o[1])) bow.uniforms.uOffset.value.set(o[0] - bow0[0], 0, o[1] - bow0[1]);
+      };
+      late.update = (t) => { cm.update(t); fn?.update(t); if (bow) { bow.uniforms.uTime.value = t; moveBow(t); } if (stair) stair.uniforms.uTime.value = t; };
       late.sync = () => {
         cm.sync();
         if (bow && cm.mistUniforms) { bow.uniforms.uSunCol.value.copy(cm.mistUniforms.uSunCol.value); bow.uniforms.uSkyAmb.value.copy(cm.mistUniforms.uSkyAmb.value); }
@@ -173,6 +201,7 @@ export async function build(engine) {
       reg.cascades = falls.map((f) => ({ id: f.id, kind: f.kind, lip: f.lip, impact: f.impact, width: f.width, drop: f.drop }));
       reg.fountains = fn?.basins || [];
       reg.traced = falls;   // (look-dev: the traced streams)
+      reg.archGround = g2;
       console.log(`[water] late build ${Math.round(performance.now() - tl)} ms: ${falls.length} cascades (${imps.length} impacts, ${Math.round(cm.tris)} sheet tris, ${cm.puffs} mist puffs${archMap ? ', arch capture ' + archMap.ms + ' ms / ' + archMap.meshes + ' meshes' : ''}), ${fn ? fn.basins.length + ' fountains' : 'no fountains'}`);
     } catch (e) { console.error('[water] late build failed:', e.stack || e); }
     return late;
@@ -195,6 +224,7 @@ export async function build(engine) {
     if (underside) for (const [k, v] of Object.entries(shot.underTune || {})) setU(underside.uniforms, k, v);
     const sky = engine.registry.skyEnvScale;
     if (sky) U.uEnvBoost.value = 1 / sky;
+    if (sky && late?.stairU) late.stairU.uEnv.value = 1 / sky;
   });
 
   const extraImpacts = [];
@@ -218,6 +248,28 @@ export async function build(engine) {
   };
   const ms = Math.round(performance.now() - t0);
   console.log(`[water] built in ${ms} ms (${engine.era}, level ${level}; capture ${Math.round(t1 - t0)} ms: near ${maps.near.W}x${maps.near.H} ${maps.near.meshes} meshes${maps.near.analyticFill ? ' analytic fill ' + maps.near.analyticFill : ''}, shore ${shore.near.ms}+${shore.far.ms} ms; ${cascades.length} cascades traced)`);
+}
+
+// r5: the water of the citadel's stair channel (registry.temple.stairChannel, temple.js stairChannelPlan): guided chute
+// sheets, basin water, and the pour from the spout lip into water ring 1
+function buildStairWater(engine, ground, bare, level) {
+  try {
+    const ch = stairChannelSpec(engine);
+    if (!ch) { console.log('[water] no stair channel published (registry.temple.stairChannel)'); return null; }
+    const sw = buildStairChannelWater(engine, ch, { mergeGeometries });
+    for (const f of sw.falls) f.ground = sw.sheetGround;
+    const falls = [...sw.falls];
+    if (sw.pour) {
+      // (the w1-180 ring bridge deck spans over the spout: its captured top would read as a wall — under anything higher
+      //  than the lip, fall back to the bare terrain)
+      const y0 = sw.pour.from[1];
+      const N = (x, z, e = 0.8) => { const hx = pg.H(x + e, z) - pg.H(x - e, z), hz = pg.H(x, z + e) - pg.H(x, z - e); const l = Math.hypot(hx, 2 * e, hz); return [-hx / l, 2 * e / l, -hz / l]; };
+      const pg = { H: (x, z) => { const h = ground.H(x, z); return h > y0 + 0.6 ? bare.H(x, z) : h; }, N };
+      falls.push(...traceCascades(engine, pg, [sw.pour], level));
+    }
+    console.log(`[water] stair channel: ${sw.falls.length} chutes, ${ch.pools.length} basins, width ${(ch.half * 2).toFixed(1)} m${falls.length > sw.falls.length ? ', pour into w1' : ''}`);
+    return { falls, poolMesh: sw.poolMesh, uniforms: sw.uniforms };
+  } catch (e) { console.warn('[water] stair channel failed:', e.stack || e.message); return null; }
 }
 
 // ------------------------------------------------------------------ isolated test

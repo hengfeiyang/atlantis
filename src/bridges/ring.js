@@ -159,8 +159,10 @@ export function buildRingBridge(kit, P) {
       boxA(w, T.x0 - 0.6, 7.6, -2.0, T.x0, 8.1, 2.0, AUX.mould, 0.02);
       boxA(lime, L.CITADEL.radius - 4, 2.6, -2.4, T.x0 - 0.3, 3.15, 2.4, AUX.pave(1.0), 0.03);
     }
-    const tw = gateTower(kit, { x0: T.x0, x1: T.x1, z0: -T.halfW, z1: T.halfW, yDeck: D, yTop: T.top, ...towerOpts(id), bannerFaces: special ? ['+z', '-z', '-x'] : ['+z', '-z'] });
+    const tw = gateTower(kit, { x0: T.x0, x1: T.x1, z0: -T.halfW, z1: T.halfW, yDeck: D, yTop: T.top, ...towerOpts(id), bannerFaces: special ? ['+z', '-z', '-x'] : ['+z', '-z'],
+      ...(T.low ? { fallenTop: true, passage: { hw: 2.4, h: Math.min(5.2, T.top - D - 1.4) } } : {}) });
     towers.push(tw);
+    if (T.low && !(sunken && ruined(`${label}:lowstatue`, 0.4))) kit.slots.statue.push({ pos: kit.W((T.x0 + T.x1) / 2, tw.roof + 0.15, 0), facing: kit.compass(1, 0), size: 4.4, tag: 'pinnacle', source: 'bridges-ring-low' });
     if (fallen === id) {
       const zz = (ruinRand(label + ':fall', 0) < 0.5 ? -1 : 1) * (T.halfW + 7);
       const xx = (T.x0 + T.x1) / 2 + (ruinRand(label + ':fall', 1) - 0.5) * 8;

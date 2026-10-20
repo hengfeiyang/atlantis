@@ -10,7 +10,7 @@ import { windDepthMaterial } from './foliage.js';
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
 const _Y = new THREE.Vector3(0, 1, 0), _up = new THREE.Vector3(), _qt = new THREE.Quaternion();
-const _frustum = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sph = new THREE.Sphere();
+const _pm = new THREE.Matrix4(), _sph = new THREE.Sphere();
 const MAX_TRIS = 350000;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
@@ -121,8 +121,42 @@ export class VegSystem {
   /** forget LOD history (a camera cut): stills are then independent of previously rendered shots */
   resetHistory() { for (const v of this.variants) if (v.lastLod) v.lastLod.fill(-1); }
 
+  /**
+   * (r5) freeze the LOD buckets for a whole camera PATH (a video segment): every instance gets the finest LOD it
+   * needs anywhere along the path and is drawn if any path camera sees it (or its shadow) → nothing pops, appears
+   * or switches LOD during the move; the still (on the path) renders exactly what the video frames render.
+   * cams: array of THREE.PerspectiveCamera (already positioned). Returns the stats of update().
+   */
+  setPath(cams) {
+    this.path = null;
+    if (!cams || !cams.length) return this.update();
+    const pts = cams.map((c) => { c.updateMatrixWorld(true); return { p: c.position.clone(), d: new THREE.Vector3(0, 0, -1).applyQuaternion(c.quaternion), fov: c.fov }; });
+    const st = this.update(cams);
+    // the path's neighbourhood: a camera within it keeps the frozen buckets (see maybeUpdate)
+    let seg = 0;
+    for (let i = 1; i < pts.length; i++) seg = Math.max(seg, pts[i].p.distanceTo(pts[i - 1].p));
+    this.path = { pts, tol: seg * 0.5 + 1.5, fov0: Math.min(...pts.map((q) => q.fov)) * 0.98, fov1: Math.max(...pts.map((q) => q.fov)) * 1.02 };
+    this.lastCam = null;
+    st.pathCams = cams.length;
+    return st;
+  }
+
+  /** is this camera on (near) the frozen path? */
+  _onPath(c) {
+    const P = this.path;
+    if (!P) return false;
+    if (c.fov < P.fov0 || c.fov > P.fov1) return false;
+    _p.set(0, 0, -1).applyQuaternion(c.quaternion);
+    for (const q of P.pts) if (q.p.distanceTo(c.position) < P.tol && q.d.dot(_p) > 0.995) return true;
+    return false;
+  }
+
   maybeUpdate(camera = this.engine.camera) {
     const c = camera;
+    if (this.path) {
+      if (this._onPath(c)) return false;
+      this.path = null; // left the path (interactive): back to per-camera buckets
+    }
     const key = [c.position.x, c.position.y, c.position.z, c.quaternion.x, c.quaternion.y, c.quaternion.z, c.quaternion.w, c.fov];
     if (this.lastCam) {
       const dp = Math.hypot(key[0] - this.lastCam[0], key[1] - this.lastCam[1], key[2] - this.lastCam[2]);
@@ -134,45 +168,82 @@ export class VegSystem {
   }
 
   /**
-   * re-bucket every instance into LODs for this camera. Keeps the drawn vegetation under a triangle budget
-   * (default 9 M, URL param vegTris): when a view would exceed it, the LOD distances shrink (≤ 3 retries).
+   * re-bucket every instance into LODs for one camera or a camera path (array). Keeps the drawn vegetation under a
+   * triangle budget (default 13 M at high, URL param vegTris): when a view would exceed it, the LOD distances
+   * shrink (≤ 3 retries; one scale for the whole path).
    */
   update(camera = this.engine.camera) {
     const t0 = performance.now();
+    const cams = Array.isArray(camera) ? camera : [camera];
     // (r5) the budget grows with the output height: a 4K still keeps the LOD distances of the 941 px frame
     // (otherwise the doubled projected sizes would just be traded back for coarser LODs)
     const resK = clamp((this.engine.height || 941) / 941, 1, 2.4);
     // (r5: 9 M → 13 M at high: vegetation costs ≈ 65 ms of a ≈ 0.6-0.9 s sample on the 780M, and the finer
-    //  LODs are what keeps the mid-distance crowns textured instead of smooth)
-    const budget = Number(this.engine.params?.get?.('vegTris')) || (this.engine.quality.name === 'ultra' ? 16e6 : this.detail >= 1 ? 13e6 : 9e6) * resK;
-    let k = 1, st = this._update(camera, 1, false);
+    //  LODs are what keeps the mid-distance crowns textured instead of smooth; a path gets 15 % more because the
+    //  finest LOD along the whole move is kept)
+    const pathK = cams.length > 1 ? 1.15 : 1;
+    const budget = Number(this.engine.params?.get?.('vegTris')) || (this.engine.quality.name === 'ultra' ? 16e6 : this.detail >= 1 ? 13e6 : 9e6) * resK * pathK;
+    this._classify(cams);
+    let k = 1, st = this._bucket(1, cams.length > 1);
     for (let i = 0; i < 3 && this.forceLod === undefined && st.tris > budget; i++) {
       k *= Math.sqrt(budget / st.tris) * 0.94;
-      st = this._update(camera, k, true);
+      st = this._bucket(k, true);
     }
     st.lodScale = +k.toFixed(3);
     st.updateMs = +(performance.now() - t0).toFixed(1);
+    const c = cams[0];
+    this.lastCam = [c.position.x, c.position.y, c.position.z, c.quaternion.x, c.quaternion.y, c.quaternion.z, c.quaternion.w, c.fov];
     return st;
   }
 
-  _update(camera, kScale, noHyst) {
-    const t0 = performance.now();
-    const c = camera;
-    c.updateMatrixWorld(true);
-    this.lastCam = [c.position.x, c.position.y, c.position.z, c.quaternion.x, c.quaternion.y, c.quaternion.z, c.quaternion.w, c.fov];
-    // a slightly wider frustum (jitter / DOF / edge popping)
-    const cam2 = c.clone();
-    cam2.fov = Math.min(170, c.fov * 1.12);
-    cam2.aspect = c.aspect * 1.04;
-    cam2.near = 0.1; cam2.far = 40000;
-    cam2.updateProjectionMatrix();
-    cam2.updateMatrixWorld(true);
-    _pm.multiplyMatrices(cam2.projectionMatrix, cam2.matrixWorldInverse);
-    _frustum.setFromProjectionMatrix(_pm);
-    const focalPx = (this.engine.height * 0.5) / Math.tan((c.fov * Math.PI) / 360);
+  /** per instance: the largest projected height (px, before lodK) over the cameras, 0 = not visible in any */
+  _classify(cams) {
     const sun = ATMO.uSunDir.value;
     const sy = Math.max(0.12, sun.y);
-    const cx = c.position.x, cy = c.position.y, cz = c.position.z;
+    const views = cams.map((c) => {
+      c.updateMatrixWorld(true);
+      // a slightly wider frustum (jitter / DOF / edge popping)
+      const cam2 = c.clone();
+      cam2.fov = Math.min(170, c.fov * 1.12);
+      cam2.aspect = c.aspect * 1.04;
+      cam2.near = 0.1; cam2.far = 40000;
+      cam2.updateProjectionMatrix();
+      cam2.updateMatrixWorld(true);
+      _pm.multiplyMatrices(cam2.projectionMatrix, cam2.matrixWorldInverse);
+      const fr = new THREE.Frustum().setFromProjectionMatrix(_pm);
+      return { fr, x: c.position.x, y: c.position.y, z: c.position.z, focal: (this.engine.height * 0.5) / Math.tan((c.fov * Math.PI) / 360) };
+    });
+    for (const v of this.variants) {
+      const n = v.inst.length;
+      if (!n) continue;
+      if (!v.pmax || v.pmax.length !== n) v.pmax = new Float32Array(n);
+      const pm = v.pmax;
+      for (let i = 0; i < n; i++) {
+        const x = v.ctr[i * 4], y = v.ctr[i * 4 + 1], z = v.ctr[i * 4 + 2], h = v.ctr[i * 4 + 3];
+        const r = h * 0.5 + 1.5;
+        let best = 0;
+        for (const w of views) {
+          const d = Math.max(0.1, Math.hypot(x - w.x, y - w.y, z - w.z) - h * 0.25);
+          const p = (h * w.focal) / d;
+          if (p <= best) continue;   // a nearer camera already sees it larger
+          _sph.center.set(x, y, z); _sph.radius = r;
+          let vis = w.fr.intersectsSphere(_sph);
+          if (!vis && d < 1500) {
+            // shadow volume: from the crown away from the sun down to the ground (only near trees cast meaningful shadows into view)
+            const Ls = Math.min(220, (h * 0.6) / sy);
+            _sph.center.set(x - sun.x * Ls * 0.5, y - sun.y * Ls * 0.5, z - sun.z * Ls * 0.5);
+            _sph.radius = r + Ls * 0.5;
+            vis = w.fr.intersectsSphere(_sph);
+          }
+          if (vis) best = p;
+        }
+        pm[i] = best;
+      }
+    }
+  }
+
+  _bucket(kScale, noHyst) {
+    const t0 = performance.now();
     let drawn = 0, tris = 0;
     // preview switches LODs earlier; ultra (video) later, so transitions happen far from the camera
     const qn = this.engine.quality.name;
@@ -181,28 +252,11 @@ export class VegSystem {
       if (!v.inst.length) continue;
       const n = v.inst.length;
       const counts = v.lodMeshes.map(() => 0);
-      const px = v.px;
+      const px = v.px, pm = v.pmax;
       for (let i = 0; i < n; i++) {
-        const x = v.ctr[i * 4], y = v.ctr[i * 4 + 1], z = v.ctr[i * 4 + 2], h = v.ctr[i * 4 + 3];
-        const r = h * 0.5 + 1.5;
-        _sph.center.set(x, y, z); _sph.radius = r;
-        let vis = _frustum.intersectsSphere(_sph);
-        if (!vis) {
-          // shadow volume: from the crown away from the sun down to the ground
-          const L = Math.min(220, (h * 0.6) / sy);
-          _sph.center.set(x - sun.x * L * 0.5, y - sun.y * L * 0.5, z - sun.z * L * 0.5);
-          _sph.radius = r + L * 0.5;
-          vis = _frustum.intersectsSphere(_sph);
-          if (vis) {
-            // only near trees can cast meaningful shadows into view
-            const d = Math.hypot(x - cx, y - cy, z - cz);
-            if (d > 1500) vis = false;
-          }
-        }
-        if (!vis) continue;
-        const d = Math.max(0.1, Math.hypot(x - cx, y - cy, z - cz) - h * 0.25);
-        const p = (h * focalPx) / d * lodK;
-        if (p < (v.cullPx ?? 0.6)) continue;
+        if (pm[i] <= 0) { v.lastLod[i] = -1; continue; }
+        const p = pm[i] * lodK;
+        if (p < (v.cullPx ?? 0.6)) { v.lastLod[i] = -1; continue; }
         let l = this.forceLod !== undefined ? this.forceLod : p > px[0] ? 0 : p > px[1] ? 1 : p > px[2] ? 2 : 3;
         // hysteresis: keep the previous LOD while within ±12% of the switching threshold (less popping in motion)
         const prev = v.lastLod[i];

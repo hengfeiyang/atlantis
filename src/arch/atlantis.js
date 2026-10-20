@@ -388,7 +388,8 @@ export function medallion(mbGold, mbFrame, R, o = {}) {
  * with gilt-framed panels (lower register) and rayed gilt medallions (upper register), orichalcum pilasters with gold bases
  * and capitals, white string course, white cornice with a gold band and dentils, low parapet; bastion towers (white with red
  * courses, open lantern, gold dome). World frame (B at identity).
- * o: { rIn, rOut, yFoot, yTop, bay (m, ≈ 10), gapAt(bearingDeg) → true to leave an opening, towerEvery (m), towerAt(b) → bool,
+ * o: { rIn, rOut, yFoot, yTop, bay (m, ≈ 10), gapAt(bearingDeg) → true to leave an opening, lowParapetAt(b) → curb instead of parapet (r5),
+ *      towerEvery (m), towerAt(b) → bool,
  *      towerH (above yTop), seed, ruin, detail, onTower(pos, a), onBay({pos, a, top, i}) }
  * Returns { bays, towers }.
  */
@@ -402,6 +403,7 @@ export function greatRampart(B, o) {
   const da = (2 * PI) / n;
   const W = 2 * rOut * Math.sin(da / 2);
   const gap = (i) => { const a = (((i % n) + n) % n + 0.5) * da; return !!(o.gapAt && o.gapAt((a * 180) / PI)); };
+  const low = (i) => { const a = (((i % n) + n) % n + 0.5) * da; return !!(o.lowParapetAt && o.lowParapetAt((a * 180) / PI)); };
   const towers = [];
   let lastTower = -1e9, bays = 0;
   const hs = Math.max(4.6, H * 0.36);          // string course height above the foot
@@ -430,10 +432,12 @@ export function greatRampart(B, o) {
       const nd = Math.floor(W / 0.55);
       if (det >= 0.5) for (let k = 0; k < nd; k++) { const xx = -W / 2 + (k + 0.5) * (W / nd); box(mM, [xx - 0.14, yc + 0.32, 0.25], [xx + 0.14, yc + 0.55, 0.5], 0, [0.2, 0.5, 0, 0]); }
       box(mM, [-w2, H - 0.25, -T], [w2, H, 0.3], 0.02, [0.05, 0.7, 0.1, 5.24]);
-      // parapet: low white wall with a gold coping fillet, merlon blocks over the pilasters
-      box(mM, [-w2, H, -0.15], [w2, H + 1.05, 0.3], 0.03, [0.05, 0.7, 0.3, 0]);
-      box(mG, [-w2, H + 0.95, 0.3], [w2, H + 1.0, 0.32], 0, [0.1, 0.4, 0, 0]);
-      box(mM, [-W / 2 - pw * 0.7, H, -0.25], [-W / 2 + pw * 0.7, H + 1.7, 0.4], 0.03, [0.05, 0.8, 0.4, 0]);
+      // parapet: low white wall with a gold coping fillet, merlon blocks over the pilasters (r5: o.lowParapetAt(b) → a 0.4 m
+      // curb only, no merlons — sightlines over the wall, e.g. the shot-5 view of the temple over the plateau rim)
+      const ph = low(i) ? 0.4 : 1.05;
+      box(mM, [-w2, H, -0.15], [w2, H + ph, 0.3], 0.03, [0.05, 0.7, 0.3, 0]);
+      box(mG, [-w2, H + ph - 0.1, 0.3], [w2, H + ph - 0.05, 0.32], 0, [0.1, 0.4, 0, 0]);
+      if (!low(i)) box(mM, [-W / 2 - pw * 0.7, H, -0.25], [-W / 2 + pw * 0.7, H + 1.7, 0.4], 0.03, [0.05, 0.8, 0.4, 0]);
       // lower register: gilt-framed panel; upper register: rayed medallion in a gilt frame
       const fx = W / 2 - pw / 2 - 0.85, fw = 0.2;
       const frame = (y0, y1) => {
@@ -530,8 +534,9 @@ export function greatRampart(B, o) {
           box(mM, [-w2, yc + 0.55, 0.25], [w2, yc + 1.0, 0.75], 0, [0.05, 0.9, 0.6, 0]);
           box(mG, [-w2, yc + 0.3, 0.25], [w2, yc + 0.42, 0.29], 0, [0.1, 0.4, 0, 0]);
           box(mM, [-w2, H - 0.25, -T], [w2, H, 0.3], 0, [0.05, 0.7, 0.1, 5.24]);
-          box(mM, [-w2, H, -0.15], [w2, H + 1.05, 0.3], 0, [0.05, 0.7, 0.3, 0]);
-          box(mG, [-w2, H + 0.95, 0.3], [w2, H + 1.0, 0.32], 0, [0.1, 0.4, 0, 0]);
+          const ph = o.lowParapetAt && o.lowParapetAt((aa * 180) / PI) ? 0.4 : 1.05;
+          box(mM, [-w2, H, -0.15], [w2, H + ph, 0.3], 0, [0.05, 0.7, 0.3, 0]);
+          box(mG, [-w2, H + ph - 0.1, 0.3], [w2, H + ph - 0.05, 0.32], 0, [0.1, 0.4, 0, 0]);
         }
         for (const m of [...all, mI]) m.pop();
       }

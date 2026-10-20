@@ -129,12 +129,16 @@ export function buildCascadeMeshes(engine, falls, { maps, ground, shadowMap = nu
   let tris = 0;
   for (const f of falls) {
     const rng = engine.rng('casc-geo:' + f.id);
-    const sheet = buildSheet(f, ground, rng, { spacing: detail >= 1 ? 0.55 : 0.9 });
+    // r5: guided falls (stair channel chutes) carry their own drape ground (the water surface itself) and have no free fall
+    const gF = f.ground || ground;
+    const sheet = buildSheet(f, gF, rng, { spacing: detail >= 1 ? 0.55 : 0.9 });
     geos.push(...sheet.geos); tris += sheet.tris;
-    const front = buildSheet(f, ground, rng, { spacing: detail >= 1 ? 0.8 : 1.3, front: 0.6 + rng.range(0, 0.5), seed: rng.random() });
-    geos.push(...front.geos); tris += front.tris;
-    const nStrands = Math.round((1 + f.width * 0.25) * (0.6 + 0.4 * detail));
-    for (const g of buildStrands(f, ground, rng, nStrands, { spacing: detail >= 1 ? 0.8 : 1.3 })) { geos.push(g); tris += g.index.count / 3; }
+    if (!f.guided) {
+      const front = buildSheet(f, gF, rng, { spacing: detail >= 1 ? 0.8 : 1.3, front: 0.6 + rng.range(0, 0.5), seed: rng.random() });
+      geos.push(...front.geos); tris += front.tris;
+      const nStrands = Math.round((1 + f.width * 0.25) * (0.6 + 0.4 * detail));
+      for (const g of buildStrands(f, gF, rng, nStrands, { spacing: detail >= 1 ? 0.8 : 1.3 })) { geos.push(g); tris += g.index.count / 3; }
+    }
     const fp = f.impact ? [f.impact.x, level, f.impact.z] : [f.lip.x, f.lip.y, f.lip.z];
     let dCam = Infinity;
     for (const sh of SHOTS) if (sh.era === 'golden') dCam = Math.min(dCam, Math.hypot(sh.pos[0] - fp[0], sh.pos[1] - fp[1], sh.pos[2] - fp[2]));

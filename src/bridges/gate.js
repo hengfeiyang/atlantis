@@ -107,8 +107,9 @@ export function buildGateBridge(kit) {
       const pA = [Math.min(inner, xm - 0.35), Math.max(inner, xm - 0.35)], pB = [Math.min(xm + 0.35, outer), Math.max(xm + 0.35, outer)];
       const panelKinds = s * f > 0 ? ['figure', 'hippocamp'] : ['hippocamp', 'figure'];
       [pA, pB].forEach((P, k) => {
-        boxA(w, P[0] - 0.1, 7.2, f > 0 ? zf - 0.05 : zf - 0.06, P[1] + 0.1, 26.3, f > 0 ? zf + 0.06 : zf + 0.05, AUX.ashlar(0.9));
-        reliefPanelZ(kit, P[0], P[1], 7.3, 26.2, zf + f * 0.06, f, { kind: panelKinds[k], seed: 11 + k * 3 + (s > 0 ? 5 : 0) + (f > 0 ? 0 : 17), depth: 0.32, frame: 0.5, frameProj: 0.32, density: f > 0 ? 10 : 4 });
+        // r5 (ref 7, sunken): dark field + deeper carving so the figures read as silhouettes through 130 m of water
+        boxA(sunken ? dk : w, P[0] - 0.1, 7.2, f > 0 ? zf - 0.05 : zf - 0.06, P[1] + 0.1, 26.3, f > 0 ? zf + 0.06 : zf + 0.05, sunken ? AUX.dark : AUX.ashlar(0.9));
+        reliefPanelZ(kit, P[0], P[1], 7.3, 26.2, zf + f * 0.06, f, { kind: panelKinds[k], seed: 11 + k * 3 + (s > 0 ? 5 : 0) + (f > 0 ? 0 : 17), depth: sunken ? 0.7 : 0.32, frame: 0.5, frameProj: sunken ? 0.55 : 0.32, density: f > 0 ? 10 : 4 });
       });
       // gilt tablet above the panels + small string course
       boxA(w, px0 + 1.5, 26.6, f > 0 ? zf : zf - 0.2, px1 - 1.5, 26.9, f > 0 ? zf + 0.2 : zf, AUX.mould, 0.02);

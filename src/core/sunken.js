@@ -114,7 +114,7 @@ void skApply(inout vec3 alb, inout float rough, inout float metal, inout vec3 bu
     alb = mix(darkB, verd * (0.85 + 0.2 * n3), v);
     metal = mix(metal * 0.85, 0.0, v);
     rough = mix(max(rough, 0.45), uSkMetal.w, v);
-    bumpW += skBumpOf(P, 3.0) * 0.025 * v;
+    if (v > 0.0) bumpW += skBumpOf(P, 3.0) * 0.025 * v;   // r5: skipped where it adds exactly 0 (perf)
   } else if (kind == 3) {   // gold: dulled, keeps glinting
     rough = min(1.0, rough + uSkGold.x * amt);
     alb *= mix(1.0, uSkGold.w, amt) * (1.0 - uSkGold.y * amt * crev);
@@ -130,16 +130,19 @@ void skApply(inout vec3 alb, inout float rough, inout float metal, inout vec3 bu
   alb = mix(alb, aC, a * 0.85);
   rough = mix(rough, 0.95, a);
   metal = mix(metal, 0.0, a);
-  bumpW += skBumpOf(P, 13.0) * 0.05 * a;
+  if (a > 0.0) bumpW += skBumpOf(P, 13.0) * 0.05 * a;
   // ---- coral-algae crust spots (pink / mauve), on edges and up faces
   float cs = skF(P * uSkCrust.y + 31.0);
   float cr = smoothstep(uSkCrust.z, uSkCrust.z + 0.06, cs + 0.08 * up) * uSkCrust.x * amt * (kind == 3 ? uSkGold.z : (kind == 4 ? uSkWood.w : 1.0));
-  vec3 cC = mix(uSkCrustColor, uSkCrustColor2, smoothstep(0.4, 0.7, skN(P * 0.7 + 8.0)));
-  alb = mix(alb, cC * (0.8 + 0.4 * n3), cr);
-  rough = mix(rough, 0.9, cr); metal = mix(metal, 0.0, cr);
-  bumpW += skBumpOf(P, 5.0) * uSkCrust.w * 0.25 * cr;
+  if (cr > 0.0) {
+    vec3 cC = mix(uSkCrustColor, uSkCrustColor2, smoothstep(0.4, 0.7, skN(P * 0.7 + 8.0)));
+    alb = mix(alb, cC * (0.8 + 0.4 * n3), cr);
+    rough = mix(rough, 0.9, cr); metal = mix(metal, 0.0, cr);
+    bumpW += skBumpOf(P, 5.0) * uSkCrust.w * 0.25 * cr;
+  }
   // ---- sand on up-facing surfaces: a thin dust film everywhere + patchy drifts (x = drift coverage)
   float upM = smoothstep(uSkSand.y, uSkSand.z, up + 0.12 * (n2 - 0.5));
+  if (upM <= 0.0) return;   // r5: not up-facing → no film, no drift (identical result, skips the drift fbm + texture)
   float drift = skF(P * uSkSand.w + 2.0);
   float s = upM * smoothstep(1.0 - uSkSand.x - 0.1, 1.0 - uSkSand.x + 0.1, drift + 0.06 * (n3 - 0.5));
   s *= amt * (kind == 3 ? 0.55 : 1.0);

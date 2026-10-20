@@ -63,7 +63,11 @@ export function molePlan() {
   const common = { landY: M.landY, floor: w1.floor };
   const west = lineEdge(P(sBack, latF), P(sEnd, latF), [-n[0], -n[1]], { ...common, id: 'mole-w', wallH: M.wallH, cladding: 'tin', curtain: true });
   west.shedDepth = M.depth; west.rockAmp = 0.42; west.cragScale = 1.7;   // r4: big flat-faced masses (shot 4 leopard spots)
-  west.shedLamps = [M.depth - 2.5, M.depth - 9, M.depth - 16, M.depth - 24]; west.lampGain = 1.5;   // r3: golden vault glow (ref 4) west.shedBack = M.shedBack || 32;
+  west.shedLamps = [M.depth - 2.5, M.depth - 9, M.depth - 16, M.depth - 24]; west.lampGain = 1.5;   // r3: golden vault glow (ref 4)
+  // r5: the r3 `west.shedBack = M.shedBack || 32` had slipped into the comment above, so the mole vaults have always been
+  // built SHED.back = 22 m deep (what every shot since r3 shows). Decision: keep 22 (a 32 m vault would end 2 m from the
+  // east face and only add hidden rock; the lamps reach 20 m in). Explicit now; layout's shedBack: 32 is not used.
+  west.shedBack = 22;
   const north = lineEdge(P(sEnd, latF), P(sEnd, latE), d, { ...common, id: 'mole-n', curtain: false });
   const east = lineEdge(P(sEnd, latE), P(sBack, latE), n, { ...common, id: 'mole-e', curtain: false });
   // the west face is only dressed where no shed block / tunnel block stands in front of it
@@ -79,7 +83,7 @@ export function molePlan() {
     const b = west.bAt(tAlongW(sc));
     const [fx, fz] = P(sc, 0), [bx, bz] = P(sc, latF);
     const sh = { edge: 'mole-w', ring: 'mole', index: k, group: 0, bearing: b, faceR: west.faceR, frontR: west.faceR + M.depth, halfDeg,
-      pos: [fx, 0, fz], back: [bx, 0, bz], facing: west.facingAt(), width: 10.5, crown: 9.6, depth: M.depth, length: M.depth + (M.shedBack || 32), slot: 'trireme', landY: M.landY, mole: true };
+      pos: [fx, 0, fz], back: [bx, 0, bz], facing: west.facingAt(), width: 10.5, crown: 9.6, depth: M.depth, length: M.depth + west.shedBack, slot: 'trireme', landY: M.landY, mole: true };
     sh.ship = !cam4 || Math.hypot(fx - cam4[0], fz - cam4[1]) > (L.SHED_MOLE.shipClear.r || 28);
     sheds.push(sh);
   }

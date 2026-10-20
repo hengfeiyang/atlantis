@@ -249,7 +249,7 @@ export function tissueMaterial(kind = 'kelp', o = {}) {
     ao: 'cgAO = vM.x;',
     // kelp seen from below is back-lit by the bright surface: a little forward-scatter glow keeps the blades
     // olive-gold instead of black silhouettes (ref 7)
-    emissive: kind === 'kelp' ? 'totalEmissiveRadiance += diffuseColor.rgb * vec3(1.1, 1.05, 0.7) * (0.22 + 0.35 * smoothstep(-0.2, 0.8, -cgV.y));' : '',
+    emissive: kind === 'kelp' ? 'totalEmissiveRadiance += diffuseColor.rgb * vec3(1.1, 1.05, 0.7) * (0.14 + 0.3 * smoothstep(-0.2, 0.8, -cgV.y));' : '',
   });
   m.defines = { ...(m.defines || {}), USE_UV: '' };
   if (map) m.alphaToCoverage = true;

@@ -186,3 +186,59 @@ From the shot-1 eye (≈ 8° down) the landing (y 75, z 97-104, ±17 m) occludes
 stylobate + lower columns between x ±17. Lowering the landing by 5 m only moves that line to ≈ 79 and re-breaks shot 3/6 (the eye
 79 / horizon 314 fit). Not changed in r4 (end of round, all cameras/sets depend on it). r5 proposal: slimmer stair + landing
 (width 34 → 24) with the shot-3 eye x 12 → 8 re-fit, so the outer temple columns show beside it in shot 1.
+
+### Round 5 (director) — announcements first (work in out/director/r5/)
+
+**B1 (binding): no layout / radius / height change in r5.** `CITADEL`, `STAIR_HEAD`, `CITADEL_STAIR` (width 34), `SUNKEN`, all
+radii stay. The shot-1 stair-head occlusion is geometry (landing y 75 sits 7 m above the stylobate 68, 84 m in front of it: from
+any eye whose ray to the temple is flatter than ≈ 6.8° the landing hides the colonnade between x ±17). Narrowing the stair
+(34 → 24) would only free one column per side and re-break terrain bake / temple / props / vegetation / stairtop / the new
+water channel mid-round → **rejected**. Instead: (a) the shot-1 video move flies IN at near-constant altitude (the ray steepens,
+the colonnade rises clear of the landing in the second half of the segment); (b) citadel: keep everything ON the landing's
+south edge low (≤ 1.5 m above y 75 at |x| < 20: no tall statues / pylons / braziers there), and the central water channel
+breaks the tan stair column (ref 1 has a cascade there, not a stair).
+**B2 sequence.js paths change (ships / vegetation / anyone who samples `cameraAt` for clearance or LOD: re-sample after my
+commit, watch for "B2 COMMITTED" below):** shot 1 = long horizontal push (≈ 500 m) with the temple tracked on screen (new
+`track` move field); shot 3 = the reference framing at u = 0.5; shot 3 → 6 becomes one continuous slow pull-back + rise
+(the camera retreats up over the stair head) so shot 6 reaches ITS still framing after the dissolve. `SHOTS[5]` (shot 6
+still) will become a point on that path (≈ 3-5 m behind / above shot 3) — a re-fit to ref 6, whose temple is drawn ≈ 8 %
+narrower than ref 3's.
+**Note for sunken/look:** `src/video/player.js` keeps the sunken agent's `engine.frameNo = si*1000 + frame` line.
+**B2 — COMMITTED (sequence.js + shots.js shot 6):** new move fields `track: [x,y,z]` (world point held at its reference screen
+direction while the camera travels), `swoop: [a, e1]` (smooth crane-down that levels off at e1), `along: {shot, de}` (segment rides
+another shot's path, e shifted by de). Segments: **1** `push 520, crane -15, track temple, range [-0.3, 0.7]` (camera z 1483 → 963,
+y 197 → 182: over the fleet, the lighthouses and the l2 wall) · **4** dolly 11 → 14 · **3** `M36 = {dolly 4.5, crane 1.2, swoop [3, 0.6],
+zoom 0.03, track [0, 80, 20]}`, default range (ref 3 at u = 0.5; opens 2.3 m higher, no stair-head pier) · **6** same M36,
+`along {shot 3, de 5/7}` (identical camera through the 2 s dissolve; ref-6 still at u = 0.5) · 2, 5, 7, 8, 9 unchanged; 55.4 s.
+**Shot 6 still moved:** `pos [11.046, 78.337, 95.462], target [-18.069, 65.55, 0.649], fov 47.033` (3.3 m ahead of / 0.7 m below shot 3;
+ref-6 temple rms 29 → 27 px). Sunken (marine coral-by-camera-ray, sets/precinct) and vegetation LOD: re-sample from SHOTS / cameraAt.
+
+### Round 5 — citadel note (stair channel + stair head; follows B1, no layout change)
+* **Stair water channel (for water):** pure `stairChannelPlan()` exported from `src/modules/temple.js` (usable before the temple
+  builds) = `registry.temple.stairChannel` after it: `{ x 0, half 3.0 / width 6.0, wall 0.55, rim 0.5, lip 0.22, pools[k]{za, zb,
+  floorY = landing y, crestY = floorY + 0.22, rimY}, chutes[k]{za, zb, ya, yb, n, riser, tread} (floor = the treads, one weir per
+  riser), quay{za 226, zb 230.4, floorY 3.2, crestY}, floor(z), surface(z), source{pos [0, 75.33, 104.45], dir}, spout{pos [0, 3.41,
+  230.85], dir +z, dropTo 0}, path = points (494 floor corners, top → bottom) }`. A RAISED trough on the stair axis (never below the
+  heightfield stair line): pools on the 6 landings (turquoise tile floor), stepped chutes on the flights, a low shell stele source on
+  the top landing, a trough across the quay ending in a spout lip over w1.
+* **Stair:** the walking stair is 25 m (`STAIR_WALK_HALF` 12.5) inside the unchanged 34 m `CITADEL_STAIR` corridor; the freed 4.5 m per
+  side are deeper planted cheek beds (two tree rows, soil visible — the old coping slab covered the beds); inner dividers gone.
+  Stair head (B1 b): no brazier pedestals on the stair head, no statue / brazier on the top landing, source stele ≤ 1.32 m.
+  Tier-1 + tier-2 rampart towers flanking the stair removed (they made the stair + towers one column in shot 1, the tier-1 west one
+  stood in front of the temple in shot 5). Tier-1 parapet = 0.4 m curb at bearings 151-171 / 189-209 (shot-5 sightlines to the
+  temple cross r 115.6 at 185-205): the temple shows ≈ 3 m lower; the plateau rim itself still hides it below y ≈ 73 from that eye.
+* Shot 5 occluders (raycasts): no quay palace hides the temple — the tier-1 parapet (fixed above), the stair head + upper cheek beds
+  (right quarter of the temple, px 1067-1108: only a narrower STAIR_HEAD would free it). Shot 4: the temple ridge projects below the
+  plateau rim from the 2.5 m eye (camera); the hill between px 290-980 is hidden by the shed-mole bridge head (arch-a), not the
+  citadel; tier-2 terrace planting is low (shrubs / olives) at bearings 118-178.
+**B3 shot 5:** `range [-0.2, 0.8] → [0, 1]` — the segment OPENS on the ref-5 framing and trucks left (at e = -0.2 the hero palm trunk
+filled ≈ 150 px of the right edge — vegetation report). **Shot 4 (reply to citadel):** not changed. From any w1 eye the line over the
+plateau rim (y 62, ≈ 222 m away) reaches the temple ridge (≈ 118 m beyond the rim): seeing the entablature needs an eye ≈ 37 m up or
+a camera ≥ 290 m from the rim (inside l1) — the ref-4 hill-top temple is not reachable from water level; the hill tiers / cascades
+/ stair carry the shot (arch-a: lower mole-bridge head, px 290-980).
+**Motion preview r5** (out/video_preview/atlantis_640x360.mp4, 640x360, 2 spp; r4 kept as atlantis_r4_640x360.mp4): shot 1 now a
+fly-in over the fleet → lighthouses → l2 gate (temple fixed on screen); 3 → 6 dissolve pixel-aligned (same camera, checked at
+t = 30.8 s); shot 6 reaches its still at u = 0.5. Still visible: shot-1 fleet wakes are long straight white streaks (contrails) —
+ships/water; shot 3/6 the ref-3 right pier passes the bottom-right corner (ref has it too); shot 4 reads as a treadmill (shed bays
+repeat; parallax only from the hill); shot 7 kelp at the left edge in the second half.
+High stills r5: out/director/r5/final_s1-9.png (+ _cmp), montage final_all.jpg — 9/9 rendered, no errors.

@@ -161,6 +161,8 @@ export function curtainBay(ctx, e, b0, b1, opts) {
   if (ctx.sunken) {
     const n = Math.sin(opts.k * 0.37 + e.r) * 0.5 + Math.sin(opts.k * 0.11 + 2.0 + e.r * 0.3) * 0.5;
     if (n > 0.55 || ruined(label + ':collapse', 0.06)) yRuin = y0 + H * (0.25 + 0.4 * ruinRand(label, 1));
+    // r5 (shot 8): the shed-mole curtain's end bays (its land-side end cap stood as a plain 12 m slab behind the head)
+    if (e.ring === 'mole' && (opts.endA || opts.endB)) yRuin = Math.min(yRuin, y0 + H * (0.18 + 0.15 * ruinRand(label, 3)));
   }
   const cut = (y) => Math.min(y, yRuin);
   // plinth (black stone)
@@ -178,7 +180,10 @@ export function curtainBay(ctx, e, b0, b1, opts) {
   R.aux = [0, 0, 0, 0];
   // land-side face
   W.aux = [0, 0, 0, AUX_ASHLAR(0.62)];
-  W.quadToward(F.p(0, y0 - 0.5, -T), F.p(len, y0 - 0.5, -T), F.p(len, cut(yW + 0.9), -T), F.p(0, cut(yW + 0.9), -T), [0.93, 0.91, 0.88], mul3(F.az, -1));
+  // r5 (ref 8): sunken land-ring curtains show their land side as a ruined blind arcade (the shot-8 background, 45 m)
+  if (ctx.sunken && lod <= 1 && style !== 'ori' && len > 5) landArcade(ctx, W, F, len, y0, yW + 0.9, T, yRuin, label, e);
+  else W.quadToward(F.p(0, y0 - 0.5, -T), F.p(len, y0 - 0.5, -T), F.p(len, cut(yW + 0.9), -T), F.p(0, cut(yW + 0.9), -T), [0.93, 0.91, 0.88], mul3(F.az, -1));
+  W.aux = [0, 0, 0, AUX_ASHLAR(0.62)];
   if (opts.endA) W.quadToward(F.p(0, y0 - 0.5, -T), F.p(0, y0 - 0.5, 0.05), F.p(0, cut(yTop), 0.05), F.p(0, cut(yTop), -T), [0.9, 0.88, 0.85], mul3(F.ax, -1));
   if (opts.endB) W.quadToward(F.p(len, y0 - 0.5, -T), F.p(len, y0 - 0.5, 0.05), F.p(len, cut(yTop), 0.05), F.p(len, cut(yTop), -T), [0.9, 0.88, 0.85], F.ax);
   if (yRuin < Infinity) {
@@ -335,6 +340,60 @@ function ruinTop(ctx, F, len, yR, T, label, e) {
     if (k % 2 === 0) ctx.slots.coral.push({ pos: Fr.p(0, 1.0, 0), normal: [0, 1, 0], size: 1.0, tag: 'rings-rubble' });
   }
   W.aux = [0, 0, 0, 0];
+}
+
+/**
+ * r5 (ref 8 background): land-side face of a sunken curtain bay as a blind arcade — one tall arched recess (1.1 m deep,
+ * dark back) between square piers with impost blocks, a keystone and a crowning cornice band. A collapsed bay (yRuin)
+ * keeps its piers / jambs up to the break and loses the arch head, so runs of bays read as broken arcades.
+ */
+function landArcade(ctx, W, F, len, y0, yT, T, yRuin, label, e) {
+  const PI = Math.PI;
+  const pw = Math.min(1.3, len * 0.17), s0 = pw, s1 = len - pw, r = (s1 - s0) / 2, sc = (s0 + s1) / 2;
+  const D = 1.1, dF = -T, dB = -T + D;
+  const ySp = y0 + Math.min(6.4, Math.max(2.5, (yT - y0) - r - 2.4)), yCr = ySp + r;
+  const cut = (y) => Math.min(y, yRuin);
+  const nIn = mul3(F.az, -1), toward = (cs, sn) => add3(mul3(F.ax, cs), mul3(F.ay, sn));
+  const col = [0.93, 0.91, 0.88], colJ = [0.74, 0.73, 0.7], colB = [0.5, 0.5, 0.49];
+  const yTop = cut(yT);
+  // piers (land face)
+  for (const [a, b] of [[0, s0], [s1, len]]) W.quadToward(F.p(a, y0 - 0.5, dF), F.p(b, y0 - 0.5, dF), F.p(b, yTop, dF), F.p(a, yTop, dF), col, nIn);
+  // jambs + recess back up to the springing (or the break)
+  const yJ = cut(ySp);
+  W.quadToward(F.p(s0, y0 - 0.5, dF), F.p(s0, y0 - 0.5, dB), F.p(s0, yJ, dB), F.p(s0, yJ, dF), colJ, F.ax);
+  W.quadToward(F.p(s1, y0 - 0.5, dF), F.p(s1, y0 - 0.5, dB), F.p(s1, yJ, dB), F.p(s1, yJ, dF), colJ, mul3(F.ax, -1));
+  W.quadToward(F.p(s0, y0 - 0.5, dB), F.p(s1, y0 - 0.5, dB), F.p(s1, yJ, dB), F.p(s0, yJ, dB), colB, nIn);
+  W.quadToward(F.p(s0, y0 + 0.03, dF), F.p(s1, y0 + 0.03, dF), F.p(s1, y0 + 0.03, dB), F.p(s0, y0 + 0.03, dB), colJ, [0, 1, 0]);
+  // impost blocks on the piers (coral ledges)
+  for (const [a, b, sd] of [[0, s0 + 0.18, 1], [s1 - 0.18, len, -1]]) {
+    if (ySp > yRuin - 0.1) break;
+    box(W, F, a, b, ySp - 0.42, ySp, dF - 0.24, dF + 0.02, [0.86, 0.85, 0.82], FACES.nz | FACES.py | FACES.ny | (sd > 0 ? FACES.px : FACES.nx));
+    if (ruinRand(label + ':imp' + sd, 0) < 0.55) ctx.slots.coral.push({ pos: F.p((a + b) / 2, ySp + 0.02, dF - 0.1), normal: [0, 1, 0], size: 0.7 + 0.6 * ruinRand(label + ':imp' + sd, 1), tag: 'rings-arcade' });
+  }
+  if (yRuin > yCr + 0.8) {
+    // arch head: recess back, soffit, spandrel on the face, keystone
+    const n = 12;
+    const P = (a) => [sc - Math.cos(a) * r, ySp + Math.sin(a) * r];
+    for (let i = 0; i < n; i++) {
+      const a0 = (PI * i) / n, a1 = (PI * (i + 1)) / n, am = (a0 + a1) / 2;
+      const [u0, v0] = P(a0), [u1, v1] = P(a1);
+      W.quadToward(F.p(u0, ySp, dB), F.p(u1, ySp, dB), F.p(u1, v1, dB), F.p(u0, v0, dB), colB, nIn);
+      W.quadToward(F.p(u0, v0, dF), F.p(u1, v1, dF), F.p(u1, v1, dB), F.p(u0, v0, dB), colJ, toward(Math.cos(am), -Math.sin(am)));
+      W.quadToward(F.p(u0, v0, dF), F.p(u1, v1, dF), F.p(u1, yTop, dF), F.p(u0, yTop, dF), col, nIn);
+    }
+    box(W, F, sc - 0.38, sc + 0.38, yCr - 0.25, yCr + 0.95, dF - 0.2, dF + 0.02, [0.88, 0.87, 0.84], FACES.nz | FACES.px | FACES.nx | FACES.py | FACES.ny);
+    // crowning band under the walkway parapet
+    if (yT - yCr > 1.6) {
+      box(W, F, 0, len, yT - 1.0, yT - 0.62, dF - 0.3, dF + 0.02, [0.86, 0.85, 0.82], FACES.nz | FACES.py | FACES.ny);
+      if (ruinRand(label + ':band', 0) < 0.6) ctx.slots.coral.push({ pos: F.p(len * (0.2 + 0.6 * ruinRand(label + ':band', 1)), yT - 0.6, dF - 0.15), normal: [0, 1, 0], size: 0.6 + 0.5 * ruinRand(label + ':band', 2), tag: 'rings-arcade' });
+    }
+  } else if (yRuin > ySp) {
+    // broken arch: the recess goes up to the break, open above the springing
+    W.quadToward(F.p(s0, ySp, dB), F.p(s1, ySp, dB), F.p(s1, yRuin, dB), F.p(s0, yRuin, dB), colB, nIn);
+    W.quadToward(F.p(s0, ySp, dF), F.p(s0, ySp, dB), F.p(s0, yRuin, dB), F.p(s0, yRuin, dF), colJ, F.ax);
+    W.quadToward(F.p(s1, ySp, dF), F.p(s1, ySp, dB), F.p(s1, yRuin, dB), F.p(s1, yRuin, dF), colJ, mul3(F.ax, -1));
+  }
+  void e;
 }
 
 /** all revetments + curtains of one edge; returns { bays, len } */

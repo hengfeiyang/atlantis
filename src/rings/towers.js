@@ -84,7 +84,26 @@ export function towerKit(spec) {
     const q0 = Math.max(spec.y0, spec.yb + 0.3);
     chamferBox(W, F, hw - (pylon ? 0.75 : 0.95), hw + 0.001, q0, Math.min(yCut, yS), -0.02, pylon ? 0.3 : 0.16, 0.05, [0.97, 0.96, 0.94], FACES.pz | FACES.nx | FACES.px);
     W.aux = [0, 0, 0, 0];
-    if (broken) continue;
+    if (broken) {
+      // r5 (ref 8 background, shot 8): the broken stumps keep remnants of their ornament instead of a plain slab —
+      // a tall dark arched niche with its gilt surround on every face, a red band (white design) and pilaster strips
+      const top = yCut - 1.3, nb = Math.max(spec.y0, spec.yb + 0.3) + 0.9;
+      const nw = Math.min(hw * 0.72, pylon ? 1.7 : 2.3), nh = Math.min(top - nb, pylon ? 6.8 : 8.0);
+      if (nh > 2.4) {
+        archWindow(K, F, 0, nb, nw, nh, 0.03, 8);
+        W.aux = [0, 0.4, 0, AUX_ASHLAR(0.6)];
+        for (const sx of [-1, 1]) chamferBox(W, F, sx * (nw / 2 + 0.25) - 0.22, sx * (nw / 2 + 0.25) + 0.22, nb - 0.2, nb + nh + 0.35, -0.02, 0.2, 0.04, [0.9, 0.89, 0.86], FACES.pz | FACES.px | FACES.nx | FACES.py);
+        W.aux = [0, 0, 0, 0];
+      }
+      const yb = nb + nh + 0.9;
+      if (!spec.banded && yb + 0.6 < yCut - 0.9) {
+        const R = K.get('red');
+        R.aux = [0, 0.2, 0, AUX_ASHLAR(0.6)];
+        box(R, F, -hw + (pylon ? 0.75 : 0.95), hw - (pylon ? 0.75 : 0.95), yb, yb + 0.6, -0.1, 0.03, COL, FACES.pz | FACES.py | FACES.ny);
+        R.aux = [0, 0, 0, 0];
+      }
+      continue;
+    }
     if (pylon) {
       // gilt capitals on the corner pilasters, gilt strings, big compass medallion on the front + back
       const Gt = K.get('gilt');

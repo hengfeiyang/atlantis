@@ -79,7 +79,8 @@ export function buildMoleHead(kit) {
   {
     const B = mp.bridge, hd = B.halfWidth;
     kit.begin(B.origin[0], B.origin[1], B.rotY);
-    const tw0 = 0, tw1 = 6.5, ex0 = B.tEnd - 6, ex1 = B.tEnd + 6;
+    // r5 (citadel request, shot 4: ref 4 shows the hill rising over the bridge): slimmer, lower head towers
+    const EH = 4.6, tw0 = 0, tw1 = 6.5, ex0 = B.tEnd - EH, ex1 = B.tEnd + EH;
     const x0 = tw1, x1 = ex0;
     const sp = 2.2, thick = 0.95;
     const crownMax = yFr + 0.15 - thick;
@@ -135,23 +136,23 @@ export function buildMoleHead(kit) {
       boxA(blk, tw0 - 0.6, g0, -6.6, tw1 + 0.6, 1.3, 6.6, AUX.ashlar(0.7), 0.03);
       for (const f of [-1, 1]) cutwater(kit, tw0 + 0.4, tw1 - 0.4, f * 6.6, f, g0, 3.6);
       boxA(w, tw0 - 0.55, D - 0.5, -6.55, tw1 + 0.55, D, 6.55, AUX.mould, 0.03);
-      const t = gateTower(kit, { x0: tw0, x1: tw1, z0: -6, z1: 6, yDeck: D, yTop: D + 8.5, passage: { hw: 2.6, h: 5.6 }, gilt: true, banded: true,
+      const t = gateTower(kit, { x0: tw0, x1: tw1, z0: -6, z1: 6, yDeck: D, yTop: D + 6.0, passage: { hw: 2.4, h: 4.3 }, gilt: true, banded: true,
         bannerFaces: sunken ? [] : ['-z', '+z'], seed: 77, tag: 'mole-pier-tower', fallenTop: true });
       if (!sunken || !ruined('mole-pier:statue', 0.4)) kit.slots.statue.push({ pos: kit.W((tw0 + tw1) / 2, t.roof + 0.15, 0), facing: kit.compass(0, -1), size: 4.6, tag: 'pinnacle', source: 'bridges-mole' });
       out.towers.push({ pos: kit.W((tw0 + tw1) / 2, t.roof, 0), tip: t.roof + 4.6 });
     }
     // ---- end tower on the citadel quay (straddles the citadel curtain gap), gold tholos
     {
-      const g0 = Math.min(gW(ex0, -6), gW(ex1, 6), gW(ex0, 6), gW(ex1, -6), gW(B.tEnd, 0)) - 2;
-      boxA(w, ex0 - 0.3, g0, -6.3, ex1 + 0.3, D, 6.3, AUX.ashlar(0.9));
-      boxA(blk, ex0 - 0.65, g0, -6.65, ex1 + 0.65, Math.max(1.3, Math.min(D - 1.5, L.CITADEL.quayY + 0.9)), 6.65, AUX.ashlar(0.7), 0.04);
-      boxA(w, ex0 - 0.55, D - 0.5, -6.55, ex1 + 0.55, D, 6.55, AUX.mould, 0.03);
+      const g0 = Math.min(gW(ex0, -EH), gW(ex1, EH), gW(ex0, EH), gW(ex1, -EH), gW(B.tEnd, 0)) - 2;
+      boxA(w, ex0 - 0.3, g0, -EH - 0.3, ex1 + 0.3, D, EH + 0.3, AUX.ashlar(0.9));
+      boxA(blk, ex0 - 0.65, g0, -EH - 0.65, ex1 + 0.65, Math.max(1.3, Math.min(D - 1.5, L.CITADEL.quayY + 0.9)), EH + 0.65, AUX.ashlar(0.7), 0.04);
+      boxA(w, ex0 - 0.55, D - 0.5, -EH - 0.55, ex1 + 0.55, D, EH + 0.55, AUX.mould, 0.03);
       // quay door + landing on the citadel side
       boxA(dk, ex1 + 0.28, L.CITADEL.quayY, -1.6, ex1 + 0.32, L.CITADEL.quayY + 4.6, 1.6, AUX.dark, 0);
       boxA(w, ex1 + 0.3, L.CITADEL.quayY + 4.6, -2.0, ex1 + 0.7, L.CITADEL.quayY + 5.1, 2.0, AUX.mould, 0.02);
-      const t = gateTower(kit, { x0: ex0, x1: ex1, z0: -6, z1: 6, yDeck: D, yTop: D + 11, passage: { hw: 2.9, h: 6.6 }, gilt: false, banded: true,
+      const t = gateTower(kit, { x0: ex0, x1: ex1, z0: -EH, z1: EH, yDeck: D, yTop: D + 7.4, passage: { hw: 2.4, h: 5.0 }, gilt: false, banded: true,
         bannerFaces: sunken ? [] : ['-z', '+z'], seed: 79, tag: 'mole-end-tower',
-        tholos: { R: 4.2, n: 10, colH: 3.8, domeH: 2.0, tridentH: 3.2, tridentThick: 1.3 },
+        tholos: { R: 3.2, n: 10, colH: 2.9, domeH: 1.6, tridentH: 2.6, tridentThick: 1.3 },
         tridentBroken: sunken && ruined('mole-end:trident', 0.4), missingCols: sunken ? (i) => ruined(`mole-end:col:${i}`, 0.2) : null });
       out.towers.push({ pos: kit.W(B.tEnd, t.roof, 0), tip: t.tip });
     }
