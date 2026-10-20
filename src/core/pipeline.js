@@ -369,8 +369,11 @@ export class Pipeline {
           vec3 c0 = texture2D(tHDR, uv).rgb;
           // r5 (look-golden): the shifted channels are limited to 2× / 0.5× of the centre sample: a sub-pixel shift across
           // the HDR sun disk (radiance ~1000× the sky) otherwise painted a magenta / blue ring around it (shot 1, in motion)
-          float r = clamp(texture2D(tHDR, uv - d * k).r, c0.r * 0.5, c0.r * 2.0 + 0.02);
-          float b = clamp(texture2D(tHDR, uv + d * k).b, c0.b * 0.5, c0.b * 2.0 + 0.02);
+          // r6: the 2× limit still left a pink rim on one side of the disk and pink-white glitter sparkles (B from the disk / spark
+          // over the orange glow) → the limit tightens to 1.12× on bright HDR pixels
+          float lim = mix(2.0, 1.12, smoothstep(1.5, 6.0, luma(c0)));
+          float r = clamp(texture2D(tHDR, uv - d * k).r, c0.r / lim, c0.r * lim + 0.02);
+          float b = clamp(texture2D(tHDR, uv + d * k).b, c0.b / lim, c0.b * lim + 0.02);
           return vec3(r, c0.g, b);
         }
         void main(){

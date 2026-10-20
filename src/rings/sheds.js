@@ -2,7 +2,7 @@
 // each a vaulted, lamp-lit dock with a slipway for one trireme. The rock-cut block projects SHED.depth m
 // in front of the ring face; its top is a planted ledge below the curtain wall. Merged chunked geometry
 // (every bay has its own rock displacement — world-space noise, nothing repeats).
-import { Frame, chamferBox, box, FACES, AUX_ASHLAR, mul3 } from './geo.js';
+import { Frame, chamferBox, box, lathe, FACES, AUX_ASHLAR, mul3 } from './geo.js';
 import { polarXZ, SHED } from './plan.js';
 import { noiseA, noiseB } from '../core/noise.js';
 import { ruined, ruinRand } from '../world/era.js';
@@ -45,9 +45,19 @@ function rockDisp(x, y, z, e) {
   const t = TF.rockDisp(x, y, z, 0.12) * (sc > 1 ? 0.5 : 1);
   const mass = Math.max(0, noiseA.fbm3(x * 0.04, y * 0.05, z * 0.04, 2) + 0.15) * 1.4;
   const fine = (sc > 1 ? 0.05 : 0.12) * noiseB.noise3(x * 0.9, y * 0.9, z * 0.9);
-  const cav = Math.min(1, Math.max(0, crev * 0.9 + TF.CAV * 0.3));
+  let cav = Math.min(1, Math.max(0, crev * 0.9 + TF.CAV * 0.3));
   const k = e && e.rockAmp != null ? e.rockAmp : 1;   // r3: shed mole = flatter dressed-rock face (front-lit in shot 4)
-  return [Math.max(-1.4 * k, Math.min(3.6 * k, 0.7 * k + (lump + mass) * k + t + fine)), cav * (0.5 + 0.5 * k)];
+  let fac = 0;
+  if (sc > 1) {
+    // r6 (ref 4 close-up): a second, small octave of tilted facets (≈ 1.4 × 2 m blocks) with crisp clefts between them —
+    // the r5 face read as smooth plaster from the shot-4 eye 20-60 m away
+    const [g1, g2, gid2, ex, ey, gg] = crag(su * 1.0 + 17.3, y + 5.1, 0.42);
+    const cr2 = 1 - Math.min(1, (g2 - g1) / 0.22);
+    const tx = (hash2(gg[0] + 5, gg[1] - 3) - 0.5) * 2.0, ty = (hash2(gg[0] - 11, gg[1] + 29) - 0.65) * 1.5;
+    fac = (0.55 * (gid2 - 0.5) + tx * ex + ty * ey - 0.75 * cr2 * cr2) * 0.55;
+    cav = Math.min(1, Math.max(cav, cr2 * cr2 * 0.85));
+  }
+  return [Math.max(-1.4 * k, Math.min(3.6 * k, 0.7 * k + (lump + mass) * k + t + fine + fac)), cav * (0.5 + 0.5 * k)];
 }
 /** rock top above the land level (m): lumpy crest rising toward the curtain foot (the wall sits ON the rock) */
 function crest(x, z) {
@@ -64,7 +74,7 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
   const DEP = e.shedDepth ?? SHED.depth, BACK = e.shedBack ?? SHED.back;   // r3: per-edge (shed mole: shallow front, deep interior)
   const b = sh.bearing, side = e.side, R0 = e.faceR, Rf = R0 + side * DEP;
   const yB = e.floor - 1.0, yT = e.landY;
-  const ra = SHED.clear / 2, ys = sh.crown - ra;
+  const ra = (sh.clear || SHED.clear) / 2, ys = sh.crown - ra;   // r6: per-bay clear width (shed mole table)
   const br = b * D2R;
   const PX = e.polar || polarXZ;
   const [ox, oz] = PX(R0, b);
@@ -76,7 +86,7 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
   const label = `rings:shed:${e.id}:${Math.round(b * 100)}`;
   const broken = ctx.sunken && ruined(label, 0.25);
   // ---- front rock face: grid with the arch opening removed, radially displaced
-  const cs = lod === 0 ? 0.75 : lod === 1 ? 1.2 : 2.2;
+  const cs = lod === 0 ? (e.cragScale > 1 ? 0.4 : 0.75) : lod === 1 ? 1.2 : 2.2;   // r6: the shed mole (shot 4 close-up) carries small facets
   const nu = Math.max(4, Math.ceil((2 * halfDeg * D2R * Rf) / cs)), ny = Math.max(4, Math.ceil((yT - yB) / cs));
   const m = 0.3;
   const inOpen = (sv, y) => !opts.solid && Math.abs(sv) < ra + m && (y < ys || Math.hypot(sv, y - ys) < ra + m);
@@ -172,31 +182,42 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
     }
   }
   if (opts.solid) return;
-  // ---- dressed arch: jambs, voussoirs, gilt keystone
+  // r6 (arch-a, shot 4 "treadmill"): every bay has its own style — archivolt (plain / red-white banded / gilt hood +
+  // medallion / rusticated), pier ornament (banner / lion-head spout / statue niche / bracket lamp), lamp count + warmth,
+  // vault ribs or timber trusses, hanging lanterns, ivy, an occasional bronze gate. Mole bays: a hand-set table
+  // (molePlan sh.style); ring sheds: hashed per bearing.
+  const sty = bayStyle(sh, e.id);
+  const A = sty.arch;
+  // ---- dressed arch: jambs, voussoirs, keystone
   const Ff = Fb.at(0, 0, DEP);
-  const Wt = S.get('white', mid[0], mid[2]), G = S.get('gilt', mid[0], mid[2]);
-  const ring = 0.85;
-  Wt.aux = [0, 0.4, 0, AUX_ASHLAR(0.6)];
+  const Wt = S.get(A === 'rustic' ? 'lime' : 'white', mid[0], mid[2]), G = S.get('gilt', mid[0], mid[2]), Rd = S.get('red', mid[0], mid[2]);
+  const ring = A === 'rustic' ? 1.05 : A === 'gilt' ? 0.8 : 0.85;
+  const stoneOf = (k2) => (A === 'banded' && k2 % 2 ? Rd : Wt);
+  const tone = () => (A === 'rustic' ? [0.86 + 0.08 * rng.random(), 0.84, 0.8] : [0.92 + 0.06 * rng.random(), 0.9, 0.86]);
+  for (const B of [Wt, Rd]) B.aux = [0, 0.4, 0, AUX_ASHLAR(0.6)];
   let y = -0.8, k = 0;
   while (y < ys - 0.02) {
     const hh = Math.min(ys - y, k % 2 ? 0.55 : 0.8);
     for (const sx of [-1, 1]) {
       const wide = (k + (sx > 0 ? 1 : 0)) % 2 ? ring * 1.2 : ring * 0.8;
       const a = sx < 0 ? -ra - wide : ra, c = sx < 0 ? -ra : ra + wide;
-      chamferBox(Wt, Ff, a, c, y, y + hh, -1.2, 0.35, lod <= 1 ? 0.04 : 0, [0.92 + 0.06 * rng.random(), 0.9, 0.86], FACES.pz | FACES.px | FACES.nx | FACES.py | FACES.ny);
+      const dF = A === 'rustic' ? (k % 2 ? 0.62 : 0.4) : 0.35;
+      chamferBox(stoneOf(k), Ff, a, c, y, y + hh, -1.2, dF, lod <= 1 ? (A === 'rustic' ? 0.11 : 0.04) : 0, tone(), FACES.pz | FACES.px | FACES.nx | FACES.py | FACES.ny);
     }
     y += hh; k++;
   }
   for (const sx of [-1, 1]) chamferBox(G, Ff, sx < 0 ? -ra - ring * 1.3 : ra - 0.1, sx < 0 ? -ra + 0.1 : ra + ring * 1.3, ys - 0.25, ys, -1.2, 0.45, 0.03, [1, 1, 1]);
-  const nv = lod === 0 ? 17 : 11;
+  const nv = lod === 0 ? (A === 'rustic' ? 13 : 17) : 11;
+  let rTop = ra + ring * 1.35;
   for (let i = 0; i < nv; i++) {
     const a0 = Math.PI - (Math.PI * i) / nv, a1 = Math.PI - (Math.PI * (i + 1)) / nv;
     const key = i === (nv - 1) / 2;
-    const B = key ? G : Wt;
-    const R1 = ra + ring * (key ? 1.35 : 1), dF = key ? 0.55 : 0.35;
-    const g = 0.012;
+    const B = key ? (A === 'rustic' ? Wt : G) : stoneOf(i);
+    // rusticated: stepped extrados (long / short voussoirs) and bossed fronts
+    const R1 = ra + ring * (key ? 1.35 : A === 'rustic' ? (i % 2 ? 1.25 : 0.92) : 1), dF = key ? 0.55 : A === 'rustic' ? (i % 2 ? 0.6 : 0.42) : 0.35;
+    const g = A === 'rustic' ? 0.018 : 0.012;
     const P = (a, rr, d) => Ff.p(Math.cos(a) * rr, ys + Math.sin(a) * rr, d);
-    const c = key ? [1, 1, 1] : [0.92 + 0.06 * rng.random(), 0.9, 0.86];
+    const c = key && A !== 'rustic' ? [1, 1, 1] : tone();
     const ctr = Ff.p(Math.cos((a0 + a1) / 2) * (ra + R1) / 2, ys + Math.sin((a0 + a1) / 2) * (ra + R1) / 2, -0.4);
     B.quadOut(P(a0 - g, ra, dF), P(a1 + g, ra, dF), P(a1 + g, R1, dF), P(a0 - g, R1, dF), c, ctr);
     B.quadOut(P(a0 - g, R1, dF), P(a1 + g, R1, dF), P(a1 + g, R1, -1.2), P(a0 - g, R1, -1.2), c, ctr);
@@ -204,21 +225,50 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
     B.quadOut(P(a0 - g, ra, dF), P(a0 - g, R1, dF), P(a0 - g, R1, -1.2), P(a0 - g, ra, -1.2), c, ctr);
     B.quadOut(P(a1 + g, R1, dF), P(a1 + g, ra, dF), P(a1 + g, ra, -1.2), P(a1 + g, R1, -1.2), c, ctr);
   }
-  Wt.aux = [0, 0, 0, 0];
+  if (A === 'gilt' && lod <= 1) {
+    // gilt hood moulding (half-round band over the voussoirs, label stops at the springing) + a gilt medallion
+    const r0 = ra + ring + 0.02, r1 = r0 + 0.32, dH = 0.52, nh = lod === 0 ? 24 : 14;
+    for (let i = 0; i < nh; i++) {
+      const a0 = Math.PI - (Math.PI * i) / nh, a1 = Math.PI - (Math.PI * (i + 1)) / nh;
+      const P = (a, rr, d) => Ff.p(Math.cos(a) * rr, ys + Math.sin(a) * rr, d);
+      const ctr = Ff.p(0, ys, -0.5);
+      G.quadOut(P(a0, r0, dH), P(a1, r0, dH), P(a1, r1, dH), P(a0, r1, dH), [1, 1, 1], ctr);
+      G.quadOut(P(a0, r1, dH), P(a1, r1, dH), P(a1, r1, -0.2), P(a0, r1, -0.2), [1, 1, 1], ctr);
+      G.quadOut(P(a0, r0, -0.2), P(a1, r0, -0.2), P(a1, r0, dH), P(a0, r0, dH), [0.85, 0.85, 0.85], Ff.p(0, ys, 0.5));
+    }
+    for (const sx of [-1, 1]) chamferBox(G, Ff, sx * (r0 + 0.16) - 0.3, sx * (r0 + 0.16) + 0.3, ys - 0.7, ys - 0.25, -0.2, dH + 0.08, 0.04, [1, 1, 1]);
+    const yM = ys + ra + ring * 1.35 + 0.95;
+    const Fm = new Frame(Ff.p(0, yM, 0.5), Ff.ax, Ff.az, mul3(Ff.ay, -1));
+    lathe(G, Fm, 0, 0, 0, [[0.85, -0.3], [0.85, 0.02], [0.78, 0.1], [0.55, 0.08], [0.32, 0.18], [0, 0.22]], 18, [1, 1, 1]);
+    rTop = yM + 0.85 - ys;
+  }
+  if (A === 'banded' && lod <= 1) {
+    // gilt keystone mask block + thin gilt extrados line (ref 2 banded towers)
+    const r0 = ra + ring + 0.01, nh = lod === 0 ? 20 : 12;
+    for (let i = 0; i < nh; i++) {
+      const a0 = Math.PI - (Math.PI * i) / nh, a1 = Math.PI - (Math.PI * (i + 1)) / nh;
+      const P = (a, rr, d) => Ff.p(Math.cos(a) * rr, ys + Math.sin(a) * rr, d);
+      G.quadOut(P(a0, r0, 0.36), P(a1, r0, 0.36), P(a1, r0 + 0.12, 0.36), P(a0, r0 + 0.12, 0.36), [1, 1, 1], Ff.p(0, ys, -0.5));
+    }
+  }
+  for (const B of [Wt, Rd]) B.aux = [0, 0, 0, 0];
   // ---- interior: side walls, vault, back wall, slipway (lamp glow baked in aux.z)
   const I = S.get('interior', mid[0], mid[2]);
   const dBack = -BACK, dFront = DEP - 1.2;
   const lamps = [];
-  const lampD = e.shedLamps || [DEP - 4.5, DEP - 11.5, DEP - 23];
+  const lampD = (e.shedLamps || [DEP - 4.5, DEP - 11.5, DEP - 23]).slice(0, Math.max(1, sty.lampN || 9));
   for (const dl of lampD) for (const sx of [-1, 1]) lamps.push([sx * (ra - 0.4), ys - 0.6, dl]);
-  const gain = e.lampGain ?? 1;
+  const lanternD = sty.lanterns ? [DEP - 6, DEP - 14.5].filter((d) => d > dBack + 3) : [];
+  for (const dl of lanternD) lamps.push([0, sh.crown - 2.6, dl]);
+  const gain = (e.lampGain ?? 1) * (sty.lampGain ?? 1);
   const glow = (p) => { let g = 0; for (const l of lamps) { const d2 = (p[0] - l[0]) ** 2 + (p[1] - l[1]) ** 2 + (p[2] - l[2]) ** 2; g += 2.2 * gain / (1 + d2 * 0.35 / gain); } return g; };
   const nd = lod === 0 ? 12 : 6;
+  const tint = sty.tint || [1, 1, 1];
   const IQ = (a, b2, c, d, n) => {
     // local points → world, aux.z from the glow at each vertex (one quad = constant aux; subdivided enough)
     const mc = [(a[0] + b2[0] + c[0] + d[0]) / 4, (a[1] + b2[1] + c[1] + d[1]) / 4, (a[2] + b2[2] + c[2] + d[2]) / 4];
     I.aux = [0, 0, broken ? 0 : glow(mc), 0];
-    I.quadToward(Fb.p(...a), Fb.p(...b2), Fb.p(...c), Fb.p(...d), [1, 1, 1], Fb.dir(...n));
+    I.quadToward(Fb.p(...a), Fb.p(...b2), Fb.p(...c), Fb.p(...d), tint, Fb.dir(...n));
   };
   for (let q = 0; q < nd; q++) {
     const d0 = dBack + (dFront - dBack) * (q / nd), d1 = dBack + (dFront - dBack) * ((q + 1) / nd);
@@ -232,6 +282,27 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
       const c0 = Math.cos(a0) * ra, s0 = ys + Math.sin(a0) * ra, c1 = Math.cos(a1) * ra, s1 = ys + Math.sin(a1) * ra;
       const am = (a0 + a1) / 2;
       IQ([c0, s0, d0], [c1, s1, d0], [c1, s1, d1], [c0, s0, d1], [-Math.cos(am), -Math.sin(am), 0]);
+    }
+  }
+  // transverse stone ribs (arched bands + wall pilasters) every ≈ 4.5 m (ribbed bays)
+  if (sty.ribs && lod <= 1) {
+    const tr = 0.42, wr = 0.32;
+    for (let dr = dFront - 2.2; dr > dBack + 1.5; dr -= 4.6) {
+      const d0 = dr - wr, d1 = dr + wr, na = lod === 0 ? 12 : 8;
+      for (let i = 0; i < na; i++) {
+        const a0 = (Math.PI * i) / na, a1 = (Math.PI * (i + 1)) / na, am = (a0 + a1) / 2;
+        const R = ra - tr;
+        const P = (a, rr, d) => [Math.cos(a) * rr, ys + Math.sin(a) * rr, d];
+        IQ(P(a0, R, d0), P(a1, R, d0), P(a1, R, d1), P(a0, R, d1), [-Math.cos(am), -Math.sin(am), 0]);
+        IQ(P(a0, ra, d1), P(a1, ra, d1), P(a1, R, d1), P(a0, R, d1), [0, 0, 1]);
+        IQ(P(a0, ra, d0), P(a1, ra, d0), P(a1, R, d0), P(a0, R, d0), [0, 0, -1]);
+      }
+      for (const sx of [-1, 1]) {
+        const xi = sx * (ra - tr);
+        IQ([xi, 0.8, d0], [xi, 0.8, d1], [xi, ys, d1], [xi, ys, d0], [-sx, 0, 0]);
+        IQ([sx * ra, 0.8, d1], [xi, 0.8, d1], [xi, ys, d1], [sx * ra, ys, d1], [0, 0, 1]);
+        IQ([sx * ra, 0.8, d0], [xi, 0.8, d0], [xi, ys, d0], [sx * ra, ys, d0], [0, 0, -1]);
+      }
     }
   }
   // back wall (dark, a few glowing niches)
@@ -249,31 +320,85 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
       const Fr = new Frame(Fb.p(sx, 1.22, dBack), Fb.ax, Fb.ay, Fb.az).tilted(0, -Math.atan2(rise, run));
       box(Wd, Fr, -0.18, 0.18, 0, 0.22, 0, Math.hypot(rise, run), [1, 1, 1], FACES.py | FACES.px | FACES.nx);
     }
-    // tie beams across the dock
-    if (lod <= 1) for (const dd of [-14, -6, 1.5, 6.5, 11].map((v) => v + DEP - SHED.depth)) box(Wd, Fb, -ra, ra, ys - 0.35, ys - 0.05, dd - 0.15, dd + 0.15, [0.9, 0.9, 0.9], FACES.py | FACES.ny | FACES.pz | FACES.nz);
+    // tie beams across the dock (timber bays: denser, with king posts + a ridge purlin)
+    if (lod <= 1) {
+      const beams = sty.ribs ? [-14, 1.5, 11] : [-17, -11, -6, -1, 3.5, 8, 11.5];
+      for (const dd of beams.map((v) => v + DEP - SHED.depth)) {
+        if (dd < dBack + 0.5 || dd > dFront) continue;
+        box(Wd, Fb, -ra, ra, ys - 0.35, ys - 0.05, dd - 0.15, dd + 0.15, [0.9, 0.9, 0.9], FACES.py | FACES.ny | FACES.pz | FACES.nz);
+        if (!sty.ribs) {
+          box(Wd, Fb, -0.13, 0.13, ys - 0.05, sh.crown - 0.25, dd - 0.13, dd + 0.13, [0.85, 0.85, 0.85], FACES.px | FACES.nx | FACES.pz | FACES.nz);
+          for (const sx of [-1, 1]) {
+            const Fs = new Frame(Fb.p(sx * ra * 0.5, ys - 0.05, dd), Fb.ax, Fb.ay, Fb.az).tilted(-sx * 0.9, 0);
+            box(Wd, Fs, -0.1, 0.1, 0, ra * 0.62, -0.1, 0.1, [0.85, 0.85, 0.85], FACES.px | FACES.nx | FACES.pz | FACES.nz);
+          }
+        }
+      }
+      if (!sty.ribs) box(Wd, Fb, -0.16, 0.16, sh.crown - 0.55, sh.crown - 0.25, dBack + 0.5, dFront, [0.8, 0.8, 0.8], FACES.ny | FACES.px | FACES.nx);
+    }
     // lamps (emissive) on iron brackets
     const Lp = S.get('lamp', mid[0], mid[2]);
     for (const l of lamps) {
+      if (l[0] === 0) continue;
       const Fl = Fb.at(l[0], l[1], l[2]);
       box(Lp, Fl, -0.14, 0.14, -0.2, 0.14, -0.14, 0.14, [1, 1, 1]);
       if (lod === 0) ctx.slots.lamp.push({ pos: Fl.p(0, 0.15, 0), size: 0.22, tag: 'rings-shed' });
     }
+    // hanging lanterns on chains under the vault crown (ref 4: lamp-lit vaults)
+    if (lod <= 1) for (const dl of lanternD) {
+      const Fl = Fb.at(0, sh.crown - 2.6, dl);
+      box(Lp, Fl, -0.22, 0.22, -0.3, 0.3, -0.22, 0.22, [1, 1, 1]);
+      box(G, Fl, -0.3, 0.3, 0.3, 0.42, -0.3, 0.3, [1, 1, 1]);
+      box(G, Fl, -0.27, 0.27, -0.42, -0.3, -0.27, 0.27, [1, 1, 1]);
+      box(Wd, Fl, -0.03, 0.03, 0.42, 2.55, -0.03, 0.03, [0.5, 0.5, 0.5], FACES.px | FACES.nx | FACES.pz | FACES.nz);
+    }
+  }
+  // bronze gates: 'closed' = two lattice leaves across the opening; 'open' = leaves folded back against the jambs
+  if (sty.gate && !broken) {
+    const Bz = S.get('bronze', mid[0], mid[2]);
+    const dG = DEP - 1.7, hG = Math.min(ys + ra * 0.55, sh.crown - 0.6);
+    for (const sx of [-1, 1]) {
+      const hinge = Fb.at(sx * (ra - 0.05), 0, dG);
+      const Fl = sty.gate === 'open' ? hinge.yawed(sx * 1.35) : hinge;
+      const wL = ra - 0.05, x0 = sx < 0 ? 0 : -wL, x1 = sx < 0 ? wL : 0;
+      // frame + rails
+      for (const [ya, yb2] of [[0.0, 0.22], [hG * 0.38, hG * 0.38 + 0.14], [hG * 0.72, hG * 0.72 + 0.14], [hG - 0.24, hG]]) box(Bz, Fl, x0, x1, ya, yb2, -0.09, 0.09, [1, 1, 1]);
+      box(Bz, Fl, sx < 0 ? x1 - 0.2 : x0, sx < 0 ? x1 : x0 + 0.2, 0, hG, -0.1, 0.1, [1, 1, 1]);
+      box(Bz, Fl, sx < 0 ? x0 : x1 - 0.2, sx < 0 ? x0 + 0.2 : x1, 0, hG, -0.1, 0.1, [1, 1, 1]);
+      // bars with gilt spear finials
+      const nbars = Math.max(4, Math.round(wL / 0.42));
+      for (let i = 1; i < nbars; i++) {
+        const xb = x0 + ((x1 - x0) * i) / nbars;
+        box(Bz, Fl, xb - 0.045, xb + 0.045, 0, hG + 0.35, -0.045, 0.045, [1, 1, 1], FACES.px | FACES.nx | FACES.pz | FACES.nz);
+        box(G, Fl, xb - 0.09, xb + 0.09, hG + 0.35, hG + 0.6, -0.06, 0.06, [1, 1, 1]);
+      }
+      // gilt trident roundel on each leaf
+      const Fm = new Frame(Fl.p((x0 + x1) / 2, hG * 0.55, 0.1), Fl.ax, Fl.az, mul3(Fl.ay, -1));
+      lathe(G, Fm, 0, 0, 0, [[0.62, -0.05], [0.62, 0.05], [0.5, 0.1], [0.22, 0.12], [0, 0.14]], 14, [1, 1, 1]);
+    }
   }
   // ---- slots + registry
   sh.slotPos = Fb.p(0, 0, DEP - 0.5);
+  // the real rock surface (same clamps as the face grid) at local (sv along the face, y): radial offset d
+  const surf = (sv, y2) => {
+    const uu = Math.asin(Math.max(-1, Math.min(1, sv / Rf))) / D2R, p = W(uu, y2, Rf);
+    let d = rockDisp(p[0], y2, p[2], e)[0];
+    const dOpen = y2 <= ys ? Math.abs(Math.abs(sv) - ra) : Math.abs(Math.hypot(sv, y2 - ys) - ra);
+    if (dOpen < 3.5) d = Math.min(d, -0.2 + 0.55 * dOpen);
+    return d;
+  };
+  const svP = Rf * Math.sin(halfDeg * D2R);
+  const pierFrame = (yc, w, h) => {
+    let dMax = -9;
+    for (const fu of [-0.5, 0, 0.5]) for (const fv of [-0.5, 0, 0.5]) dMax = Math.max(dMax, surf(svP + fu * w, yc + fv * h));
+    const uB = Math.asin(Math.max(-1, Math.min(1, svP / Rf))) / D2R;
+    return new Frame(W(uB, 0, Rf + side * (dMax + 0.06)), Fb.ax, Fb.ay, Fb.az);
+  };
   if (!ctx.sunken) {
-    // banners between the arches (on the rock, hung from iron rods)
-    if (sh.index % 2 === 0) {
-      // r3 (props audit): sample the real rock surface (same clamps as the face grid) over the banner area and
-      // pick the spot on the pier where the cloth hangs closest to the rock without cutting into it
-      const surf = (sv, y) => {
-        const uu = Math.asin(Math.max(-1, Math.min(1, sv / Rf))) / D2R, p = W(uu, y, Rf);
-        let d = rockDisp(p[0], y, p[2], e)[0];
-        const dOpen = y <= ys ? Math.abs(Math.abs(sv) - ra) : Math.abs(Math.hypot(sv, y - ys) - ra);
-        if (dOpen < 3.5) d = Math.min(d, -0.2 + 0.55 * dOpen);
-        return d;
-      };
-      const svP = Rf * Math.sin(halfDeg * D2R), bw = 1.6, bh = 4.4;
+    const pier = opts.endB ? null : sty.pier;
+    if (pier === 'banner' || pier === 'spout') {   // spout piers carry a banner above the lion head
+      // r3 (props audit): pick the spot on the pier where the cloth hangs closest to the rock without cutting into it
+      const bw = 1.6, bh = 4.4 + (sty.bannerLong ? 1.4 : 0);
       let best = null;
       for (const ds of [0, -0.35, 0.35, -0.7, 0.7]) for (const y0 of [sh.crown + 0.6, sh.crown + 1.2, sh.crown + 0.1]) {
         const sv = svP + ds;
@@ -284,17 +409,89 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
         if (!best || gap < best.gap) best = { gap, sv, y0, off: dMax + 0.12 };
       }
       const uB = Math.asin(Math.max(-1, Math.min(1, best.sv / Rf))) / D2R;
-      ctx.slots.banner.push({ pos: W(uB, best.y0, Rf + side * best.off), facing: sh.facing, size: [bw, bh], tag: 'rings-shed' });
+      ctx.slots.banner.push({ pos: W(uB, best.y0, Rf + side * best.off), facing: sh.facing, size: [bw, bh], tag: 'rings-shed', ...(sty.bannerStyle ? { style: sty.bannerStyle } : {}) });
     }
-    if (sh.index % 3 === 0) {
-      const pv = W(halfDeg * 0.6, yT, Rf);
+    if (pier === 'spout' && lod <= 1) {
+      // gilt lion-head spout on a white panel low on the pier, pouring into the water (water module: registry.spouts)
+      const yc = 2.9, Fp = pierFrame(yc + 0.4, 1.3, 2.2);
+      const Wp = S.get('white', mid[0], mid[2]);
+      Wp.aux = [0, 0.3, 0, AUX_ASHLAR(0.6)];
+      chamferBox(Wp, Fp, -0.68, 0.68, yc - 0.9, yc + 1.5, -0.6, 0.12, 0.04, [0.95, 0.93, 0.9]);
+      chamferBox(Wp, Fp, -0.85, 0.85, yc + 1.5, yc + 1.75, -0.6, 0.22, 0.03, [0.95, 0.93, 0.9]);
+      Wp.aux = [0, 0, 0, 0];
+      chamferBox(G, Fp, -0.38, 0.38, yc - 0.3, yc + 0.5, 0.1, 0.5, 0.1, [1, 1, 1]);
+      chamferBox(G, Fp, -0.5, 0.5, yc + 0.25, yc + 0.75, 0.05, 0.32, 0.12, [1, 1, 1]);
+      chamferBox(G, Fp, -0.12, 0.12, yc - 0.2, yc - 0.05, 0.4, 0.68, 0.03, [1, 1, 1]);
+      const sp = Fp.p(0, yc - 0.12, 0.7);
+      (ctx.shedSpouts ||= []).push({ pos: sp, dir: sh.facing, width: 0.35, flow: 0.45, kind: 'spout', id: `rings-shed-${e.id}-${sh.index}` });
+    } else if (pier === 'niche' && lod <= 1) {
+      // arched statue niche in the spandrel (white frame, dark void, gilt shell hood) + statue slot
+      const yc = ys + ra * 0.62, nw = 1.35, nh = 2.9, Fp = pierFrame(yc, nw + 0.6, nh + 0.6);
+      const Wp = S.get('white', mid[0], mid[2]);
+      Wp.aux = [0, 0.35, 0, AUX_ASHLAR(0.6)];
+      const yb0 = yc - nh / 2, rN = nw / 2, ysN = yc + nh / 2 - rN;
+      chamferBox(Wp, Fp, -nw / 2 - 0.3, -nw / 2, yb0 - 0.35, ysN, -0.6, 0.18, 0.03, [0.95, 0.93, 0.9]);
+      chamferBox(Wp, Fp, nw / 2, nw / 2 + 0.3, yb0 - 0.35, ysN, -0.6, 0.18, 0.03, [0.95, 0.93, 0.9]);
+      chamferBox(Wp, Fp, -nw / 2 - 0.45, nw / 2 + 0.45, yb0 - 0.55, yb0, -0.6, 0.42, 0.03, [0.95, 0.93, 0.9]);
+      for (let i = 0; i < 8; i++) {
+        const a0 = Math.PI - (Math.PI * i) / 8, a1 = Math.PI - (Math.PI * (i + 1)) / 8;
+        const P = (a, rr, d) => Fp.p(Math.cos(a) * rr, ysN + Math.sin(a) * rr, d);
+        Wp.quadOut(P(a0, rN, 0.18), P(a1, rN, 0.18), P(a1, rN + 0.3, 0.18), P(a0, rN + 0.3, 0.18), [0.95, 0.93, 0.9], Fp.p(0, ysN, -0.5));
+        Wp.quadOut(P(a0, rN + 0.3, 0.18), P(a1, rN + 0.3, 0.18), P(a1, rN + 0.3, -0.6), P(a0, rN + 0.3, -0.6), [0.95, 0.93, 0.9], Fp.p(0, ysN, -0.5));
+        V.polyToward([Fp.p(0, ysN, 0.02), P(a0, rN, 0.02), P(a1, rN, 0.02)], [1, 1, 1], Fp.az);
+        G.polyToward([Fp.p(0, ysN, 0.06), P(a0, rN * 0.85, 0.06 + 0.12 * Math.sin(a0)), P(a1, rN * 0.85, 0.06 + 0.12 * Math.sin(a1))], [1, 1, 1], Fp.az);
+      }
+      V.quadToward(Fp.p(-rN, yb0, 0.02), Fp.p(rN, yb0, 0.02), Fp.p(rN, ysN, 0.02), Fp.p(-rN, ysN, 0.02), [1, 1, 1], Fp.az);
+      Wp.aux = [0, 0, 0, 0];
+      ctx.engine.slots.statue.push({ pos: Fp.p(0, yb0, 0.12), facing: sh.facing, size: 2.3, tag: 'shed-niche', source: 'rings-shed-niche' });
+    } else if (pier === 'lamp' && lod <= 1) {
+      // two gilt bracket lamps flanking a gilt trident roundel on the pier (flames: props lamp slots)
+      const yc = ys + 0.4, Fp = pierFrame(yc + 1.5, 1.6, 3.2);
+      const Fm = new Frame(Fp.p(0, yc + 2.4, 0.04), Fp.ax, Fp.az, mul3(Fp.ay, -1));
+      lathe(G, Fm, 0, 0, 0, [[0.62, -0.3], [0.62, 0.04], [0.52, 0.1], [0.25, 0.12], [0, 0.15]], 16, [1, 1, 1]);
+      for (const sx of [-0.55, 0.55]) {
+        const Fl = Fp.at(sx, yc, 0);
+        box(G, Fl, -0.06, 0.06, -0.06, 0.06, -0.1, 0.62, [1, 1, 1]);
+        lathe(G, Fl, 0, 0, 0.62, [[0, -0.32], [0.1, -0.3], [0.08, -0.12], [0.26, 0.0], [0.3, 0.08], [0, 0.04]], 10, [1, 1, 1]);
+        ctx.slots.lamp.push({ pos: Fl.p(0, 0.08, 0.62), size: 0.3, tag: 'rings-shed-pier' });
+      }
+    }
+    // ivy / shrubs: per bay (mole: own tag per bay → no filler curtains between them; ring sheds: every third, as r4)
+    const ivyOn = sty.ivy != null ? sty.ivy > 0.3 : sh.index % 3 === 0;
+    if (ivyOn) {
+      const uI = sty.ivy != null ? halfDeg * (sty.ivy > 0.6 ? -0.45 : 0.62) : halfDeg * 0.6;
+      const pv = W(uI, yT, Rf);
       const dI = Math.max(0, rockDisp(pv[0], yT, pv[2], e)[0] * 0.55);
-      ctx.slots.ivy.push({ pos: W(halfDeg * 0.6, yT + crest(pv[0], pv[2]) - 0.3, Rf + side * (dI + 0.3)), facing: sh.facing, size: 4 + 3 * rng.random(), tag: 'rings-shed-rock' });
+      const tag = sty.ivy != null ? `rings-shed-rock b${e.id}${sh.index}` : 'rings-shed-rock';
+      ctx.slots.ivy.push({ pos: W(uI, yT + crest(pv[0], pv[2]) - 0.3, Rf + side * (dI + 0.3)), facing: sh.facing, size: sty.ivy != null ? 3 + 6 * sty.ivy : 4 + 3 * rng.random(), tag });
+      if (sty.ivy != null && sty.ivy > 0.7) {
+        // a second curtain over the arch crown (spills onto the archivolt)
+        const pc = W(halfDeg * 0.08, yT, Rf), dc = Math.max(0, rockDisp(pc[0], yT, pc[2], e)[0] * 0.55);
+        ctx.slots.ivy.push({ pos: W(halfDeg * 0.08, yT + crest(pc[0], pc[2]) - 0.3, Rf + side * (dc + 0.3)), facing: sh.facing, size: 3.2 + 2 * sty.ivy, tag: tag + 'c' });
+      }
+    }
+    if (sty.shrub) {
+      const tree = (ctx.engine.slots.tree ||= []);
+      for (const fu of sty.shrub) {
+        const rr = Rf + (R0 - side * (Math.abs(e.faceR - e.wallR) + 0.2) - Rf) * 0.3;
+        const pw = W(halfDeg * fu, 0, rr), cr = crest(pw[0], pw[2]);
+        tree.push({ pos: [pw[0], yT + cr * 0.7 + 0.25, pw[2]], tag: 'shrub', size: 1.6 + 1.4 * Math.abs(fu), source: 'rings-shed-crest' });
+      }
     }
   } else {
     ctx.slots.coral.push({ pos: W(halfDeg * 0.9, ys + 1, Rf + side * 0.4), normal: Fb.az, size: 1.5, tag: 'rings-shed' });
     ctx.slots.coral.push({ pos: W(0, yT + 0.2, (Rf + R0) / 2), normal: [0, 1, 0], size: 2.5, tag: 'rings-shed-top' });
   }
+}
+
+/** per-bay style: sh.style (hand-set, shed mole) or hashed from the bearing (ring sheds) */
+const ARCHES = ['plain', 'banded', 'gilt', 'rustic', 'plain'];
+const PIERS = ['banner', 'spout', 'banner', 'niche', 'lamp', 'banner'];
+export function bayStyle(sh, eid = '') {
+  if (sh.style) return sh.style;
+  const kb = Math.round((sh.bearing || 0) * 100), j = eid.length * 37 + (eid.charCodeAt(eid.length - 1) || 0);
+  const h = (q) => hash2(kb + q * 7919, j + q * 104729);
+  return { arch: ARCHES[Math.floor(h(1) * ARCHES.length)], pier: PIERS[Math.floor(h(2) * PIERS.length)], lampN: 2 + Math.floor(h(3) * 1.99), lampGain: 0.75 + 0.8 * h(4), ribs: h(5) < 0.5, lanterns: h(6) < 0.55, tint: [0.88 + 0.2 * h(8), 0.88 + 0.17 * h(8), 0.86 + 0.14 * h(8)] };
 }
 
 /** build all ship-sheds and the solid piers between their groups: returns { count, ledges } */

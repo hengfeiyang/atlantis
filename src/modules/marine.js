@@ -17,6 +17,8 @@ import { buildSchools, buildSwimmer } from '../marine/fauna.js';
 import { MARINE_U, FISH_GLINT, CORAL_GLOW } from '../marine/materials.js';
 import { makeKeepFilter } from '../marine/keep.js';
 import { SK } from '../core/sunken.js';
+import { SEQUENCE, cameraAt } from '../video/sequence.js';
+import { SCREEN_KEEP } from '../marine/keep.js';
 
 const V = THREE.Vector3;
 const UP = new V(0, 1, 0);
@@ -210,7 +212,8 @@ function framingKelp(engine, maps) {
   const zone = maps.find((m) => m.z.id === 'canal')?.map;
   if (!s7 || !zone) return;
   const F = frameOf(s7);
-  const spots = [[-0.97, 9], [-0.9, 15], [-1.02, 22], [-0.8, 34], [0.96, 8], [0.9, 13], [1.0, 20], [0.82, 31]];
+  // r6: the two nearest pairs pushed out (the dolly-back at u = 0 brought the 8 m kelp to ndc 0.69, over the right tower)
+  const spots = [[-1.06, 9], [-0.98, 15], [-1.02, 22], [-0.8, 34], [1.08, 8], [0.98, 13], [1.0, 20], [0.82, 31]];
   let n = 0;
   for (const [x, d] of spots) {
     for (let k = 0; k < 6; k++) {
@@ -225,6 +228,69 @@ function framingKelp(engine, maps) {
     }
   }
   return n;
+}
+
+// ------------------------------------------------------------------ r6: kelp clearance along the video paths
+/**
+ * Post-filter (after every placement: the rng sequences and so every other instance stay bit-identical): tall growth
+ * (kelp, algae columns) is removed where it would sweep through the hero read of a sunken shot ANYWHERE along its
+ * video segment (src/video/sequence.js cameraAt, 9 samples), not only at the still: the shot's SCREEN_KEEP 'tall'
+ * rects (marine/keep.js) at every path camera, and a lens clearance (no stalk within 4 m of a path camera).
+ * Shot 7: no scattered kelp between the lens and the gate bridge (the thin far strands read as rain over the towers;
+ * ref 7: only the framing columns at the edges — 'dress7' — and the forest behind the bridge).
+ */
+const KELP_H6 = [62, 52, 44, 36, 28, 20];
+function clearPaths(lib) {
+  const W = 1672, H = 941;
+  const cams = [];
+  for (const seg of SEQUENCE) {
+    const shot = shotById(seg.shot);
+    if (!shot || shot.era !== 'sunken') continue;
+    const rules = (SCREEN_KEEP[shot.id] || []).filter((R) => R.mode === 'tall' || R.mode === 'big');
+    for (let k = 0; k <= 8; k++) {
+      const c = cameraAt(shot, seg, k / 8);
+      const cam = new THREE.PerspectiveCamera(c.fov ?? shot.fov ?? 40, W / H, 0.05, 5000);
+      cam.position.set(...c.pos); cam.up.set(0, 1, 0); cam.lookAt(new V(...c.target)); cam.updateMatrixWorld(true); cam.updateProjectionMatrix();
+      cams.push({ id: shot.id, cam, pos: new V(...c.pos), rules, u: k / 8 });
+    }
+  }
+  const p0 = new V(), p1 = new V(), q = new THREE.Quaternion(), sc = new V(), ax = new V(), tmp = new V(), cp = new V();
+  const proj = (p, cam) => { tmp.copy(p).applyMatrix4(cam.matrixWorldInverse); const d = -tmp.z; tmp.copy(p).project(cam); return [(tmp.x * 0.5 + 0.5) * W, (0.5 - tmp.y * 0.5) * H, d]; };
+  const st = { kelp: 0, column: 0, lens: 0, s7: 0 };
+  for (const [key, P] of lib.pools) {
+    const species = key.split(':')[0];
+    if (species !== 'kelp' && species !== 'column') continue;
+    P.items = P.items.filter((it) => {
+      const tag = it[4] || '';
+      it[0].decompose(p0, q, sc);
+      const h = (species === 'kelp' ? (KELP_H6[it[2]] ?? 40) : 7) * sc.y;
+      ax.set(0, 1, 0).applyQuaternion(q);
+      p1.copy(p0).addScaledVector(ax, h);
+      const dress = tag.startsWith('dress');
+      // shot 7: nothing scattered in front of the gate bridge (canal floor between the lens and the bridge front)
+      if (!dress && p0.z > 690 && p0.z < 840 && Math.abs(p0.x) < 75) { st.s7++; return false; }
+      for (const C of cams) {
+        // lens clearance: closest point of the stalk to the camera
+        const t = THREE.MathUtils.clamp(cp.subVectors(C.pos, p0).dot(ax), 0, h);
+        cp.copy(p0).addScaledVector(ax, t);
+        if (cp.distanceTo(C.pos) < 4) { st.lens++; return false; }
+        if (dress || !C.rules.length) continue;
+        const [x0, y0, z0] = proj(p0, C.cam), [x1, y1, z1] = proj(p1, C.cam);
+        if (z0 < 0.3 && z1 < 0.3) continue;
+        const zz = Math.max(0.3, Math.min(z0 > 0.3 ? z0 : z1, z1 > 0.3 ? z1 : z0));
+        const halfW = (2.0 / zz) * (H / 2) / Math.tan((C.cam.fov * Math.PI) / 360);
+        const bx0 = Math.min(x0, x1) - halfW, bx1 = Math.max(x0, x1) + halfW, by0 = Math.min(y0, y1), by1 = Math.max(y0, y1);
+        for (const R of C.rules) {
+          if (zz > R.maxDepth) continue;
+          const [rx0, ry0, rx1, ry1] = R.rect;
+          if (bx1 < rx0 || bx0 > rx1 || by1 < ry0 || by0 > ry1) continue;
+          st[species]++; return false;
+        }
+      }
+      return true;
+    });
+  }
+  return st;
 }
 
 // ------------------------------------------------------------------ sand drift mask (r3 look-sunken)
@@ -503,8 +569,9 @@ function faunaDefs(engine, groundFn) {
   if (s6) {
     const F = frameOf(s6);
     // ribbon of silver fish streaming across the upper left (ref 6)
-    defs.push({ id: 's6-stream', type: 'stream', count: N(3600), size: 0.38, width: 7, thick: 2.2, speed: 2.2, pulses: 4,
-      path: [F.at(-1.5, 0.30, 46), F.at(-0.8, 0.38, 40), F.at(-0.2, 0.44, 46), F.at(0.35, 0.52, 62), F.at(0.6, 0.7, 90), F.at(-0.3, 0.85, 110), F.at(-1.6, 0.6, 85)].map(P) });
+    // r6: closer + bigger (ref 6: the school reads as individual silver fish, ≈ 10-20 px each, over the upper left)
+    defs.push({ id: 's6-stream', type: 'stream', count: N(4200), size: 0.5, width: 6, thick: 2.0, speed: 2.2, pulses: 4,
+      path: [F.at(-1.5, 0.34, 32), F.at(-0.9, 0.42, 29), F.at(-0.48, 0.5, 33), F.at(-0.34, 0.66, 46), F.at(-0.55, 0.82, 66), F.at(-1.1, 0.86, 80), F.at(-1.6, 0.62, 60)].map(P) });   // stays left of the temple (ref 6)
     defs.push({ id: 's6-far', type: 'stream', count: N(900), size: 0.3, width: 5, thick: 2, speed: 1.8, pulses: 3, lo: true,
       path: [F.at(0.75, 0.55, 70), F.at(1.3, 0.45, 80), F.at(1.4, 0.75, 110), F.at(0.8, 0.8, 100)].map(P) });
   }
@@ -648,6 +715,7 @@ export async function build(engine) {
   for (const d of fd.defs) if (d.kind !== 'reef' && d.center && dens.dist(...d.center) > 25) d.lo = true;
   const reefDefs = reefFishDefs(engine, lib, dens, new RNG('marine:reef'));
   const fauna = addFauna(engine, root, fd.defs.concat(reefDefs), fd.swimmers);
+  stats.pathClear = clearPaths(lib);
   const budget = 15e6 * Math.max(0.45, engine.quality.density ?? 1) - fauna.school.tris - 20000;
   const res = lib.finalize(root, budget);
 
@@ -656,7 +724,7 @@ export async function build(engine) {
   const mt = ((res.tris + fauna.school.tris) / 1e6).toFixed(2);
   engine.registry.marine = { root, U: { MARINE_U, FISH_GLINT, CORAL_GLOW }, stats, instances: res.instances, mtris: +mt, bySpecies: res.bySpecies, fish: fauna.school.count };
   console.log(`[marine] built in ${ms} ms (surface maps ${mapMs} ms): ${res.instances} growth instances, ${fauna.school.count} fish, ${mt} M tris; ` +
-    `thinned lo ${res.thinned} hi ${res.thinnedHi}; clusters ${stats.clusters}, faces ${stats.faces}, grass ${stats.grass}, kelp ${stats.kelp}, columns ${stats.columns}, coral slots ${stats.slots}/${(engine.slots.coral || []).length} (dressed ${stats.dressed || 0}), kelp slots ${stats.kelpSlots}/${(engine.slots.kelp || []).length}, dress6 ${stats.dress6}`);
+    `thinned lo ${res.thinned} hi ${res.thinnedHi}; clusters ${stats.clusters}, faces ${stats.faces}, grass ${stats.grass}, kelp ${stats.kelp}, columns ${stats.columns}, coral slots ${stats.slots}/${(engine.slots.coral || []).length} (dressed ${stats.dressed || 0}), kelp slots ${stats.kelpSlots}/${(engine.slots.kelp || []).length}, dress6 ${stats.dress6}, path clearance ${JSON.stringify(stats.pathClear)}`);
   console.log('[marine] species ' + JSON.stringify(res.bySpecies) + ' keep ' + JSON.stringify(lib.filter.stats));
 }
 

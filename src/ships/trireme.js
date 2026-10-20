@@ -62,7 +62,7 @@ function person(b, px, py, pz, h, yaw, seed, helmet = false, n = 8) {
 }
 
 /** billowed square sail below a yard: width Wd, height H, top at yTop, at z0, belly toward +z */
-function sail(sb, Wd, H, yTop, z0, belly, kind, seed, { nx = 12, ny = 9, folds = 0, yaw = 0, footCurve = 0.35, ripple = 0.05 } = {}) {
+function sail(sb, Wd, H, yTop, z0, belly, kind, seed, { nx = 12, ny = 9, folds = 0, yaw = 0, pivot = 0, footCurve = 0.35, ripple = 0.05 } = {}) {
   const c = Math.cos(yaw), s = Math.sin(yaw);
   const P = [];
   for (let j = 0; j <= ny; j++) {
@@ -76,7 +76,9 @@ function sail(sb, Wd, H, yTop, z0, belly, kind, seed, { nx = 12, ny = 9, folds =
       // brails (9 vertical lines) pull the cloth into shallow vertical channels
       const rip = ripple * (0.5 - 0.5 * Math.cos(u * PI * 2 * 9)) * (0.25 + 0.75 * v) * (1 - Math.abs(e) * 0.5);
       const bz = fold + rip + belly * (1 - Math.pow(Math.abs(e), 2.2)) * (0.3 + 0.7 * Math.sin(PI * Math.min(1, v * 0.95 + 0.05)));
-      row.push([x * c + (z0 + bz) * s, y, -x * s + (z0 + bz) * c]);
+      // r6: braced yards rotate about the mast (pivot = mast z), like the yard / rigging (yp)
+      const zr = z0 + bz - pivot;
+      row.push([x * c + zr * s, y, pivot - x * s + zr * c]);
     }
     P.push(row);
   }
@@ -275,8 +277,11 @@ export function buildTrireme(o = {}) {
     wood.tube(yardPts, (t) => 0.13 * (1 - 0.55 * Math.abs(2 * t - 1)), 6, (s) => ({ aW: [s * 3, 0, seed, K.SPAR], aX: [5, 0, 0, 0] }));
     const ss = o.sailState || 'set', sk = o.sailKind ?? 0;
     const belly = o.belly ?? 0.11;
-    if (ss === 'set') sail(sailB, yardW * 0.95, sailH, yardY - 0.12, mastZ + 0.3, sailH * belly, sk, seed, { nx: det > 0.7 ? 72 : Math.round(10 + 14 * det), ny: Math.round(8 + 10 * det), yaw, ripple: det > 0.7 ? 0.09 : 0 });
-    else if (ss === 'loose') sail(sailB, yardW * 0.88, sailH * 0.62, yardY - 0.12, mastZ + 0.3, 0.3, sk === 0 ? 4 : sk, seed, { nx: Math.round(14 + 14 * det), ny: Math.round(8 + 8 * det), folds: 0.16, yaw });
+    // r6: mid-detail sails (18+ columns = 2 per brail channel) keep shallow brail channels too (they shade the cloth: the
+    //     flat sails read as boards from shot 1)
+    const snx = det > 0.7 ? 72 : Math.round(10 + 14 * det);
+    if (ss === 'set') sail(sailB, yardW * 0.95, sailH, yardY - 0.12, mastZ + 0.3, sailH * belly, sk, seed, { nx: snx, ny: Math.round(8 + 10 * det), yaw, pivot: mastZ, ripple: det > 0.7 ? 0.14 : snx >= 18 ? 0.08 : 0 });
+    else if (ss === 'loose') sail(sailB, yardW * 0.88, sailH * 0.62, yardY - 0.12, mastZ + 0.3, 0.3, sk === 0 ? 4 : sk, seed, { nx: Math.round(14 + 14 * det), ny: Math.round(8 + 8 * det), folds: 0.16, yaw, pivot: mastZ });
     else {
       const fp = yardPts.slice(1, -1).map((p) => [p[0], p[1] - 0.32, p[2] + 0.05]);
       wood.tube(fp, (t) => 0.28 * (1 - 0.5 * Math.pow(Math.abs(2 * t - 1), 2)), 7, (s, a) => ({ aW: [s * 2, a * 3, seed, K.CANVAS], aX: [5, 0, 0, 0] }));

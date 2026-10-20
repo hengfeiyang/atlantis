@@ -84,7 +84,7 @@ export class Wakes {
     const sorted = this.list.slice().sort((a, b) => d(a) - d(b));
     if (api) {
       let n = 0;
-      for (const w of sorted) { if (n >= max) break; try { w.handle = api({ pos: w.pos, heading: w.heading, length: w.length, beam: w.beam, speed: w.speed, oars: !!w.oars, id: w.id }); n++; } catch (e) { console.warn('[ships] addWake failed', e); break; } }
+      for (const w of sorted) { if (n >= max) break; try { w.handle = api({ pos: w.pos, heading: w.heading, length: w.length, beam: w.beam, speed: w.speed, oars: !!w.oars, id: w.id, ...(w.trail ? { trail: w.trail, broken: w.broken ?? 0 } : {}) }); n++; } catch (e) { console.warn('[ships] addWake failed', e); break; } }
       return { mode: 'water-api', n };
     }
     // fallback: foam decal meshes (V wake + bow churn) on the golden sea surface
@@ -178,6 +178,13 @@ export const V = {
   sailOnly: () => buildTrireme({ seed: 0.83, detail: 0.55, sailState: 'set', sailKind: 0, oarState: 'rest', belly: 0.15 }),
   row: () => buildTrireme({ seed: 0.47, detail: 0.55, sailState: 'furled', oarState: 'row', phase: 1.4 }),
   moored: () => buildTrireme({ seed: 0.53, detail: 0.5, sailState: 'furled', oarState: 'raised', crew: true }),
+  // r6 (ref 5): shot-5 ring triremes, yard braced −0.5 rad (sail normal ≈ 29° to starboard of the heading)
+  braced5a: () => buildTrireme({ seed: 0.61, detail: 0.75, sailState: 'set', sailKind: 0, oarState: 'row', phase: 2.0, belly: 0.17, yardYaw: -0.5, mastH: 15.5, yardW: 17, sailH: 11.5 }),
+  braced5b: () => buildTrireme({ seed: 0.29, detail: 0.75, sailState: 'set', sailKind: 0, oarState: 'row', phase: 0.6, belly: 0.18, yardYaw: -0.55, mastH: 15, yardW: 16.5, sailH: 11 }),
+  // r6 (ref 1): the sea fleet carries bigger rigs (the ref's sails are ≈ as tall as the hull is long from 1.4 km)
+  seaA: () => buildTrireme({ seed: 0.61, detail: 0.55, sailState: 'set', sailKind: 0, oarState: 'row', phase: 2.0, belly: 0.16, mastH: 14.5, yardW: 16.5, sailH: 11 }),
+  seaB: () => buildTrireme({ seed: 0.29, detail: 0.55, sailState: 'set', sailKind: 1, oarState: 'row', phase: 0.6, belly: 0.17, mastH: 14, yardW: 16, sailH: 10.5 }),
+  seaOnly: () => buildTrireme({ seed: 0.83, detail: 0.55, sailState: 'set', sailKind: 0, oarState: 'rest', belly: 0.18, mastH: 14.5, yardW: 16.5, sailH: 11 }),
   far: () => buildTrireme({ seed: 0.71, detail: 0.2, sailState: 'set', sailKind: 0, oarState: 'row', phase: 2.4, crew: false }),
   shed: () => buildTrireme({ seed: 0.91, detail: 0.5, sailState: 'loose', sailKind: 5, oarState: 'shed', crew: false, yardW: 8.6, sailH: 4.2, mastH: 4.6, mastZ: 8.5, pennant: false }),
   boatSail: () => buildBoat({ type: 'boat', seed: 0.21, sailState: 'set', sailKind: 1 }),

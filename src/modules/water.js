@@ -73,8 +73,14 @@ export const SHOT_TUNE = {
   // — less of the white city mirrored at the grazing view (ring-only reflection gain), the body not weighted down by
   // Fresnel, a cyan body + sky tint. The open sea (seaK) keeps its navy body, chop and whitecaps.
   // r5: the open sea navy-teal like ref 1 (sea p50 ≈ 7-33 / 46-69 / 77-90; r4 read royal blue 26,55,101)
+  // r6: shot 2 (canal, eye 5 m): turquoise-teal canal like ref 2 (p10 ≈ 16,54,68, p50 ≈ 44,88,104; r5 read navy 2,42,69 — the
+  // water at the camera counted as open sea, fixed by uCanalRingC): a bluer teal body that shows through the grazing Fresnel
+  2: { uScatter: [0.004, 0.095, 0.15], uRingLook: [1.0, 0.65, 1.0, 0], uSkyRefl: [0.2, 0.5, 0.64] },
   1: { uRingLook: [0.45, 0.2, 1.8, 0], uScatter: [0.006, 0.12, 0.2], uSkyRefl: [0.2, 0.55, 0.75], uScatterSea: [0.001, 0.022, 0.045], uSkyReflSea: [0.07, 0.17, 0.3],
-    uSeaWave: [2.6, 1.7, 1.0, 0.07], uCanalSea: 1.0, uReflClamp: 1.0 },   // r5: fewer whitecaps (ref 1: the white on the sea is ship wakes + surf at the rocks)
+    uSeaWave: [2.6, 1.7, 1.0, 0.07], uCanalSea: 1.0, uReflClamp: 1.0, uCanalRingC: 0,
+    // r6: the sea toward the low sun mirrors the warm horizon (ref 1: cream-gold under the sun, navy away from it)
+    // and the glitter path is gold, not a clipped white column
+    uSunSide: [1.4, 1.0, 0.6, 1.0], uSunSideK: 3.0, uGlitterTint: [1.0, 0.6, 0.28] },   // r5: fewer whitecaps (ref 1: the white on the sea is ship wakes + surf at the rocks)
 };
 const tuneDefaults = {};
 const HERO_FOAM = 2.0;   // r4: 1.0 → 1.5 (ref 2: a broad breaking bow wave); r5: 2.0 (the hero now advances: a bigger bow wave)
@@ -170,11 +176,21 @@ export async function build(engine) {
         if (stair.poolMesh) { engine.add(stair.poolMesh, { castShadow: false, receiveShadow: true }); late.groups.push(stair.poolMesh); }
         late.stairU = stair.uniforms;
       }
+      // r6: the lion-head / shed spouts published by the rings module (registry.rings.spouts: canal quay walls, ref 2; ship-shed
+      // piers incl. the shed mole in shot 4) — small jets arcing into the water
+      const ringSpouts = ringSpoutSpecs(engine);
+      if (ringSpouts.length) {
+        const rf = traceCascades(engine, g2, ringSpouts, level).filter((f) => f.impact);
+        for (const f of rf) { f.impact.strength = Math.min(f.impact.strength, 0.5); f.impact.radius = Math.min(f.impact.radius * 0.6, 2.2); }
+        falls.push(...rf);
+        late.ringSpouts = rf.length;
+      }
       const cm = buildCascadeMeshes(engine, falls, { maps, ground: g2, shadowMap: archMap, level });
       engine.add(cm.group, { castShadow: false, receiveShadow: false });
       late.groups.push(cm.group);
       const imps = falls.map((f) => f.impact).filter(Boolean);
-      water.setImpacts([...imps, ...extraImpacts]);
+      late.impacts = [...imps, ...extraImpacts];
+      water.setImpacts(pickImpacts(late.impacts, null));
       const fn = buildFountains(engine, { maps, basins: engine.registry.fountains });
       if (fn) { engine.add(fn.group, { castShadow: false, receiveShadow: true }); late.groups.push(fn.group); }
       // r3: hero trireme (shot 2, ref 2): breaking bow wave and oar churn (the ships module registers the wake)
@@ -202,7 +218,7 @@ export async function build(engine) {
       reg.fountains = fn?.basins || [];
       reg.traced = falls;   // (look-dev: the traced streams)
       reg.archGround = g2;
-      console.log(`[water] late build ${Math.round(performance.now() - tl)} ms: ${falls.length} cascades (${imps.length} impacts, ${Math.round(cm.tris)} sheet tris, ${cm.puffs} mist puffs${archMap ? ', arch capture ' + archMap.ms + ' ms / ' + archMap.meshes + ' meshes' : ''}), ${fn ? fn.basins.length + ' fountains' : 'no fountains'}`);
+      console.log(`[water] late build ${Math.round(performance.now() - tl)} ms: ${falls.length} cascades (${imps.length} impacts, ${Math.round(cm.tris)} sheet tris, ${cm.puffs} mist puffs${archMap ? ', arch capture ' + archMap.ms + ' ms / ' + archMap.meshes + ' meshes' : ''}), ${fn ? fn.basins.length + ' fountains' : 'no fountains'}, ${late.ringSpouts || 0} ring spouts`);
     } catch (e) { console.error('[water] late build failed:', e.stack || e); }
     return late;
   };
@@ -214,6 +230,9 @@ export async function build(engine) {
   engine.onShot((shot) => {
     finalize();
     late?.sync();
+    // r6: the shader takes MAX_IMPACTS: keep the strongest weighted by closeness to this shot's camera (the small quay spouts
+    // of shots 2 / 4 would otherwise lose to the distant hill falls)
+    if (late?.impacts && shot.pos) water.setImpacts(pickImpacts(late.impacts, shot.pos));
     const U = water.uniforms;
     U.uDebug.value = shot.waterDebug ?? debug0;
     // r3: per-shot water look (restore the defaults of every tuned key first)
@@ -231,6 +250,7 @@ export async function build(engine) {
   const reg = engine.registry.water = {
     level, era: engine.era, maps, shore, ground, depthAt, shoreDist,
     addWake: water.addWake, setWakes: water.setWakes, wakes: water.wakes,
+    syncWakes: water.syncWakes,   // r6: call after editing wakes[] records in place (trail / broken / speed)
     addImpact: (im) => { extraImpacts.push(im); return water.addImpact(im); },
     surface: water.surface, uniforms: water.uniforms, reflection, ocean, waves, WAVES_GLSL,
     surfaceHeight: (x, z, t = engine.time) => {
@@ -248,6 +268,28 @@ export async function build(engine) {
   };
   const ms = Math.round(performance.now() - t0);
   console.log(`[water] built in ${ms} ms (${engine.era}, level ${level}; capture ${Math.round(t1 - t0)} ms: near ${maps.near.W}x${maps.near.H} ${maps.near.meshes} meshes${maps.near.analyticFill ? ' analytic fill ' + maps.near.analyticFill : ''}, shore ${shore.near.ms}+${shore.far.ms} ms; ${cascades.length} cascades traced)`);
+}
+
+const MAX_IMP = 48;
+function pickImpacts(list, cam) {
+  const pr = (im) => (im.strength || 0) * (cam ? 1 / (1 + Math.hypot(im.x - cam[0], im.z - cam[2]) / 250) : 1);
+  return [...list].filter(Boolean).sort((a, b) => pr(b) - pr(a)).slice(0, MAX_IMP);
+}
+
+// r6: specs for the spouts the rings module publishes (lion heads on the canal embankments 4.2 m above the 5 m quay → a jet
+// that clears the quay, ref 2; shed-pier spouts 2.8 m over the water → a short pour)
+function ringSpoutSpecs(engine) {
+  const out = [];
+  for (const sp of engine.registry.rings?.spouts || []) {
+    if (!sp?.pos) continue;
+    const canal = /canal/.test(sp.id || '');
+    out.push({
+      id: sp.id || `ring-spout-${out.length}`, from: sp.pos, dir: sp.dir, kind: 'spout', snap: false,
+      width: canal ? Math.max(1.1, sp.width || 0.7) : Math.max(0.55, (sp.width || 0.35) * 1.6), flow: Math.min(0.7, sp.flow ?? 0.5),
+      v0: canal ? 6.2 : 1.9, fan: canal ? 0.6 : 0.2, widen: 0.35, widenDrop: canal ? 4 : 2.5, aer: 1.4, small: true,
+    });
+  }
+  return out;
 }
 
 // r5: the water of the citadel's stair channel (registry.temple.stairChannel, temple.js stairChannelPlan): guided chute

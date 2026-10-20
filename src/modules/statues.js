@@ -170,6 +170,62 @@ async function buildNereids(engine, reg, stats) {
   reg.nereids = out;
 }
 
+// ------------------------------------------------------------------ pediment sculpture (r6, ref 3)
+// Two sculpted rearing winged horses in high relief either side of the tympanum's centre trident (the arch kit's
+// pedimentRelief leaves |x| < horseGap free). Each horse is turned side-on to face the centre, flattened along the
+// pediment normal (relief depth) and scaled to the largest size that stays under the raking cornice.
+async function buildPedimentHorses(engine, reg, stats) {
+  const sunken = isSunken(engine);
+  const peds = (engine.registry.temple?.pediments || []).filter((P) => P.horseGap && P.normal[2] > 0.5);
+  if (!peds.length) return;
+  const body = statueMat(engine, 'body');
+  const out = [];
+  for (const P of peds) {
+    const hb = P.baseWidth / 2 * 0.96, hp = P.height * 0.92;
+    const avail = (x) => hp * (1 - Math.abs(x) / hb);
+    const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(...P.right), new THREE.Vector3(...P.up), new THREE.Vector3(...P.normal));
+    for (const side of [-1, 1]) {
+      if (sunken && side > 0 && ruined('pediment-horse', 0.5)) continue;   // one of them has fallen out of the broken pediment
+      const key = side < 0 ? 'P' : 'Q';   // folded-wing profile poses (horse.js r6)
+      const g = await statueGeometry('stat-horse-' + key);
+      const Pa = g.attributes.position.array;
+      // horse frame: +Z forward, +X its left side; turned so forward points to the centre (x → 0)
+      const rot = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+      let zMin = Infinity, zMax = -Infinity, xMax = 0;
+      for (let i = 0; i < Pa.length; i += 3) { zMin = Math.min(zMin, Pa[i + 2]); zMax = Math.max(zMax, Pa[i + 2]); xMax = Math.max(xMax, Math.abs(Pa[i])); }
+      const fits = (sc) => {
+        const front = 1.5;                                   // forward-most point at |x| = front (beside the trident)
+        for (let i = 0; i < Pa.length; i += 9) {
+          const ax = front + (zMax - Pa[i + 2]) * sc;        // distance from the centre along the pediment
+          const y = 0.25 + Pa[i + 1] * sc;
+          if (y > avail(ax) + 0.4 || ax > P.horseGap + 0.8) return false;   // wing tips may tuck into the raking geison (it covers the full relief depth)
+        }
+        return true;
+      };
+      let lo = 0.6, hi = 3.0;
+      for (let k = 0; k < 18; k++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+      const sc = lo;
+      const depthK = Math.min(0.5, Math.max(0.2, (P.depth - 0.25) / Math.max(0.3, xMax * sc)));
+      const relief = new THREE.Group();
+      relief.matrixAutoUpdate = false;
+      relief.matrix.copy(basis).setPosition(...P.origin);
+      const flat = new THREE.Group();
+      flat.position.set(side * (1.5 + zMax * sc), 0.25, 0.3);
+      flat.scale.set(1, 1, depthK);
+      const m = mesh(g, body, { rotY: rot, s: sc, name: 'pediment-horse-' + key });
+      flat.add(m); relief.add(flat);
+      engine.add(relief);
+      relief.updateMatrixWorld(true);
+      stats.tris += tris(g);
+      if (sunken) coralFrom(engine, m, 4, 0.5, 'pediment-horse', 'ph' + side);
+      let yMx = 0; for (let i = 1; i < Pa.length; i += 3) yMx = Math.max(yMx, Pa[i]);
+      out.push({ side, scale: +sc.toFixed(3), depthK: +depthK.toFixed(2), hb: +hb.toFixed(2), hp: +hp.toFixed(2), gap: +P.horseGap.toFixed(2), z: [+zMin.toFixed(2), +zMax.toFixed(2)], yMx: +yMx.toFixed(2), xMax: +xMax.toFixed(2) });
+    }
+  }
+  reg.pedimentHorses = out;
+  console.log('[statues] pediment horses', JSON.stringify(out));
+}
+
 // ------------------------------------------------------------------ the colossus
 async function buildColossus(engine, reg, stats) {
   if (isSunken(engine)) return buildSunkenTrident(engine, reg, stats); // the figure is gone (its head lies on the sand: sets module, ref 8)
@@ -361,6 +417,7 @@ export async function build(engine) {
   await buildChariot(engine, reg, stats);
   await buildNereids(engine, reg, stats);
   await buildColossus(engine, reg, stats);
+  try { await buildPedimentHorses(engine, reg, stats); } catch (e) { console.warn('[statues] pediment horses skipped', e.message); }
   await buildSmall(engine, reg, stats);
   reg.tris = stats.tris;
   console.log(`[statues] ${engine.era}: ${(stats.tris / 1e6).toFixed(2)} M tris, ${reg.nereids?.length ?? 0} nereids, ${reg.small ?? 0} small statues in ${Math.round(performance.now() - t0)} ms`);

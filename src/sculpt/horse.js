@@ -58,6 +58,10 @@ for (const k of ['A', 'B', 'C']) {
   const P = HORSE_POSES[k];
   HORSE_POSES[k + 'b'] = { ...P, wing: { ...P.wing, sweep: 46, raise: P.wing.raise + 10, chordUp: P.wing.chordUp + 6 } };
 }
+// r6 (citadel): pediment relief horses (ref 3 tympanum) — rearing in profile, wings folded low along the back so the
+// figure fills the shallow pediment height (statues.js buildPedimentHorses)
+HORSE_POSES.P = { ...HORSE_POSES.A, seed: 13, headYaw: 0, headRoll: 0, wing: { raise: 16, sweep: 52, chordUp: 26, twist: 4, curl: 0.06 } };
+HORSE_POSES.Q = { ...HORSE_POSES.B, seed: 17, headYaw: 0, headRoll: 0, wing: { raise: 20, sweep: 48, chordUp: 30, twist: 4, curl: 0.08 } };
 
 // ------------------------------------------------------------------ the horse
 /**

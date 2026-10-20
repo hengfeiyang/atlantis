@@ -41,8 +41,8 @@ function lotusAtlas() {
     g.strokeStyle = 'rgba(40,60,10,0.8)'; g.lineWidth = 2.5;
     g.beginPath(); g.arc(cx, cy, R - 1, Math.PI / 2 + notch, Math.PI / 2 - notch + Math.PI * 2); g.stroke();
   };
-  pad(0, 0, ['#5a7a2a', '#2e5418', '#1f3c10']);
-  pad(C, 0, ['#7a9a3a', '#3f6a20', '#2c4c14']);
+  pad(0, 0, ['#7c9e38', '#477a22', '#2f5a16']);
+  pad(C, 0, ['#98b84a', '#5a8a2a', '#3c6a1c']);
   // petal (pointed, base at the cell bottom)
   {
     const x0 = 0, y0 = C, cx = x0 + C / 2;
@@ -87,7 +87,14 @@ export function lotusMaterial() {
       float white = smoothstep(0.45, 0.7, min(diffuseColor.r, diffuseColor.b));
       diffuseColor.rgb *= mix(0.9, 1.08, cgVnoise3(cgP * 9.0));
       // keep petals a realistic white (albedo ~0.75), not paper-white
-      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.9, white);`,
+      diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.9, white);
+      cgLotusTrans = vec3(white);`,
+    emissive: /* glsl */`
+      // r6: thin petals glow when back-lit by the low sun (ref 5: white lilies bright against the shade)
+      #ifdef USE_FOG
+      float back = pow(clamp(dot(-cgV, uSunDir), 0.0, 1.0), 2.0);
+      totalEmissiveRadiance += diffuseColor.rgb * mix(vec3(0.6, 0.9, 0.3) * 0.12, vec3(1.0, 0.95, 0.85) * 0.45, cgLotusTrans.x) * back;
+      #endif`,
     roughness: /* glsl */`roughnessFactor = 0.38 + 0.25 * cgVnoise3(cgP * 20.0);`,
   });
   m.userData.sunken = 'none';
@@ -217,7 +224,7 @@ export class LotusSet {
     // held above the leaves on long stems, a few closed buds. Leaf / flower sizes have absolute minima so small
     // pots on a balustrade still read as lotus, not as a few sticks.
     const Rl = Math.max(radius, 0.32);
-    const nPads = Math.round(14 + Rl * 26);
+    const nPads = Math.round(9 + Rl * 15);
     for (let i = 0; i < nPads; i++) {
       const a = (i / nPads) * 6.28 * 2.618 + r() * 0.6;      // golden-angle spiral: even coverage
       const k = Math.sqrt((i + 0.5) / nPads);                 // 0 centre → 1 rim
@@ -226,18 +233,19 @@ export class LotusSet {
       const lift = Rl * ((1 - k) * 0.55 + 0.1 + 0.22 * r()) - (k > 0.85 ? Rl * 0.18 * r() : 0);
       const c = P.clone().addScaledVector(out, reach).addScaledVector(UP, lift);
       // inner pads face up-ish, outer ones bow outward over the rim (ref 5)
-      const tilt = 0.25 + 1.05 * k * k + 0.3 * r();
+      const tilt = 0.15 + 0.7 * k * k + 0.2 * r();
       const n = UP.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(out, Math.sin(tilt)).add(new V((r() - 0.5) * 0.3, 0, (r() - 0.5) * 0.3)).normalize();
       const R = Math.max(0.085, Rl * (0.24 + 0.16 * r()));
       this.B.stem(P.clone().addScaledVector(out, reach * 0.15), c.clone().addScaledVector(out, -R * 0.5), 0.006 + 0.005 * Rl, stemC);
       const g = 0.75 + 0.35 * r();
       this.B.pad(c, n, R, r() * 6.28, CELL.pad[r() < 0.65 ? 0 : 1], [g, g, g * 0.95], 0.07, 0.1);
     }
-    const nf = flowers ?? Math.round(4 + Rl * 7);
-    const fR = Math.min(0.15, Math.max(0.08, Rl * 0.22));
+    // r6 (ref 5): big open white flowers resting on the leaf dome, not held high on bare stalks
+    const nf = flowers ?? Math.round(5 + Rl * 8);
+    const fR = Math.min(0.2, Math.max(0.1, Rl * 0.3));
     for (let i = 0; i < nf; i++) {
-      const a = (i / nf) * 6.28 + r() * 0.9, d = Rl * (0.15 + 0.65 * Math.sqrt(r()));
-      const c = P.clone().add(new V(Math.cos(a) * d, Rl * (0.75 + 0.4 * r()) + fR * 0.6, Math.sin(a) * d));
+      const a = (i / nf) * 6.28 + r() * 0.9, d = Rl * (0.12 + 0.7 * Math.sqrt(r()));
+      const c = P.clone().add(new V(Math.cos(a) * d, Rl * (0.62 + 0.3 * r()) * (1 - 0.35 * (d / Rl) * (d / Rl)) + fR * 0.35, Math.sin(a) * d));
       this.B.stem(P.clone().add(new V(Math.cos(a) * d * 0.3, 0, Math.sin(a) * d * 0.3)), c, 0.006 + 0.004 * Rl, stemC);
       const n = new V(Math.cos(a) * (0.25 + 0.35 * r()), 1, Math.sin(a) * (0.25 + 0.35 * r())).normalize();
       this.B.flower(c, n, fR * (0.85 + 0.3 * r()), 0.55 + 0.4 * r(), r);

@@ -112,7 +112,7 @@ export async function build(engine) {
   stats.moleMs = Math.round(performance.now() - tMo);
   const tun = safe('tunnel', () => buildTunnel(ctx));
   const canal = safe('canal', () => buildCanal(ctx), { spouts: [] });
-  reg.spouts = canal.spouts || [];
+  reg.spouts = [...(canal.spouts || []), ...(ctx.shedSpouts || [])];   // r6: + lion-head spouts on the shed piers (shot 4)
   (engine.registry.spouts ||= []).push(...reg.spouts);
   const moles = safe('moles', () => buildMoles(ctx, M), { lighthouses: [] });
   reg.lighthouses = moles.lighthouses;

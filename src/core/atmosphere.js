@@ -38,6 +38,15 @@ export const ATMO = {
   //   uPoolShade amount (darkening), noise cell (m), threshold 0..1 (higher = fewer shadows), outer radius (m, fades out)
   uPool: { value: new THREE.Vector4(0, 0, 1, 0) },
   uPoolShade: { value: new THREE.Vector4(0, 400, 0.5, 4000) },
+  // r6 (look-golden): own in-scatter colour for the far term of uHazeFar (rgb replaces uHazeColor, the Mie sun lobe is kept;
+  // w = 0..1 blend, 0 = off = r5). The golden refs' ranges at 8-15 km are veiled cool slate-blue (ref 1 shadows ≈ 50,61,75)
+  // while the near haze over the city stays warm. Golden path only (atmoApplyFrom); the sunken air path is unchanged.
+  uHazeFarCol: { value: new THREE.Vector4(1, 1, 1, 0) },
+  // r6: sun lobe of that far term: x gain (< 0 = keep the uMie lobe), y Henyey-Greenstein g, z 0..1 sunset tint of the lobe
+  // (long low-sun light path → orange; ref 1: the ranges toward the sun dissolve in a peach-gold veil, away from it slate-blue)
+  // w: cosine of the half-angle (azimuth) of the cone around the sun inside which the far term turns to uHazeFarWarm (1 = off)
+  uHazeFarSun: { value: new THREE.Vector4(-1, 0.5, 0, 1) },
+  uHazeFarWarm: { value: new THREE.Color(1.6, 1.0, 0.55) },
 };
 
 export function atmoUniforms() { return { ...ATMO }; }
@@ -59,6 +68,9 @@ uniform float uAtmoTime;
 uniform float uAtmoEnabled;
 uniform vec4 uPool;
 uniform vec4 uPoolShade;
+uniform vec4 uHazeFarCol;
+uniform vec4 uHazeFarSun;
+uniform vec3 uHazeFarWarm;
 float atmoH21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float atmoVN(vec2 p){
   vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -135,7 +147,19 @@ vec3 atmoApplyFrom(vec3 col, vec3 camPos, vec3 wp){
   float tM = atmoOD(camPos.y, dir.y, dist, uMist.x, uMist.y, uMist.z);
   vec3 TH = exp(-tH * uExtinction);
   float TM = exp(-tM);
-  col = col * TH + atmoHazeInscatter(dir) * (1.0 - TH);
+  vec3 hIns = atmoHazeInscatter(dir);
+  if (uHazeFarCol.w > 0.0) { // r6: far term in its own (cool) colour, weighted by its share of the optical depth
+    float f = dist / uHazeFar.y;
+    float tF = uHazeFar.x * f * f * exp(-max(camPos.y + dir.y * dist * 0.5, 0.0) / 2500.0);
+    vec3 fIns = uHazeFarSun.x < 0.0 ? hIns - uHazeColor + uHazeFarCol.rgb
+              : uHazeFarCol.rgb + uSunColor * mix(vec3(1.0), vec3(1.0, 0.6, 0.3), uHazeFarSun.z) * uHazeFarSun.x * atmoHG(dot(dir, uSunDir), uHazeFarSun.y) * 3.14159265;
+    if (uHazeFarSun.w < 1.0) {
+      float muH = dot(normalize(dir.xz + vec2(1e-5, 0.0)), normalize(uSunDir.xz + vec2(1e-5, 0.0)));
+      fIns += (uHazeFarWarm - uHazeFarCol.rgb) * smoothstep(uHazeFarSun.w, 1.0, muH);
+    }
+    hIns = mix(hIns, fIns, uHazeFarCol.w * tF / max(tH, 1e-6));
+  }
+  col = col * TH + hIns * (1.0 - TH);
   col = col * TM + atmoMistInscatter(dir) * (1.0 - TM);
   return col;
 }

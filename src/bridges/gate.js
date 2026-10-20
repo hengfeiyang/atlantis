@@ -130,8 +130,8 @@ export function buildGateBridge(kit) {
     // the gate tower above the deck
     const tw = gateTower(kit, {
       x0: px0, x1: px1, z0: -zH, z1: zH, yDeck: deck, yTop: T.top,
-      passage: { hw: 4.8, h: 12.5 }, gilt: true, banded: true, bannerFaces: ['+z', '-z'], bannerBig: true, seed: s > 0 ? 3 : 7, tag: 'gate-tower', sunkenNiche: true,
-      tholos: { R: 8.2, n: 12, colH: 8.2, domeH: 3.9, tridentH: 7.0, tridentThick: 1.6, stepF: 0.028, entF: 0.85, knobF: 0.6, drumH: 1.6 }, midFrac: 0.5,   // r2: ref 2 proportions (tall colonnade ≈ R, low dome, chunky trident)
+      passage: { hw: 4.8, h: 12.5 }, gilt: true, banded: true, bannerFaces: ['+z', '-z'], bannerBig: true, seed: s > 0 ? 3 : 7, tag: 'gate-tower', sunkenNiche: true, midCornice: true,
+      tholos: { R: 8.2, n: 12, colH: 8.2, domeH: 3.9, tridentH: 7.0, tridentThick: 1.6, stepF: 0.028, entF: 0.85, knobF: 0.6, drumH: 1.6 }, midFrac: 0.45,   // r2: ref 2 proportions (tall colonnade ≈ R, low dome, chunky trident)
       missingCols: sunken ? (i) => ruined(`${label}:col:${s}:${i}`, s > 0 ? 0.12 : 0.05) : null,
     });
     kit.registryTowers = kit.registryTowers || [];

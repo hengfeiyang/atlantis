@@ -196,6 +196,8 @@ export function bougainvilleaMaterial() {
       // green; lower albedo so the low sun does not push them into the desaturating shoulder (they read candy-pink)
       vec3 cb = c * vec3(0.64, 0.19, 0.52);
       cb = max(vec3(0.0), mix(vec3(cgLuma(cb)), cb, 1.75));
+      // r6: refs 3/5 masses measure ≈ 0.76x our sRGB level (lit 157,30,57 vs 207,41,84) → deeper bracts
+      cb *= 0.45;
       c = mix(c, cb, bract);
       diffuseColor.rgb = c;
       cgBougTrans = vAO < 0.15 ? vec3(0.0) : mix(vec3(0.05, 0.085, 0.015) * (0.6 + 0.6 * n), c * vec3(0.75, 0.12, 0.4), bract);`,

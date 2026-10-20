@@ -229,12 +229,29 @@ export function buildCanal(ctx) {
       if (!ctx.sunken) {
         if (k % 4 === 0) ctx.slots.brazier.push({ pos: F.p(s0, yT + 1.25, 0), facing: sx < 0 ? 90 : 270, size: 0.9, tag: 'rings-canal' });
         else if (k % 4 === 2) ctx.slots.banner.push({ pos: F.p(sm, yT - 1.0, 0.3), facing: sx < 0 ? 90 : 270, size: [1.8, 5.2], tag: 'rings-canal' });
+        // r6 (ref 2 richness): date palms / cypresses on the promenade, gilt urns with flowers on the quay, magenta
+        // bougainvillea over the promenade balustrade (deterministic per bay, not the shared rng)
+        const hb = (q) => { const v = Math.sin((k + 1) * 12.9898 + sx * 78.233 + q * 37.719) * 43758.5453; return v - Math.floor(v); };
+        const clearGB = Math.abs(p[2] - L.GATE_BRIDGE.z) > 48;   // keep tall trees out of the gate-bridge viaduct arches
+        if (k % 4 === 1 && clearGB) engine.slots.palm.push({ pos: F.p(sm + (hb(1) - 0.5) * 2, yT, -2.9), size: 11.5 + 3 * hb(2), tag: 'date', source: 'rings-canal' });
+        else if (k % 4 === 3 && clearGB && hb(3) < 0.7) engine.slots.palm.push({ pos: F.p(sm, yT, -2.6), size: 9 + 4 * hb(4), tag: 'cypress', source: 'rings-canal' });
+        if (k % 3 === 0 && lod <= 1 && k > 0 && k < nb - 1) {
+          // statue on a pedestal in front of the blind arch, on the quay (ref 2: figures along the quay walls)
+          W.aux = [0, 0.3, 0, 0];
+          chamferBox(W, F, sm - 0.6, sm + 0.6, quayY, quayY + 0.18, 0.2, 1.4, 0.02, tone(rng, 0.02));
+          chamferBox(W, F, sm - 0.48, sm + 0.48, quayY + 0.18, quayY + 1.05, 0.32, 1.28, 0.02, tone(rng, 0.02));
+          chamferBox(W, F, sm - 0.58, sm + 0.58, quayY + 1.05, quayY + 1.2, 0.22, 1.38, 0.02, tone(rng, 0.02));
+          W.aux = [0, 0, 0, 0];
+          engine.slots.statue.push({ pos: F.p(sm, quayY + 1.2, 0.8), facing: sx < 0 ? 90 : 270, size: 2.5, tag: hb(10) < 0.5 ? 'pinnacle' : 'canal-quay', source: 'rings-canal-quay' });
+        }
+        if (k % 2 === 1) ctx.slots.urn.push({ pos: F.p(sm, quayY, quayW - 1.1), size: 1.05 + 0.3 * hb(5), tag: hb(6) < 0.5 ? 'gold bougainvillea' : 'marble' });
+        if (k % 3 === 0 && hb(7) < 0.75) ctx.slots.flowers.push({ pos: F.p(sm, yT + 1.15, 0.3), facing: sx < 0 ? 90 : 270, size: [bl * (0.45 + 0.35 * hb(8)), 2.2 + 2.4 * hb(9)], tag: 'bougainvillea' });
       } else if (k % 2 === 0) {
         ctx.slots.coral.push({ pos: F.p(sm, yT + 0.1, -1), normal: [0, 1, 0], size: 1.4, tag: 'rings-canal-top' });
         ctx.slots.kelp.push({ pos: F.p(sm, -4, quayW + 3 + 6 * rng.random()), size: 16 + 14 * rng.random(), tag: 'rings-canal' });
       }
       // lion-head spouts with falls into the canal (ref 2)
-      if (k % 5 === 3) {
+      if (k % 3 === 1) {   // r6: every 3rd bay (was 5th; ref 2)
         const Gd = S.get('gold', p[0], p[2]);
         const sp = F.p(sm, quayY + 4.2, 0.3);
         chamferBox(Gd, F, sm - 0.45, sm + 0.45, quayY + 3.9, quayY + 4.8, 0, 0.55, 0.08, [1, 1, 1]);
@@ -321,6 +338,51 @@ function stoa(ctx, sx, xFront, z0, z1, y0) {
   I.aux = [0.3, 0, 0.15, 0];
   I.quadToward(F.p(0, yS + hC, 0.6), F.p(len, yS + hC, 0.6), F.p(len, yS + hC, -depth + 0.7), F.p(0, yS + hC, -depth + 0.7), [1, 1, 1], [0, -1, 0]);
   if (!ctx.sunken) for (let i = 1; i < n; i += 2) ctx.slots.banner.push({ pos: F.p(i * step + step / 2, yS + hC - 0.1, 0), facing: sx < 0 ? 90 : 270, size: [1.5, 4.0], tag: 'rings-stoa columns' });
+  // r6 (ref 2: two-tier palace fronts with statues, urns and flowers on every level): an upper loggia set back on the
+  // stoa roof (red back wall, slimmer columns, gilt capitals, entablature, roof balustrade), gold statues / urns on
+  // pedestals along the lower roof edge, magenta bougainvillea spilling over it, statues on the upper corners
+  const yR = yS + hC + 1.55, set = 2.4, hC2 = 3.9, yR2 = yR + 0.3 + hC2 + 0.85;
+  const face = sx < 0 ? 90 : 270;
+  const roofR2 = ctx.sunken && ruined(label + ':roof2', 0.5);
+  box(R, F, 0.6, len - 0.6, yR, yR + hC2 + 0.6, -depth + 0.7, -depth + 1.4, [1, 1, 1], FACES.pz | FACES.px | FACES.nx);
+  W.aux = [0, 0.3, 0, 0];
+  chamferBox(W, F, 0.2, len - 0.2, yR, yR + 0.3, -depth + 0.7, -set + 0.5, 0.02, tone(rng, 0.03));
+  const n2 = Math.max(2, Math.round((len - 1.2) / 3.0)), st2 = (len - 1.2) / n2;
+  for (let i = 0; i <= n2; i++) {
+    const s2 = 0.6 + i * st2;
+    if (ctx.sunken && ruined(`${label}:u${i}`, 0.5)) continue;
+    lathe(W, F, s2, yR + 0.3, -set, [[0, 0], [0.38, 0], [0.38, 0.14], [0.3, 0.24], [0.27, hC2 - 0.42], [0.0, hC2 - 0.42]], 12, tone(rng, 0.03));
+    lathe(S.get('gilt', mid[0], mid[2]), F, s2, yR + 0.3 + hC2 - 0.42, -set, [[0, 0], [0.28, 0], [0.38, 0.22], [0.42, 0.42], [0, 0.42]], 12, [1, 1, 1]);
+  }
+  if (!roofR2) {
+    box(W, F, 0.25, len - 0.25, yR + 0.3 + hC2, yR2, -depth + 0.7, -set + 0.48, tone(rng, 0.03), FACES.pz | FACES.py | FACES.px | FACES.nx | FACES.ny);
+    box(S.get('red', mid[0], mid[2]), F, 0.4, len - 0.4, yR + 0.3 + hC2 + 0.25, yR + 0.3 + hC2 + 0.6, -set + 0.48, -set + 0.53, [1, 1, 1], FACES.pz);
+    sweep(W, F, 0.15, len - 0.15, [[-set + 0.48, yR2], [-set + 0.66, yR2 + 0.12], [-set + 0.76, yR2 + 0.32], [-set + 0.76, yR2 + 0.42]], tone(rng, 0.03), true);
+    I.quadToward(F.p(0.6, yR + 0.3 + hC2, -set + 0.45), F.p(len - 0.6, yR + 0.3 + hC2, -set + 0.45), F.p(len - 0.6, yR + 0.3 + hC2, -depth + 1.4), F.p(0.6, yR + 0.3 + hC2, -depth + 1.4), [1, 1, 1], [0, -1, 0]);
+    Pv.quadToward(F.p(0.15, yR2 + 0.42, -set + 0.76), F.p(len - 0.15, yR2 + 0.42, -set + 0.76), F.p(len - 0.15, yR2 + 0.42, -depth + 0.7), F.p(0.15, yR2 + 0.42, -depth + 0.7), [0.9, 0.88, 0.85], [0, 1, 0]);
+    // corner statues on the upper roof
+    if (!ctx.sunken) for (const s2 of [0.9, len - 0.9]) {
+      chamferBox(W, F, s2 - 0.55, s2 + 0.55, yR2 + 0.42, yR2 + 1.5, -set + 0.15, -set + 1.25 - 0.55, 0.03, tone(rng, 0.02));
+      ctx.engine.slots.statue.push({ pos: F.p(s2, yR2 + 1.5, -set + 0.4), facing: face, size: 2.4, tag: 'pinnacle', source: 'rings-stoa-roof' });
+    }
+  }
+  // lower roof edge: pedestals with gold statues / gilt urns with flowers, low balustrade between, bougainvillea curtains
+  for (let i = 0; i <= n; i += 2) {
+    const s1 = i * step;
+    chamferBox(W, F, s1 - 0.5, s1 + 0.5, yR, yR + 1.25, 0.05, 0.85, 0.03, tone(rng, 0.02));
+    if (ctx.sunken) { if (i % 4 === 0) ctx.slots.coral.push({ pos: F.p(s1, yR + 1.3, 0.45), normal: [0, 1, 0], size: 0.9, tag: 'rings-stoa-roof' }); continue; }
+    if (i % 4 === 0) ctx.engine.slots.statue.push({ pos: F.p(s1, yR + 1.25, 0.45), facing: face, size: 2.2, tag: 'pinnacle', source: 'rings-stoa-edge' });
+    else ctx.slots.urn.push({ pos: F.p(s1, yR + 1.25, 0.45), size: 1.15, tag: 'gold bougainvillea' });
+  }
+  for (let i = 0; i < n; i += 2) {
+    const s0 = i * step + 0.5, s1 = Math.min(len, (i + 2) * step) - 0.5;
+    if (s1 - s0 < 1) continue;
+    box(W, F, s0, s1, yR + 0.72, yR + 0.86, 0.25, 0.65, tone(rng, 0.03), FACES.pz | FACES.py | FACES.nz | FACES.ny);
+    const nb2 = Math.floor((s1 - s0) / 0.45);
+    for (let j = 1; j < nb2; j++) lathe(W, F, s0 + j * ((s1 - s0) / nb2), yR, 0.45, [[0, 0], [0.09, 0], [0.1, 0.06], [0.06, 0.14], [0.1, 0.36], [0.05, 0.6], [0.08, 0.72], [0, 0.72]], 6, [0.95, 0.94, 0.92]);
+    if (!ctx.sunken && (i / 2) % 2 === (sx > 0 ? 0 : 1)) ctx.slots.flowers.push({ pos: F.p((s0 + s1) / 2, yR + 0.86, 0.68), facing: face, size: [Math.min(5.5, s1 - s0 - 0.4), 2.6 + 1.2 * rng.random()], tag: 'bougainvillea' });
+  }
+  W.aux = [0, 0, 0, 0];
 }
 
 // ------------------------------------------------------------------ moles + lighthouses

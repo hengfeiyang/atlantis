@@ -202,6 +202,8 @@ function addMist(mist, f, rng, density, level, farFactor = 1) {
   const drop = Math.max(1, f.drop);
   const W = f.width;
   const k = (0.45 + 0.55 * density) * farFactor;
+  // r6: small quay / shed spouts (spec.small): only a little boil + droplets at the plunge (no veil, streak jets or cloud)
+  const small = !!f.spec?.small, sk = small ? 0.35 : 1;
   const disk = (pw = 1) => { const [x, z] = rng.disk(); const r = Math.hypot(x, z) || 1e-6; const s = Math.pow(r, pw) / r; return [x * s, z * s]; };
   const [ax, az] = f.across;
   // veil spray in front of the fast-falling part
@@ -210,7 +212,7 @@ function addMist(mist, f, rng, density, level, farFactor = 1) {
     const kk = i * S, kp = (i - 1) * S;
     acc += Math.hypot(a[kk] - a[kp], a[kk + 1] - a[kp + 1], a[kk + 2] - a[kp + 2]);
     const rel = (f.lip.y - a[kk + 1]) / drop;
-    if (acc < 3.4 / k || rel < 0.25 || a[kk + 6] > -4.5) continue;
+    if (small || acc < 3.4 / k || rel < 0.25 || a[kk + 6] > -4.5) continue;
     acc = 0;
     const off = rng.range(-0.6, 0.6) * W, out = rng.range(0.3, 1.4) + rel;
     mist.add({
@@ -243,20 +245,20 @@ function addMist(mist, f, rng, density, level, farFactor = 1) {
   const end = { x: f.impact.x, y: level, z: f.impact.z, speed: f.impact.speed, r: f.impact.radius };
   const energy = Math.min(1.4, (end.speed / 16) * f.flow + 0.15);
   const R = Math.max(2.5, Math.min(end.r, 3 + W * 0.5));
-  const nChurn = Math.round((10 + W * 1.8) * k * energy);
+  const nChurn = Math.round((10 + W * 1.8) * k * energy * (small ? 0.4 : 1));
   for (let m = 0; m < nChurn; m++) {
     const [ox, oz] = disk(1.6);
     mist.add({
       pos: [end.x + ox * R * 0.6, end.y + rng.range(0.2, 1.2), end.z + oz * R * 0.6],
-      size: (rng.range(0.6, 1.5) * (0.6 + 0.4 * energy) + W * 0.03), life: rng.range(1.2, 2.6),
-      vel: [ox * rng.range(0.4, 1.8), rng.range(1.5, 4.0) * energy, oz * rng.range(0.4, 1.8)], gravity: 2.0, growth: 1.4,
+      size: (rng.range(0.6, 1.5) * (0.6 + 0.4 * energy) + W * 0.03) * sk, life: rng.range(1.2, 2.6) * (small ? 0.6 : 1),
+      vel: [ox * rng.range(0.4, 1.8) * sk, rng.range(1.5, 4.0) * energy * sk, oz * rng.range(0.4, 1.8) * sk], gravity: 2.0, growth: small ? 0.8 : 1.4,
       density: rng.range(0.06, 0.12), kind: 2, stretch: rng.range(0.85, 1.1),
     });
   }
   const nBoil = Math.round((6 + W * 0.9) * k * Math.min(1.2, energy));
   for (let m = 0; m < nBoil; m++) {
     const ang = rng.range(0, Math.PI * 2), rr = R * rng.range(0.15, 0.85);
-    const wdt = R * rng.range(0.45, 0.85) * (0.7 + 0.3 * Math.min(1, energy));
+    const wdt = R * rng.range(0.45, 0.85) * (0.7 + 0.3 * Math.min(1, energy)) * (small ? 0.45 : 1);
     const st = rng.range(0.45, 0.8) * (0.8 + 0.3 * Math.min(1, energy));
     mist.add({
       pos: [end.x + Math.cos(ang) * rr, level + wdt * st * 0.22, end.z + Math.sin(ang) * rr],
@@ -264,6 +266,7 @@ function addMist(mist, f, rng, density, level, farFactor = 1) {
       growth: 0.35, density: rng.range(0.8, 1.0), kind: 4, stretch: st,
     });
   }
+  if (small) return;
   if (farFactor > 0.6) {
     const nStreak = Math.round((4 + W * 0.8) * k * energy);
     for (let m = 0; m < nStreak; m++) {

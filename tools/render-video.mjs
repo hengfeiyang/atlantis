@@ -5,6 +5,16 @@
 //   node tools/render-video.mjs --segments 3,4 ...                                  only some segments
 //   node tools/render-video.mjs --encode-only [--music path.mp3]                    re-encode existing frames
 //
+// r6 (director) options — see docs/RENDER.md for the final 4K plan:
+//   --spp-seg "1:16,6:12"   per-segment spp override (1-based segment index in SEQUENCE; others use --spp)
+//   --frames 0-29           only these frame indices in every selected segment (timing tests)
+//   --no-encode             render only (several processes can share one --out: e.g. golden + sunken in parallel)
+//   --music <path>          REQUIRED to exist when given (fails loudly); --music-start <s> picks the excerpt
+//   --credit "line 1|line 2" end card over black after the picture (only text the film may carry: music attribution)
+//   --name file.mp4         output file name inside --out
+// Frames are written atomically (tmp + rename); on resume every existing frame is checked for a complete PNG
+// (IEND trailer) and re-rendered if truncated. Text cards are rendered by headless Chrome (no ffmpeg drawtext needed).
+//
 // Frames: <out>/seg<NN>/f<NNNN>.png (existing frames are skipped → safe to stop and resume).
 // Encode: each segment → lossless-ish intermediate, cross-dissolves (xfade) between segments, fade in/out,
 // optional music (faded in/out, trimmed to picture), H.264 High, yuv420p, BT.709 tags.
@@ -12,7 +22,7 @@ import puppeteer from 'puppeteer-core';
 import { CHROME, ANGLE, killTree } from './platform.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startServer } from './serve.mjs';
 
@@ -38,10 +48,76 @@ const { SHOTS } = await import(pathToFileURL(path.join(ROOT, 'src/world/shots.js
 const eraOfSeg = (i) => SHOTS.find((x) => String(x.id) === String(SEQUENCE[i].shot))?.era || 'golden';
 const ERAS = [...new Set(SEQUENCE.map((_, i) => eraOfSeg(i)))];
 const segFilter = args.segments ? String(args.segments).split(',').map(Number) : null; // 1-based
+// r6: per-segment spp ("1:16,6:12", 1-based) and a frame window for timing tests ("0-29")
+const SPP_SEG = new Map(String(args['spp-seg'] || '').split(',').filter(Boolean).map((t) => t.split(':').map(Number)).map(([sg, n]) => [sg - 1, n]));
+const sppOf = (i) => SPP_SEG.get(i) || SPP;
+const FRANGE = args.frames ? String(args.frames).split('-').map(Number) : null;
+const inRange = (f) => !FRANGE || (f >= FRANGE[0] && f <= (FRANGE[1] ?? FRANGE[0]));
+{ // disk: PNG frames ≈ 2.5 bytes/px; warn early instead of failing hours in
+  const need = SEQUENCE.reduce((a, g) => a + Math.round(g.dur * FPS), 0) * W * H * 2.5 / 1e9;
+  try { const st = fs.statfsSync(ROOT); const free = st.bavail * st.bsize / 1e9;
+    if (!args['encode-only'] && free < need * 1.2 && !args['prune-frames']) console.log(`[video] WARNING: ${free.toFixed(0)} GB free, frames need ≈ ${need.toFixed(0)} GB — use --prune-frames`); } catch {}
+}
+if (args.music && args.music !== true && !fs.existsSync(args.music)) { console.error(`[video] music file not found: ${args.music}`); process.exit(2); }
 
 
 const segDir = (i) => path.join(OUT, `seg${String(i + 1).padStart(2, '0')}`);
 const framePath = (i, f) => path.join(segDir(i), `f${String(f).padStart(4, '0')}.png`);
+// a frame counts as done only if it is a complete PNG (ends with the IEND chunk): a process killed mid-write
+// never leaves a frame that the resume would skip
+const IEND = Buffer.from([0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+function frameOk(i, f) {
+  const p = framePath(i, f);
+  let fd;
+  try {
+    fd = fs.openSync(p, 'r'); const st = fs.fstatSync(fd); if (st.size < 64) return false;
+    const b = Buffer.alloc(8); fs.readSync(fd, b, 0, 8, st.size - 8); return b.equals(IEND);
+  } catch { return false; } finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+const segFrames = (i) => Math.round(SEQUENCE[i].dur * FPS);
+const allFrames = (i) => { for (let f = 0; f < segFrames(i); f++) if (!fs.existsSync(framePath(i, f))) return false; return true; };
+// r6: per-segment intermediates are encoded IN THE BACKGROUND as soon as a segment's frames are complete (while the
+// GPU renders the next one). A marker <out>/partNN.done.json records the frames/size/spp it was made from; with
+// --prune-frames the PNGs are deleted after a verified part (4K PNGs ≈ 20 MB each = 38 GB for the film).
+const partPath = (i) => path.join(OUT, `part${String(i + 1).padStart(2, '0')}.mp4`);
+const markerPath = (i) => path.join(OUT, `part${String(i + 1).padStart(2, '0')}.done.json`);
+const partDone = (i) => {
+  try { const m = JSON.parse(fs.readFileSync(markerPath(i), 'utf8')); return m.frames === segFrames(i) && m.w === W && m.h === H && fs.existsSync(partPath(i)) && fs.statSync(partPath(i)).size === m.bytes; } catch { return false; }
+};
+const segComplete = (i) => partDone(i) || allFrames(i);
+const PRUNE = !!args['prune-frames'];
+const partJobs = new Map();
+function encodePart(i) {
+  if (partJobs.has(i)) return partJobs.get(i);
+  const job = (async () => {
+    if (partDone(i)) {
+      // marker says done: the part is valid unless frames were re-rendered after it
+      let newest = 0; for (let f = 0; f < segFrames(i); f++) { try { newest = Math.max(newest, fs.statSync(framePath(i, f)).mtimeMs); } catch {} }
+      if (newest < fs.statSync(partPath(i)).mtimeMs) { if (PRUNE) pruneFrames(i); return; }
+    }
+    if (!allFrames(i)) return;
+    const tmp = partPath(i).replace(/\.mp4$/, '.tmp.mp4');
+    const t0 = Date.now();
+    await new Promise((res, rej) => {
+      // niced: the background encode must not steal CPU from the page (JS + PNG encoding of the next frames)
+      const p = spawn('nice', ['-n', '10', 'ffmpeg', '-loglevel', 'error', '-y', '-framerate', String(FPS), '-i', path.join(segDir(i), 'f%04d.png'), '-vf', `scale=${W}:${H}:flags=lanczos`,
+        '-c:v', 'libx264', '-preset', 'slow', '-crf', '10', '-pix_fmt', 'yuv444p', tmp], { stdio: ['ignore', 'inherit', 'inherit'] });
+      p.on('exit', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg part ${i + 1} exit ${c}`))));
+    });
+    const n = Number(execFileSync('ffprobe', ['-v', 'error', '-count_packets', '-select_streams', 'v:0', '-show_entries', 'stream=nb_read_packets', '-of', 'csv=p=0', tmp]).toString().trim());
+    if (n !== segFrames(i)) throw new Error(`part ${i + 1}: ${n} frames, expected ${segFrames(i)}`);
+    fs.renameSync(tmp, partPath(i));
+    fs.writeFileSync(markerPath(i), JSON.stringify({ frames: n, w: W, h: H, spp: sppOf(i), quality: QUALITY, bytes: fs.statSync(partPath(i)).size, time: new Date().toISOString() }));
+    console.log(`[video] part ${i + 1} encoded (${n} frames, ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+    if (PRUNE) pruneFrames(i);
+  })().catch((e) => { console.log(`[video] ERROR ${e.message}`); throw e; }).finally(() => partJobs.delete(i)); // memoise in-flight jobs only
+  partJobs.set(i, job);
+  return job;
+}
+function pruneFrames(i) {
+  let k = 0; for (let f = 0; f < segFrames(i); f++) { try { fs.rmSync(framePath(i, f)); k++; } catch {} }
+  if (k) console.log(`[video] seg${i + 1}: pruned ${k} frames (part verified)`);
+}
 
 // ------------------------------------------------------------------ GPU lock (same scheme as render.mjs)
 const LOCKDIR = path.join(ROOT, 'out');
@@ -93,6 +169,8 @@ async function renderFrames() {
   }
   await server.close();
   release();
+  if (!FRANGE) for (let i = 0; i < SEQUENCE.length; i++) if (!segFilter || segFilter.includes(i + 1)) encodePart(i).catch(() => {});
+  await Promise.all([...partJobs.values()]);
 }
 
 async function renderAttempt(server, setBrowser, era) {
@@ -108,7 +186,9 @@ async function renderAttempt(server, setBrowser, era) {
   page.on('console', (m) => { const t = m.text(); if (m.type() === 'error' && !t.includes('Failed to load resource')) console.log('[page:error]', t); });
   page.on('pageerror', (e) => console.log('[page:error]', e.message));
   const segsOfEra = SEQUENCE.map((_, i) => i).filter((i) => eraOfSeg(i) === era && (!segFilter || segFilter.includes(i + 1)));
-  const pending = segsOfEra.some((i) => !fs.existsSync(framePath(i, Math.round(SEQUENCE[i].dur * FPS) - 1)));
+  const segsTodo = segsOfEra.filter((i) => !partDone(i));
+  for (const i of segsOfEra) if (!FRANGE) encodePart(i).catch(() => {}); // already-complete segments: encode in the background
+  const pending = segsTodo.some((i) => { for (let f = 0; f < segFrames(i); f++) if (inRange(f) && !frameOk(i, f)) return true; return false; });
   if (!pending) return 0;
   const qs = new URLSearchParams({ quality: QUALITY, w: String(W), h: String(H), mode: 'still', era, shot: String(SEQUENCE[segsOfEra[0]].shot) });
   const t0 = Date.now();
@@ -117,10 +197,10 @@ async function renderAttempt(server, setBrowser, era) {
   const err = await page.evaluate(() => window.__RENDER_ERROR || null);
   if (err) throw new Error(err);
   const info = await page.evaluate(() => window.__videoInfo());
-  console.log(`[video] ${era} world ready in ${((Date.now() - t0) / 1000).toFixed(0)} s — ${segsOfEra.length}/${info.segments.length} segments, ${W}x${H}, ${SPP} spp`);
+  console.log(`[video] ${era} world ready in ${((Date.now() - t0) / 1000).toFixed(0)} s — ${segsOfEra.length}/${info.segments.length} segments, ${W}x${H}, ${SPP} spp${SPP_SEG.size ? ' (overrides ' + [...SPP_SEG].map(([k, v]) => `${k + 1}:${v}`).join(',') + ')' : ''}, quality ${QUALITY}`);
   const jobs = [];
-  info.segments.forEach((s, i) => { if (!segsOfEra.includes(i)) return; for (let f = 0; f < s.frames; f++) jobs.push([i, f]); });
-  const todo = jobs.filter(([i, f]) => !fs.existsSync(framePath(i, f)));
+  info.segments.forEach((s, i) => { if (!segsTodo.includes(i)) return; for (let f = 0; f < s.frames; f++) if (inRange(f)) jobs.push([i, f]); });
+  const todo = jobs.filter(([i, f]) => !frameOk(i, f));
   console.log(`[video] ${jobs.length} frames, ${jobs.length - todo.length} already done, ${todo.length} to render`);
   let n = 0; const tStart = Date.now();
   for (const [i, f] of todo) {
@@ -132,16 +212,29 @@ async function renderAttempt(server, setBrowser, era) {
       const src = f > 0 ? framePath(i, f - 1) : framePath(i, f + 1);
       if (fs.existsSync(src)) { fs.copyFileSync(src, framePath(i, f)); console.log(`[video] seg${i + 1} f${f}: held neighbour frame after 2 GPU hangs`); n++; continue; }
     }
+    // disk guard (the volume is shared with other projects): below --min-free GB (default 4) wait instead of failing
+    if (n % 10 === 0) {
+      const minFree = Number(args['min-free'] ?? 4);
+      for (let w = 0; ; w++) {
+        let free = Infinity; try { const st = fs.statfsSync(OUT); free = st.bavail * st.bsize / 1e9; } catch {}
+        if (free >= minFree) break;
+        if (w % 5 === 0) console.log(`[video] WARNING: only ${free.toFixed(1)} GB free (< ${minFree}) — paused, free some disk space`);
+        await new Promise((r) => setTimeout(r, 60000));
+      }
+    }
     CURRENT_FRAME = key;
     // watchdog: a hung GPU (no driver watchdog in this browser config) would stall forever → restart instead
     let timer;
     const url = await Promise.race([
       // 2nd try of a frame that hung: shift the animation clock slightly (hangs so far were time-specific)
-      page.evaluate(async (i, f, spp, ts) => await window.__renderVideoFrame(i, f, spp, ts), i, f, SPP, fails ? 0.37 : 0),
+      page.evaluate(async (i, f, spp, ts) => await window.__renderVideoFrame(i, f, spp, ts), i, f, sppOf(i), fails ? 0.37 : 0),
       new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(`frame seg${i + 1} f${f} timed out`)), FRAME_TIMEOUT_MS); }),
     ]).finally(() => clearTimeout(timer));
     CURRENT_FRAME = null;
-    fs.writeFileSync(framePath(i, f), Buffer.from(url.split(',')[1], 'base64'));
+    const tmp = framePath(i, f) + '.tmp';
+    fs.writeFileSync(tmp, Buffer.from(url.split(',')[1], 'base64'));
+    fs.renameSync(tmp, framePath(i, f)); // atomic: a frame file is either absent or complete
+    if (f === segFrames(i) - 1 && !FRANGE) encodePart(i).catch(() => {}); // segment done → its part encodes while the GPU moves on
     n++;
     // GPU care: short idle after every frame (thermals on the integrated GPU, keeps the desktop responsive)
     if (REST_MS > 0) await new Promise((r) => setTimeout(r, REST_MS));
@@ -154,19 +247,28 @@ async function renderAttempt(server, setBrowser, era) {
   return 0;
 }
 
-function encode() {
+// r6: text cards (title / end credit) rendered as PNGs by headless Chrome — this ffmpeg build has no drawtext.
+// lines: [{ text, size (fraction of H), color, spacing (letter-spacing em) }]
+async function renderCard(file, lines) {
+  const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--no-sandbox', '--disable-gpu'], defaultViewport: { width: W, height: H, deviceScaleFactor: 1 } });
+  try {
+    const page = await browser.newPage();
+    const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const html = `<!doctype html><html><body style="margin:0;width:${W}px;height:${H}px;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:Didot,'Bodoni 72','Palatino',serif;">` +
+      lines.map((l) => `<div style="color:${l.color};font-size:${Math.round(H * l.size)}px;letter-spacing:${l.spacing || 0}em;line-height:1.5;text-align:center;">${esc(l.text)}</div>`).join('') + '</body></html>';
+    await page.setContent(html, { waitUntil: 'load' });
+    await page.screenshot({ path: file, type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
+  } finally { const pid = browser.process()?.pid; await browser.close().catch(() => {}); if (pid) killTree(pid); }
+}
+
+async function encode() {
   const ff = (a) => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', ...a], { stdio: 'inherit' });
-  const segs = SEQUENCE.map((s, i) => ({ ...s, i, frames: Math.round(s.dur * FPS) })).filter((s) => fs.existsSync(framePath(s.i, s.frames - 1)));
+  const segs = SEQUENCE.map((s, i) => ({ ...s, i, frames: segFrames(i) })).filter((s) => segComplete(s.i));
   if (!segs.length) { console.log('[video] no complete segments to encode'); return; }
-  // 1) each segment → high-quality intermediate
-  const parts = segs.map((s) => {
-    const p = path.join(OUT, `part${String(s.i + 1).padStart(2, '0')}.mp4`);
-    // reuse an intermediate that is newer than its last frame (fast re-encodes, e.g. adding music later)
-    const fresh = fs.existsSync(p) && fs.statSync(p).mtimeMs > fs.statSync(framePath(s.i, s.frames - 1)).mtimeMs;
-    // every part is scaled to the output size (segments rendered at a lower resolution are upscaled, Lanczos)
-    if (!fresh) ff(['-framerate', String(FPS), '-i', path.join(segDir(s.i), 'f%04d.png'), '-vf', `scale=${W}:${H}:flags=lanczos`, '-c:v', 'libx264', '-preset', 'slow', '-crf', '10', '-pix_fmt', 'yuv444p', p]);
-    return { p, dur: s.frames / FPS };
-  });
+  if (segs.length < SEQUENCE.length) console.log(`[video] WARNING: only ${segs.length}/${SEQUENCE.length} segments complete — encoding those`);
+  // 1) each segment → high-quality intermediate (encoded already during the render, or now)
+  for (const s of segs) await encodePart(s.i);
+  const parts = segs.map((s) => ({ p: partPath(s.i), dur: s.frames / FPS }));
   // 2) cross-dissolves
   const inputs = parts.flatMap((p) => ['-i', p.p]);
   let filter = '', last = '[0:v]', acc = parts[0].dur;
@@ -177,43 +279,65 @@ function encode() {
     last = `[v${k}]`; acc = acc + parts[k].dur - xf;
   }
   const pictureDur = acc;
-  const music = args.music && fs.existsSync(args.music) ? args.music : null;
-  // optional title card over black before the picture (--title "ATHENAION" [--subtitle "..."]) and an end
-  // card over black after it (--endtitle "...", plus --credit "..." for the music attribution)
-  const FONT = process.platform === 'win32' ? "'C\\:/Windows/Fonts/pala.ttf'" : "'/System/Library/Fonts/Supplemental/Didot.ttc'";
-  const fadeA = (t0, t1, f) => `'if(lt(t,${t0.toFixed(3)}),0,if(lt(t,${(t0 + f).toFixed(3)}),(t-${t0.toFixed(3)})/${f},if(lt(t,${(t1 - f).toFixed(3)}),1,if(lt(t,${t1.toFixed(3)}),(${t1.toFixed(3)}-t)/${f},0))))'`;
-  const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/'/g, '’').replace(/:/g, '\\:');
-  const spaced = (s) => String(s).split('').join(' ');
+  const music = args.music && args.music !== true ? args.music : null;
+  // optional title card before the picture (--title [--subtitle]) and an end card after it (--endtitle and/or
+  // --credit "line|line"). The ATLANTIS film carries NO text except the music credit when the licence requires it.
   const PRE = args.title ? 3.6 : 0;
-  const POST = args.endtitle || (music && args.credit) ? 4.0 : 0;
+  // --credit-file <txt>: the credit lines from a file (blank lines and "Source:" lines skipped), e.g. audio/CREDITS.txt
+  if (args['credit-file']) args.credit = fs.readFileSync(args['credit-file'], 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !/^source:/i.test(l)).join('|');
+  const POST = args.endtitle || args.credit ? Number(args['card-dur'] || 4.0) : 0;
   const total = PRE + pictureDur + POST;
-  const big = Math.round(H * 0.058), small = Math.round(H * 0.021), tiny = Math.round(H * 0.016);
-  let text = '';
-  if (args.title) {
-    text += `,drawtext=fontfile=${FONT}:text='${esc(spaced(args.title))}':fontcolor=0xEDE3CF:fontsize=${big}:x=(w-text_w)/2:y=(h-text_h)/2-${Math.round(H * 0.02)}:alpha=${fadeA(0.5, PRE - 0.25, 0.9)}`;
-    if (args.subtitle) text += `,drawtext=fontfile=${FONT}:text='${esc(args.subtitle)}':fontcolor=0xC9B48A:fontsize=${small}:x=(w-text_w)/2:y=(h/2)+${Math.round(H * 0.045)}:alpha=${fadeA(1.0, PRE - 0.25, 0.9)}`;
+  const norm = `format=yuv444p,setsar=1,fps=${FPS},settb=1/${FPS}`;
+  let nIn = parts.length;
+  const cardIn = [];
+  let pre = '', post = '';
+  if (PRE) {
+    const f = path.join(OUT, 'card_title.png');
+    await renderCard(f, [{ text: args.title, size: 0.058, color: '#EDE3CF', spacing: 0.35 }, ...(args.subtitle ? [{ text: args.subtitle, size: 0.021, color: '#C9B48A' }] : [])]);
+    cardIn.push('-loop', '1', '-framerate', String(FPS), '-t', PRE.toFixed(3), '-i', f);
+    filter += `[${nIn}:v]${norm},fade=t=in:st=0.5:d=0.9,fade=t=out:st=${(PRE - 1.15).toFixed(3)}:d=0.9[vpre];`; pre = '[vpre]'; nIn++;
   }
   if (POST) {
-    const t0 = PRE + pictureDur + 0.3, t1 = total - 0.2;
-    if (args.endtitle) text += `,drawtext=fontfile=${FONT}:text='${esc(spaced(args.endtitle))}':fontcolor=0xEDE3CF:fontsize=${Math.round(big * 0.75)}:x=(w-text_w)/2:y=(h-text_h)/2-${Math.round(H * 0.03)}:alpha=${fadeA(t0, t1, 0.8)}`;
-    if (music && args.credit) text += `,drawtext=fontfile=${FONT}:text='${esc(args.credit)}':fontcolor=0xB9AD98:fontsize=${tiny}:x=(w-text_w)/2:y=(h/2)+${Math.round(H * 0.05)}:alpha=${fadeA(t0 + 0.4, t1, 0.8)}`;
+    const f = path.join(OUT, 'card_end.png');
+    const lines = [];
+    if (args.endtitle) lines.push({ text: args.endtitle, size: 0.044, color: '#EDE3CF', spacing: 0.35 });
+    if (args.credit) for (const t of String(args.credit).split('|')) lines.push({ text: t.trim(), size: 0.021, color: '#B9AD98', spacing: 0.04 });
+    await renderCard(f, lines);
+    cardIn.push('-loop', '1', '-framerate', String(FPS), '-t', POST.toFixed(3), '-i', f);
+    filter += `[${nIn}:v]${norm},fade=t=in:st=0.3:d=0.8,fade=t=out:st=${(POST - 1.0).toFixed(3)}:d=0.8[vpost];`; post = '[vpost]'; nIn++;
   }
-  // one tpad for both ends (two chained tpads drop the stop padding after xfade)
-  const pad = PRE || POST ? `tpad=start_duration=${PRE}:stop_duration=${POST}:start_mode=add:stop_mode=add:color=black,` : '';
-  // without a title card the picture opens almost immediately (the first frames are the hook)
-  filter += `${last}${pad}fade=t=in:st=${PRE.toFixed(3)}:d=${PRE ? 1.2 : 0.35},fade=t=out:st=${(PRE + pictureDur - 1.6).toFixed(3)}:d=1.6${text},format=yuv420p[vout]`;
+  // the picture opens almost immediately (the first frames are the hook) and fades to black at the end
+  filter += `${last}${norm},fade=t=in:st=0:d=${PRE ? 1.2 : 0.35},fade=t=out:st=${(pictureDur - 1.6).toFixed(3)}:d=1.6[vpic];`;
+  const chain = [pre, '[vpic]', post].filter(Boolean);
+  filter += chain.length > 1 ? `${chain.join('')}concat=n=${chain.length}:v=1:a=0,format=yuv420p[vout]` : `[vpic]format=yuv420p[vout]`;
   const outFile = path.join(OUT, args.name || `atlantis_${W}x${H}.mp4`);
-  const a = [...inputs];
+  const a = [...inputs, ...cardIn];
   if (music) a.push('-i', music);
   // music: --music-start <s> picks the excerpt (0 = the track's own intro, which needs only a tiny fade-in);
-  // loudness-normalised to -14 LUFS (streaming level), true peak -1.5 dB, faded out with the picture
+  // --music-fade-in / --music-fade <s> (fade-out at the very end, across the end card); padded with silence if
+  // shorter than the film. Loudness: TWO-PASS LINEAR gain (measured integrated loudness of the faded excerpt →
+  // --lufs target, default -16) + a peak limiter at -2.5 dBFS (true peak ≈ -1.5 dBTP): the track's own dynamics (quiet folk → triumphant
+  // final section) are kept; single-pass loudnorm squashed LRA 15 → 5 LU.
   const mStart = Number(args['music-start'] || 0);
-  const fadeIn = mStart > 0 ? 1.5 : 0.2;
-  const audio = music ? `;[${parts.length}:a]atrim=${mStart}:${(mStart + total).toFixed(3)},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=${fadeIn},afade=t=out:st=${(total - 3.5).toFixed(3)}:d=3.5,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]` : '';
+  const fadeIn = Number(args['music-fade-in'] ?? (mStart > 0 ? 1.5 : 0.2));
+  const mFade = Number(args['music-fade'] || 3.5);
+  const mPre = `atrim=${mStart}:${(mStart + total).toFixed(3)},asetpts=PTS-STARTPTS,apad=whole_dur=${total.toFixed(3)},afade=t=in:st=0:d=${fadeIn},afade=t=out:st=${(total - mFade).toFixed(3)}:d=${mFade}`;
+  let audio = '';
+  if (music) {
+    let inI = -16;
+    try {
+      const r = spawnSync('ffmpeg', ['-hide_banner', '-i', music, '-af', `${mPre},loudnorm=print_format=json`, '-f', 'null', '-'], { encoding: 'utf8' });
+      inI = Number(JSON.parse(r.stderr.match(/\{[^{}]*"input_i"[^{}]*\}/)[0]).input_i);
+    } catch (e) { console.log('[video] WARNING: loudness measurement failed, using 0 dB gain', e.message); }
+    const target = Number(args.lufs ?? -16);
+    const gain = Math.max(-20, Math.min(12, target - inI));
+    console.log(`[video] music ${path.basename(music)} from ${mStart} s: ${inI.toFixed(1)} LUFS → gain ${gain.toFixed(1)} dB (target ${target}), limiter -2.5 dBFS`);
+    audio = `;[${nIn}:a]${mPre},volume=${gain.toFixed(2)}dB,alimiter=limit=0.75:level=disabled:latency=1,aresample=48000,atrim=0:${total.toFixed(3)}[aout]`;
+  }
   a.push('-filter_complex', filter + audio);
   a.push('-map', '[vout]');
   if (music) a.push('-map', '[aout]', '-c:a', 'aac', '-b:a', '256k');
-  a.push('-c:v', 'libx264', '-preset', 'slow', '-crf', '14', '-profile:v', 'high', '-r', String(FPS),
+  a.push('-c:v', 'libx264', '-preset', 'slow', '-crf', String(args.crf || 14), '-profile:v', 'high', '-r', String(FPS),
     '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-movflags', '+faststart', outFile);
   ff(a);
   if (H > 1080) {
@@ -223,8 +347,8 @@ function encode() {
       '-pix_fmt', 'yuv420p', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-c:a', 'copy', '-movflags', '+faststart', hd]);
     console.log(`[video] wrote ${path.relative(ROOT, hd)}`);
   }
-  console.log(`[video] wrote ${path.relative(ROOT, outFile)} (${total.toFixed(1)} s${music ? ', with music' : ''})`);
+  console.log(`[video] wrote ${path.relative(ROOT, outFile)} (${total.toFixed(1)} s${music ? ', with music' : ''}${POST ? ', end card' : ''})`);
 }
 
 if (!args['encode-only']) await renderFrames();
-encode();
+if (!args['no-encode']) await encode();

@@ -165,21 +165,54 @@ function farCity8(engine, F, G, det) {
   // local frame of the group: origin at the camera ground point, x = right, z = toward the camera (−fwd), y world
   const O = new THREE.Vector3(F.pos.x, 0, F.pos.z);
   const toLocal = (p) => { const d = p.clone().sub(O); return [d.dot(F.right), p.y, -d.dot(F.fwd)]; };
+  // local (x right, z toward the camera) → world xz; true when the box footprint touches the shed mole / its bridge
+  const fh = new THREE.Vector3(F.fwd.x, 0, F.fwd.z).normalize(), rh = new THREE.Vector3(F.right.x, 0, F.right.z).normalize();
+  const toWorld = (lx, lz) => [O.x + rh.x * lx - fh.x * lz, O.z + rh.z * lx - fh.z * lz];
+  const fp = engine.footprints;
+  const blocked = (xa, xb, za, zb) => {
+    if (!fp?.query) return false;
+    for (const [lx, lz] of [[xa, za], [xb, za], [xa, zb], [xb, zb], [(xa + xb) / 2, (za + zb) / 2]]) {
+      const [wx, wz] = toWorld(lx, lz);
+      if (fp.query(wx, wz, 2).some((it) => /^(rings-mole|bridge-mole)/.test(String(it.tag)))) return true;
+    }
+    return false;
+  };
   // terrace bands: [px0, px1, top row, depth]
   const TER = [[690, 1700, 262, 150], [800, 1700, 218, 162], [930, 1700, 178, 174], [1060, 1640, 142, 186]];  // tops clear the l1 curtain wall (row ≈ 200-260)
   const items = [];
+  // r6: each terrace is a row of building fronts, not a flat wall: a podium storey with a red course and a row of dark
+  //     arched windows, then a set-back colonnade storey (piers in front of a dark loggia) under an entablature; ruined
+  //     stretches lose the upper storey. Pieces that would stand on the shed mole / its bridge (≈ 125, 27, 214 — seen
+  //     from the shot-4 / aerial paths) are skipped.
   for (const [a, b, row, d] of TER) {
     const pa = F.at(a, 470, d), pb = F.at(b, 470, d), pc = F.at((a + b) / 2, 470, d);
     const yT = top((a + b) / 2, row, d), yB = base(pc.x, pc.z);
     const la = toLocal(pa), lb = toLocal(pb);
-    const x0 = Math.min(la[0], lb[0]), x1 = Math.max(la[0], lb[0]), z0 = la[2] - 7, z1 = la[2] + 3;
-    // the wall in stretches of unequal height (ruined crest), white with red courses, dark openings
+    const x0 = Math.min(la[0], lb[0]), x1 = Math.max(la[0], lb[0]);
     for (let x = x0; x < x1; x += rng.range(7, 13)) {
       const xe = Math.min(x1, x + rng.range(7, 13)), h = yT - rng.range(0, 2.5);
-      box(mw, [x, yB, z0], [xe, h, z1], 0.05, aux);
-      for (let y = yB + 4; y < h - 1; y += rng.range(3.5, 5)) box(mr, [x - 0.05, y, z1 - 0.02], [xe + 0.05, y + 0.6, z1 + 0.06], 0, [0.1, 0.4, 0.4, 0]);
-      if (rng.random() < 0.6) { const wx = (x + xe) / 2; box(mi, [wx - 0.8, h - 5, z1], [wx + 0.8, h - 1.8, z1 + 0.04], 0, [0.9, 0, 0, 0]); }
-      items.push([(x + xe) / 2, h, (z0 + z1) / 2, xe - x]);
+      const set = rng.range(-1.5, 1.5), z0 = la[2] - 7 + set, z1 = la[2] + 3 + set;
+      const ruin = rng.random() < 0.3;
+      if (blocked(x, xe, z0, z1)) { rng.random(); continue; }
+      const hp = ruin ? h - rng.range(0, 2) : yB + (h - yB) * rng.range(0.5, 0.62);
+      box(mw, [x, yB, z0], [xe, hp, z1], 0.05, aux);
+      for (let y = yB + 4; y < hp - 3; y += rng.range(4, 5.5)) box(mr, [x - 0.05, y, z1 - 0.02], [xe + 0.05, y + 0.6, z1 + 0.06], 0, [0.1, 0.4, 0.4, 0]);
+      box(mr, [x - 0.08, hp - 0.9, z1 - 0.02], [xe + 0.08, hp - 0.2, z1 + 0.1], 0, [0.1, 0.4, 0.4, 0]);
+      // windows: one or two rows, ≈ 3 m pitch
+      const nw = Math.max(1, Math.floor((xe - x) / 3.1)), pw = (xe - x) / nw;
+      for (const yw of (hp - yB > 13 ? [hp - 4.6, hp - 10] : [hp - 4.6])) {
+        if (yw < yB + 1.5) continue;
+        for (let k = 0; k < nw; k++) { if (rng.random() < 0.15) continue; const wx = x + (k + 0.5) * pw; box(mi, [wx - 0.65, yw, z1], [wx + 0.65, yw + 2.6, z1 + 0.05], 0, [0.9, 0, 0, 0]); }
+      }
+      if (!ruin && h - hp > 3) {
+        const zb = z1 - 1.6, he = h - 1.1;
+        box(mi, [x + 0.2, hp, z0 + 0.5], [xe - 0.2, he, zb - 0.3], 0, [0.9, 0, 0, 0]);          // dark loggia behind the piers
+        const np = Math.max(2, Math.round((xe - x) / 2.6));
+        for (let k = 0; k <= np; k++) { const px = x + 0.45 + (k / np) * (xe - x - 0.9); box(mw, [px - 0.42, hp, zb - 0.6], [px + 0.42, he, zb + 0.1], 0.04, aux); }
+        box(mw, [x - 0.15, he, z0], [xe + 0.15, h + 0.3, zb + 0.35], 0.04, [0.1, 0.8, 0.4, 0]);    // entablature / cornice
+        box(mr, [x - 0.17, he + 0.25, zb + 0.3], [xe + 0.17, he + 0.75, zb + 0.4], 0, [0.1, 0.4, 0.4, 0]);
+      }
+      items.push([(x + xe) / 2, ruin ? hp : h + 0.3, (z0 + z1) / 2, xe - x]);
     }
   }
   // houses / blocks on the terrace crests
@@ -187,14 +220,20 @@ function farCity8(engine, F, G, det) {
     if (rng.random() < 0.35) continue;
     const bw = Math.min(w * 0.8, rng.range(4, 8)), bh = rng.range(3, 8), bd = rng.range(4, 7);
     const ox = cx + rng.range(-1, 1) * (w - bw) * 0.4, oz = cz - rng.range(2, 6);
+    if (blocked(ox - bw / 2, ox + bw / 2, oz - bd / 2, oz + bd / 2)) continue;
     box(mw, [ox - bw / 2, h - 0.5, oz - bd / 2], [ox + bw / 2, h + bh, oz + bd / 2], 0.05, aux);
     box(mi, [ox - 0.6, h + bh * 0.4, oz + bd / 2], [ox + 0.6, h + bh * 0.4 + 1.8, oz + bd / 2 + 0.04], 0, [0.9, 0, 0, 0]);
     if (rng.random() < 0.2) { mg.push(); mg.translate(ox, h + bh, oz); ellipsoid(mg, bw * 0.38, bw * 0.34, bw * 0.38, 14, 8); mg.pop(); }
   }
   // tall towers: [px, top row, depth, width]
   const TW = [[875, 72, 158, 6.5], [1440, 58, 176, 7], [1330, 110, 150, 6], [1010, 118, 140, 5]];
-  for (const [px, row, d, w] of TW) {
-    const p = F.at(px, 470, d), l = toLocal(p), yT = top(px, row, d), yB = base(p.x, p.z), hw = w / 2;
+  for (const [px, row, d0, w] of TW) {
+    // r6: a tower that would stand on the shed mole / its bridge moves further back (same screen column)
+    const hw = w / 2;
+    let d = d0, p = null, l = null;
+    for (const dd of [0, 14, 28, 42]) { const c = F.at(px, 470, d0 + dd), lc = toLocal(c); if (!blocked(lc[0] - hw, lc[0] + hw, lc[2] - hw, lc[2] + hw)) { d = d0 + dd; p = c; l = lc; break; } }
+    if (!p) continue;
+    const yT = top(px, row, d), yB = base(p.x, p.z);
     const ht = yT - 6;   // shaft top (the tholos-like crown above)
     box(mw, [l[0] - hw, yB, l[2] - hw], [l[0] + hw, ht, l[2] + hw], 0.05, aux);
     for (let y = yB + 5; y < ht - 1; y += 3.4) box(mr, [l[0] - hw - 0.06, y, l[2] - hw - 0.06], [l[0] + hw + 0.06, y + 0.7, l[2] + hw + 0.06], 0, [0.1, 0.4, 0.4, 0]);

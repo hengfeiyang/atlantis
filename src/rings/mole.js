@@ -50,6 +50,17 @@ export function lineEdge(A, B, w, o) {
   return e;
 }
 
+// r6: per-bay table, k = 0 nearest the shot-4 camera (south) → 5 at the tunnel block. pier = ornament on the pier north
+// of the bay; ivy 0-1 (< 0.3 none, > 0.7 + a curtain over the crown); shrub = crest bushes at u / halfDeg
+const MOLE_BAYS = [
+  { clear: 10.4, crown: 9.8, arch: 'gilt', pier: 'banner', lampN: 4, lampGain: 1.15, ribs: true, lanterns: true, ivy: 0.85, shrub: [-0.5], tint: [1.0, 0.96, 0.9] },
+  { clear: 9.5, crown: 9.0, arch: 'rustic', pier: 'spout', lampN: 3, lampGain: 0.85, ribs: false, lanterns: false, ivy: 0.2, shrub: [0.3, -0.7], tint: [0.9, 0.88, 0.86] },
+  { clear: 10.6, crown: 10.2, arch: 'banded', pier: 'banner', lampN: 4, lampGain: 1.45, ribs: true, lanterns: true, ivy: 0.5, bannerLong: true, tint: [1.05, 0.98, 0.9] },
+  { clear: 9.2, crown: 8.8, arch: 'plain', pier: 'niche', lampN: 2, lampGain: 1.7, ribs: false, lanterns: true, ivy: 0.92, gate: 'closed', shrub: [0.6], tint: [0.95, 0.9, 0.84] },
+  { clear: 10.1, crown: 9.5, arch: 'banded', pier: 'lamp', lampN: 3, lampGain: 1.05, ribs: true, lanterns: false, ivy: 0.4, shrub: [-0.2], tint: [1.0, 0.97, 0.93] },
+  { clear: 10.6, crown: 10.0, arch: 'gilt', pier: 'banner', lampN: 4, lampGain: 1.3, ribs: false, lanterns: true, ivy: 0.75, tint: [1.04, 0.97, 0.88] },
+];
+
 let PLAN = null;
 /** the mole plan (memoised): { spec, frame, edges, sheds, towers, poly, l1Cut(b), gate, bridge, tunnel, top } */
 export function molePlan() {
@@ -62,7 +73,7 @@ export function molePlan() {
   const sBack = -M.back, sEnd = M.front, latF = M.depth, latE = M.depth + M.width;
   const common = { landY: M.landY, floor: w1.floor };
   const west = lineEdge(P(sBack, latF), P(sEnd, latF), [-n[0], -n[1]], { ...common, id: 'mole-w', wallH: M.wallH, cladding: 'tin', curtain: true });
-  west.shedDepth = M.depth; west.rockAmp = 0.42; west.cragScale = 1.7;   // r4: big flat-faced masses (shot 4 leopard spots)
+  west.shedDepth = M.depth; west.rockAmp = 0.62; west.cragScale = 1.5;   // r6: 0.42 → 0.62 (ref 4 crags read; r5 looked like plaster)   // r4: big flat-faced masses (shot 4 leopard spots)
   west.shedLamps = [M.depth - 2.5, M.depth - 9, M.depth - 16, M.depth - 24]; west.lampGain = 1.5;   // r3: golden vault glow (ref 4)
   // r5: the r3 `west.shedBack = M.shedBack || 32` had slipped into the comment above, so the mole vaults have always been
   // built SHED.back = 22 m deep (what every shot since r3 shows). Decision: keep 22 (a 32 m vault would end 2 m from the
@@ -85,6 +96,10 @@ export function molePlan() {
     const sh = { edge: 'mole-w', ring: 'mole', index: k, group: 0, bearing: b, faceR: west.faceR, frontR: west.faceR + M.depth, halfDeg,
       pos: [fx, 0, fz], back: [bx, 0, bz], facing: west.facingAt(), width: 10.5, crown: 9.6, depth: M.depth, length: M.depth + west.shedBack, slot: 'trireme', landY: M.landY, mole: true };
     sh.ship = !cam4 || Math.hypot(fx - cam4[0], fz - cam4[1]) > (L.SHED_MOLE.shipClear.r || 28);
+    // r6 (shot 4 "treadmill"): hand-set per-bay variety (clear width / crown / archivolt / pier ornament / lamps / ivy / gate)
+    const v = MOLE_BAYS[k % MOLE_BAYS.length];
+    sh.clear = v.clear; sh.crown = v.crown; sh.width = v.clear; sh.style = v;
+    if (v.gate === 'closed') sh.ship = false;
     sheds.push(sh);
   }
   const bS0 = west.bAt(tAlongW(s0)), bS1 = west.bAt(tAlongW(s1));

@@ -274,9 +274,11 @@ float aa = max(fwidth(u), fwidth(v)) + 0.003;
 float sdet = 1.0 - smoothstep(0.02, 0.08, aa);
 float weave = 0.95 + 0.05 * mix(0.5, cgVnoise2(vec2(u, v) * 22.0 + s * 30.0), sdet) + 0.06 * (cgVnoise2(vec2(u * 0.7, v * 0.5) + s * 9.0) - 0.5);
 // sewn cloths (vertical panels ~0.6 m) and the horizontal rows of brail rings
-float panel = 1.0 - 0.10 * (1.0 - smoothstep(0.0, 0.012 + aa, abs(fract(u / 0.6) - 0.5) * 0.6 - 0.288));
+float panel = mix(0.985, 1.0 - 0.10 * (1.0 - smoothstep(0.0, 0.012 + aa, abs(fract(u / 0.6) - 0.5) * 0.6 - 0.288)), 1.0 - smoothstep(0.01, 0.05, aa));
 float brailX = abs(fract(u / (W / 9.0)) - 0.5) * (W / 9.0);
-float brail = 1.0 - 0.45 * (1.0 - smoothstep(0.012, 0.03 + aa, brailX)) * step(0.15, v);
+// r6: brail lines ≈ 6 cm (line + its shadow), energy-conserving when sub-pixel (no aliasing into stripes far away)
+float bwe = max(0.06, aa * 1.3);
+float brail = 1.0 - 0.5 * (1.0 - smoothstep(bwe * 0.45, bwe, brailX)) * (0.06 / bwe) * step(0.15, v);
 float rings = 1.0 - 0.35 * (1.0 - smoothstep(0.03, 0.05 + aa, length(vec2(brailX, abs(fract(v / 0.75) - 0.5) * 0.75)))) ;
 vec3 lin = vec3(0.72, 0.62, 0.46) * (0.93 + 0.1 * fract(s * 11.3));
 vec3 c = lin * weave * panel;
@@ -289,12 +291,12 @@ if (kind == 0 || kind == 4 || kind == 5) {
   vec2 p = vec2((u - W * 0.5) / (H * 0.42), (H * 0.47 - v) / (H * 0.42));
   float d = tridentSD(p) * H * 0.42;
   float m = 1.0 - smoothstep(-aa, aa, d);
-  c = mix(c, vec3(0.022, 0.06, 0.26) * (0.9 + 0.2 * weave), m * 0.96);
+  c = mix(c, vec3(0.016, 0.065, 0.34) * (0.9 + 0.2 * weave), m * 0.96);   // r6: royal navy (ref 2), was 0.022, 0.06, 0.26
 }
 // grime toward the foot, weathered patches
 c *= 1.0 - 0.16 * smoothstep(0.55, 1.0, v / max(H, 1.0)) * cgVnoise2(vec2(u * 0.6, v * 0.4) + s);
 c *= 1.0 - step(0.9, cgHash12(floor(vec2(u / 0.6, v / 1.3)) + s * 7.0)) * 0.035 * sdet;
-c *= mix(1.0, brail, 0.4 + 0.6 * sdet) * mix(1.0, rings, sdet);
+c *= brail * mix(1.0, rings, sdet);
 diffuseColor.rgb = c;
 `;
 // light transmitted through the cloth when the sun is behind it (seen from the camera side)
@@ -305,7 +307,12 @@ const SAIL_EMISSIVE = /* glsl */ `
   float back = dot(n, uSunDir) * dot(n, cgV);
   float tr = smoothstep(0.0, -0.45, back);
   float k = int(vSail.w + 0.5) == 3 ? 0.4 : 0.85;
-  totalEmissiveRadiance += diffuseColor.rgb * uSunColor * tr * k * 1.8 * max(uSunDir.y + 0.15, 0.0) * 2.5;
+  // r6: the glow follows the belly (cloth square to the sun transmits more) and the doubled seams / brails / emblem
+  //     read darker against the light (the backlit sails were flat glowing boards in shots 1, 2, 5)
+  float nl = abs(dot(n, uSunDir));
+  vec3 dc = diffuseColor.rgb;
+  vec3 tcol = dc * clamp(0.45 + 0.55 * dot(dc, vec3(0.333)) / 0.6, 0.0, 1.3);
+  totalEmissiveRadiance += tcol * uSunColor * tr * k * (0.45 + 0.8 * nl) * 1.8 * max(uSunDir.y + 0.15, 0.0) * 2.5;
   if (int(vSail.w + 0.5) == 5) totalEmissiveRadiance += diffuseColor.rgb * vec3(1.0, 0.62, 0.32) * 0.45;   // lamp-lit inside the ship-sheds
 }
 #endif

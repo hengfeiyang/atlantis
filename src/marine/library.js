@@ -81,7 +81,7 @@ export class ReefLibrary {
     const s = Array.isArray(scale) ? new V(...scale) : new V(scale, scale, scale);
     const m = new THREE.Matrix4().compose(p, q, s);
     const col = rgb || this.pal(species, rng);
-    this._pool(lo === 'mid' ? species + ':mid' : lo ? species + ':lo' : species).items.push([m, col, v, this.w ?? 1]);
+    this._pool(lo === 'mid' ? species + ':mid' : lo ? species + ':lo' : species).items.push([m, col, v, this.w ?? 1, this.tag || '']);   // r6: [4] = placement tag (path clearance post-filter)
     return true;
   }
   count() { let n = 0; for (const P of this.pools.values()) n += P.items.length; return n; }

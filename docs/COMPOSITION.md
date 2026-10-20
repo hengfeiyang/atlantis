@@ -242,3 +242,33 @@ t = 30.8 s); shot 6 reaches its still at u = 0.5. Still visible: shot-1 fleet wa
 ships/water; shot 3/6 the ref-3 right pier passes the bottom-right corner (ref has it too); shot 4 reads as a treadmill (shed bays
 repeat; parallax only from the hill); shot 7 kelp at the left edge in the second half.
 High stills r5: out/director/r5/final_s1-9.png (+ _cmp), montage final_all.jpg — 9/9 rendered, no errors.
+
+### Round 6 (director) — render plan, tooling, music, motion (work in out/director/r6/)
+
+**C1 tooling (tools/render-video.mjs):** `--spp-seg "1:32,9:32"` per-segment spp; `--frames a-b` timing window; `--no-encode`;
+frames written atomically (tmp + rename) and checked for a complete PNG (IEND) on resume; each segment's intermediate
+(`partNN.mp4`, x264 CRF 10 yuv444p) is encoded in the BACKGROUND when its last frame lands and recorded in
+`partNN.done.json` (frames, size, spp, bytes) → completed segments are skipped on resume; `--prune-frames` deletes a
+segment's PNGs after its part is verified (ffprobe frame count) — needed: 4K PNG ≈ 20 MB × 1890 = 38 GB, the disk had 41 GB
+free; disk warning at start. **ffmpeg here has no drawtext** (the old `--title/--credit` path would have crashed the encode):
+text cards are now PNGs rendered by headless Chrome and concatenated after the picture fade-out; `--credit "a|b"` or
+`--credit-file audio/CREDITS.txt`. Music: `--music` must exist (exit 2 otherwise), `--music-start/--music-fade-in/--music-fade`,
+apad if short, two-pass LINEAR loudness (measured → `--lufs` -16) + -2.5 dBFS limiter (single-pass loudnorm had squashed
+LRA 15 → 5.5 LU, flattening the triumphant ending).
+**C2 4K timing (M3 Ultra, 3840x2160, 16 spp, 5 other GPU sessions open):** shot 1 2.8 s/frame, 4 2.0, 6 3.0, 9 4.0 → plan
+24 spp ≈ 2.3 h for 1890 frames (docs/RENDER.md). Full 4K encode path (9 parts + dissolves + card + music + 1080p) tested: 5 min.
+**C3 music:** "Long Road Ahead" (Kevin MacLeod, CC BY 4.0) from 53.5 s: shot-3 cut on a phrase dip (78.3), the era dissolve on
+the section boundary at 83 s (the phrase dies away as the city sinks), shot 8 on the 95.5 boundary, the triumphant final section
+swells in exactly as shot 9 (split level, sunset) completes its dissolve (film 48.0 s), picture ends on the bar at 108.75,
+fade over the 4 s credit card. Analysis script `out/director/r6/music_analyse.py`.
+**C4 shot 5 move:** `truck -1.8, pan 1.6` → `truck -0.45, pan 3.0, dolly 0.4` (range [0, 1] kept, opens on the ref-5 framing): the
+r5 truck ended with two bougainvillea columns covering the left 40 % of the frame; dolly-in variants pushed the bronze urn into the
+lens. Path stays inside the r5 envelope (vegetation/props clearance unaffected).
+Tools: `out/director/r6/vframe.mjs` (render any video frame in a running session with a temporary move override),
+`out/director/r6/popscan.py` (per-segment consecutive-frame difference spikes = pops).
+**C5 motion preview r6** (rendered 00:44 after the last world change; 640x360, 2 spp): `out/video_preview/atlantis_preview_music.mp4`
+(59.4 s, music + credit card) and silent `atlantis_640x360.mp4` (55.4 s; r5 kept as `atlantis_r5_640x360.mp4`). Pop scan: no spikes in
+any segment; 3 → 6 dissolve still pixel-aligned (t = 30.8 s); shot 5 now calm; shot 4 shed bays vary (arch-a). Still visible: shot 7 two
+kelp stalks sweep from centre-right to the right edge during the dolly (parallax, sunken's placement — ref 7 has kelp framing both
+sides; dolly kept at 5 m); shot 6 opens with the broken stair-head pier at the bottom right (ref 3/6 have it). Disk: the shared volume
+fell to 3 GB free during the round (other projects' /private/tmp) → RENDER.md `--prune-frames` + the `--min-free` pause.

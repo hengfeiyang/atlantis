@@ -44,6 +44,14 @@ export async function build(engine) {
       engine.add(bg);
       console.log(`[sets] shot-8 backdrop (arcade + towers): ${Math.round(performance.now() - tb)} ms, ${(tris(bg) / 1e6).toFixed(2)} M tris`);
     } catch (e) { console.error('[sets] backdrop8 failed', e.stack || e); }
+    // r6 (sunken): shot-6 far city (towers + gilded tholoi, rotunda, two-tier arcade beyond the plateau) — sets/backdrop6.js
+    const t6 = performance.now();
+    try {
+      const { buildBackdrop6 } = await import('../sets/backdrop6.js');
+      const { group: bg6, towers } = buildBackdrop6(engine, G, q);
+      engine.add(bg6);
+      console.log(`[sets] shot-6 far city: ${Math.round(performance.now() - t6)} ms, ${(tris(bg6) / 1e6).toFixed(2)} M tris, ${towers} towers`);
+    } catch (e) { console.error('[sets] backdrop6 failed', e.stack || e); }
     // r4 (sunken): ruined precinct on the plateau rim (shots 6, 9) — src/sets/precinct.js
     const tp = performance.now();
     try {

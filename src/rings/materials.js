@@ -136,7 +136,7 @@ function interiorMaterial() {
     uniforms: { uGlow: { value: new THREE.Color(1.0, 0.55, 0.22).multiplyScalar(2.4) } },
     vertexHead: 'attribute vec4 aux; varying vec4 vInAux;', vertexPre: 'vInAux = aux;',
     head: 'varying vec4 vInAux; uniform vec3 uGlow;',
-    color: `diffuseColor.rgb *= vec3(0.50, 0.45, 0.38) * (0.8 + 0.35 * cgFbm3(cgP * 0.8, 3));`,
+    color: `diffuseColor.rgb *= vec3(0.40, 0.335, 0.27) * (0.8 + 0.35 * cgFbm3(cgP * 0.8, 3));`,   // r6: darker (shot 4: the low sun lit the vaults flat beige)
     emissive: `totalEmissiveRadiance += diffuseColor.rgb * uGlow * clamp(vInAux.z, 0.0, 2.0);`,
     ao: `cgAO = 1.0 - 0.7 * clamp(vInAux.x, 0.0, 1.0);`,
   });

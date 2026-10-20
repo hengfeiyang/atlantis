@@ -115,6 +115,16 @@ export function kraterGeometry(detail = 1) {
   return revolve(prof, detail >= 0.9 ? 64 : 40, (phi, y) => (y > 0.3 && y < 0.62 ? 0.008 * Math.cos(phi * 24) : 0));
 }
 
+/** r6 (ref 5): domed lid with a knob finial for an unplanted urn (balustrade-pier finial vases). Unit urn height,
+ *  base at the urn rim (y = 0), rim radius 0.66 (matches urnGeometry). */
+export function lidGeometry(detail = 1) {
+  const prof = smooth([
+    [0.0, -0.02], [0.6, -0.02], [0.665, 0.0], [0.66, 0.03], [0.58, 0.06], [0.5, 0.1], [0.38, 0.17], [0.22, 0.23], [0.12, 0.26],
+    [0.09, 0.29], [0.14, 0.33], [0.16, 0.38], [0.12, 0.43], [0.06, 0.47], [0.07, 0.5], [0.03, 0.54], [0.0, 0.55],
+  ], detail >= 0.9 ? 48 : 22);
+  return revolve(prof, detail >= 0.9 ? 48 : 18, detail >= 0.9 ? (phi, y) => (y > 0.07 && y < 0.2 ? 0.012 * Math.cos(phi * 16) : 0) : null);
+}
+
 /** Rectangular marble trough, unit length 1 along X, depth 0.36, height 0.45. */
 export function troughGeometry() {
   const parts = [];
@@ -353,11 +363,14 @@ export class UrnSet {
     const plants = [1, 2, 3].map((sd) => plantGeometry({ r: 0.5, h: 0.62, leaves: Math.round(2600 * Math.max(0.75, k)), flowers: Math.round(230 * Math.max(0.75, k)), spikes: 0, seed: sd }));
     const plantsLo = [1, 2, 3].map((sd) => plantGeometry({ r: 0.5, h: 0.62, leaves: 700, flowers: 90, spikes: 0, seed: sd + 10 }));
     const plantsVlo = [1, 2, 3].map((sd) => plantGeometry({ r: 0.5, h: 0.62, leaves: 110, flowers: 26, spikes: 0, seed: sd + 20 }));
+    // r6: leaves-only mound (under lotus flowers in a lotus urn, ref 5); lids for unplanted finial urns
+    const leafPlant = [plantGeometry({ r: 0.5, h: 0.55, leaves: Math.round(2200 * Math.max(0.75, k)), flowers: 0, spikes: 0, seed: 31 }), plantGeometry({ r: 0.5, h: 0.55, leaves: 600, flowers: 0, spikes: 0, seed: 32 })];
+    const lidGeo = [lidGeometry(this.detail), lidGeometry(0.3)];
     // antique gilt bronze: darker, more mirror-like (the refs' urns reflect their dark surroundings)
     const gold = bronzeMaterial({ name: 'urnBronze2', tint: 0xb48a50, rough: 0.3, patina: 0.32, metal: 1.0, envBoost: 0.85 });
     const marble = propMarbleMaterial();
     const plantMat = plantMaterial();
-    const lists = { urn: [[], [], []], krater: [[], [], []], trough: [], plant: [[], [], []], plantLo: [[], [], []], plantVlo: [[], [], []] };
+    const lists = { urn: [[], [], []], krater: [[], [], []], trough: [], plant: [[], [], []], plantLo: [[], [], []], plantVlo: [[], [], []], leaf: [[], []], lid: [[], []] };
     const _pv = new THREE.Vector3();
     const pushPlant = (m, i) => {
       _pv.setFromMatrixPosition(m);
@@ -415,6 +428,18 @@ export class UrnSet {
       const rimR = (kind === 'krater' ? 0.55 : 0.6) * H * wd;
       // rim / soil point for other plant systems (lotus, bougainvillea) — see src/modules/props.js
       it.rim = { pos: [it.pos[0], it.pos[1] + H * sq * 0.9, it.pos[2]], r: rimR * 0.9, top: it.pos[1] + H * sq };
+      if (it.lid) {
+        P.set(it.pos[0], it.pos[1] + H * sq * 0.985, it.pos[2]); S.set(H * wd, H * Math.min(1, sq * 1.25), H * wd); M.compose(P, Q, S);
+        lists.lid[lodOf(it.pos) > 0 ? 1 : 0].push(M.clone());
+      }
+      if (it.foliage) {
+        const d = this.engine.__propsTest ? 0 : camDist(...it.pos);
+        if (d < 250) {
+          const sc = (rimR / 0.5) * 0.98 * (it.plantScale ?? 1);
+          M.compose(new THREE.Vector3(it.pos[0], it.pos[1] + H * sq * 0.86, it.pos[2]), new THREE.Quaternion().setFromAxisAngle(Y, r01(7) * 6.28), new THREE.Vector3(sc, sc * 0.8, sc));
+          lists.leaf[d < PLANT_LOD_DIST ? 0 : 1].push(M.clone());
+        }
+      }
       if (it.plant && it.plant !== 'flowers') continue;
       const pp = new THREE.Vector3(it.pos[0], it.pos[1] + H * sq * 0.9, it.pos[2]);
       const sc = rimR / 0.5 * (1.0 + 0.15 * r01(3)) * (it.plantScale ?? 1);
@@ -435,6 +460,8 @@ export class UrnSet {
     plants.forEach((g, i) => mk(g, plantMat, lists.plant[i], 'urnPlants' + i));
     plantsLo.forEach((g, i) => mk(g, plantMat, lists.plantLo[i], 'urnPlantsLo' + i));
     plantsVlo.forEach((g, i) => mk(g, plantMat, lists.plantVlo[i], 'urnPlantsVlo' + i, false));
+    leafPlant.forEach((g, i) => mk(g, plantMat, lists.leaf[i], 'urnFoliage' + i));
+    lidGeo.forEach((g, i) => mk(g, gold, lists.lid[i], 'urnLids' + i));
     this.engine.add(group);
     this.group = group;
     return group;

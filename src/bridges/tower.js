@@ -171,8 +171,9 @@ export function gateTower(kit, o) {
     if (!kit.sunken && o.bannerFaces && o.bannerFaces.includes(F.id)) {
       const [bx, bz] = F.map(0, -ins + 0.06);
       // r3: o.bannerBig (gate bridge, ref 2: the banners are wide and long on the tower faces)
-      const bw = o.bannerBig ? Math.min(4.8, (cB - cA) * 0.82) : Math.min(3.4, (cB - cA) * 0.62);
-      const bh = Math.min((yF - 0.6) - (P && isGate ? yDeck + P.h + 0.8 : yS0 + 1.0), bw * (o.bannerBig ? 4.2 : 3.4));
+      const bw = o.midCornice ? Math.min(3.7, (cB - cA) * 0.64) : o.bannerBig ? Math.min(4.8, (cB - cA) * 0.82) : Math.min(3.4, (cB - cA) * 0.62);   // r6: slimmer in the upper stage (ref 2 proportions)
+      const bot = o.midCornice ? yMid + 1.2 : P && isGate ? yDeck + P.h + 0.8 : yS0 + 1.0;   // r6: upper stage only above a mid cornice (ref 2)
+      const bh = Math.min((yF - 0.6) - bot, bw * (o.bannerBig ? 4.2 : 3.4));
       if (bh > 2) kit.slots.banner.push({ pos: kit.W(bx, yF - 0.55, bz), facing: kit.compass(F.nrm[0], F.nrm[1]), size: [bw, bh], tag: 'wall', style: bh > 7.6 ? 'L' : 'V', source: 'bridges-' + (o.tag || 'tower') });
     }
     // plinth moulding at the shaft base (all faces)
@@ -184,6 +185,25 @@ export function gateTower(kit, o) {
       kit.coralAt(qx, yS0 + 0.05, qz, F.nrm[0], 1, F.nrm[1], 0.5, 'tower-plinth');
       for (const s of [-1, 1]) { const [mx, mz] = F.map(s * (hL - cp - sb * 0.5), -0.02); kit.coralAt(mx, yMid + 0.13, mz, F.nrm[0], 0.7, F.nrm[1], 0.4, 'tower-course'); }
     }
+  }
+  // r6 (refs 2 / 7): a projecting mid cornice between the gilt-panel stage and the banded upper stage, gilt band under it,
+  // engaged corner pedestals with tall gold urn finials (golden) / statues (sunken) — a second silhouette level
+  if (o.midCornice) {
+    const mh = Math.max(0.7, Lmin * 0.05), mp = Math.max(0.45, Lmin * 0.034), y0 = yMid - mh * 0.45;
+    corniceRect(w, x0, x1, z0, z1, y0, mh, mp);
+    boxA(gl, x0 - 0.05, y0 - 0.32, z0 - 0.05, x1 + 0.05, y0, z1 + 0.05, [0.3, 0, 0, 0]);
+    const pw2 = Math.max(1.0, Lmin * 0.07), ph2 = Math.max(1.1, Lmin * 0.07), yP = y0 + mh;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const px = sx > 0 ? x1 + mp * 0.3 : x0 - mp * 0.3, pz = sz > 0 ? z1 + mp * 0.3 : z0 - mp * 0.3;   // centred on the corner (half overhangs the shaft)
+      boxA(w, px - pw2 / 2, yP, pz - pw2 / 2, px + pw2 / 2, yP + ph2, pz + pw2 / 2, AUX.mould, 0.03);
+      boxA(w, px - pw2 / 2 - 0.08, yP + ph2, pz - pw2 / 2 - 0.08, px + pw2 / 2 + 0.08, yP + ph2 + 0.14, pz + pw2 / 2 + 0.08, AUX.mould, 0.02);
+      boxA(gl, px - pw2 * 0.32, yP + ph2 * 0.3, sz > 0 ? pz + pw2 / 2 : pz - pw2 / 2 - 0.04, px + pw2 * 0.32, yP + ph2 * 0.72, sz > 0 ? pz + pw2 / 2 + 0.04 : pz - pw2 / 2, [0.3, 0, 0, 0]);
+      const yU = yP + ph2 + 0.14;
+      // (sunken: the urns stay, dulled gold + coral — statue slots there are culled / toppled by index in statues.js)
+      if (!(kit.sunken && hash3(seed, sx + 7, sz + 11) < 0.25)) urnFinial(g, px, yU, pz, Math.max(1.5, Lmin * 0.12), Math.max(8, Math.round(14 * kit.detail)));
+      if (kit.sunken) kit.coralAt(px, yU, pz, 0, 1, 0, 0.55, 'tower-mid-corner');
+    }
+    if (kit.sunken) for (const F of faces) for (const s2 of [-0.3, 0.25]) { const [mx, mz] = F.map(s2 * F.L, mp * 0.5); kit.coralAt(mx, y0 + mh, mz, F.nrm[0] * 0.4, 1, F.nrm[1] * 0.4, 0.7, 'tower-mid-cornice'); }
   }
   // ---------------------------------------------------------------- cornice, roof, acroteria
   corniceRect(w, x0, x1, z0, z1, yC, corH, Math.max(0.35, Lmin * 0.035));

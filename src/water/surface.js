@@ -30,6 +30,7 @@ uniform sampler2D tHFar; uniform vec4 uHFarB;
 uniform sampler2D tSNear; uniform sampler2D tSFar;   // distance to land (m), same bounds as the height maps
 uniform float uLevel;
 uniform vec3 uAbsorb;
+uniform float uCanalRingC;   // r6: same as the surface's uCanalRing (shared by the absorb pass)
 uniform vec4 uSea;       // x: r0 open sea starts, y: r1 full open sea, z: canal half width shelter, w: canal end z
 uniform float uSeaDeep;   // r4: optical-depth gain of the open sea (its shelf bed read azure through 10-15 m of clear water; ref 1 sea is navy)
 uniform vec4 uSeaSector; // r4: x,y: z/r ramp of the open south sector (beyond land ring 2), z,w: radial ramp of the far sea everywhere
@@ -62,12 +63,16 @@ float wSeaK(vec2 xz){
   float canal = 1.0 - smoothstep(0.0, 150.0, length(vec2(max(abs(xz.x) - uSea.z * 0.7, 0.0), max(xz.y - uSea.w, 0.0))));
   return k * (1.0 - 0.6 * canal);
 }
+// r6: the sea canal between the moles / through land ring 2 (the shot-2 camera at z 846 stood in "open sea" water)
+float wCanalMaskE(vec2 xz){
+  return (1.0 - smoothstep(uSea.z * 0.5, uSea.z * 0.5 + 18.0, abs(xz.x))) * (1.0 - smoothstep(uSea.w - 70.0, uSea.w + 10.0, xz.y));
+}
 // r5: open-sea factor for the COLOUR of the water (body, sky tint, optical depth): no canal shelter (ref 1: the water
 // between the moles is the same navy as the sea) and a short ramp off land ring 2
 float wSeaC(vec2 xz){
   float r = length(xz);
   float sec = smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0));
-  return max(sec * smoothstep(uSea.x - 16.0, uSea.x + 6.0, r), smoothstep(uSeaSector.z, uSeaSector.w, r));
+  return max(sec * smoothstep(uSea.x - 16.0, uSea.x + 6.0, r), smoothstep(uSeaSector.z, uSeaSector.w, r)) * (1.0 - uCanalRingC * wCanalMaskE(xz));
 }
 // r5: the sea canal south of the gate bridge takes the sea's colour gradually (shot 1: the cut through land ring 2 read as
 // a bright-cyan strip ending in a hard line at the wall)
@@ -78,7 +83,7 @@ float wCanalSea(vec2 xz){
 // r4: 1 outside land ring 2 in the open south sector (incl. the sheltered canal mouth between the moles), 0 in the rings
 float wOutK(vec2 xz){
   float r = length(xz);
-  return max(smoothstep(uSeaSector.z, uSeaSector.w, r), smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0)) * smoothstep(uSea.x - 16.0, uSea.x + 6.0, r));   // r5: 820-856 → 810-832 (cyan band at the l2 wall foot)
+  return max(smoothstep(uSeaSector.z, uSeaSector.w, r), smoothstep(uSeaSector.x, uSeaSector.y, xz.y / max(r, 1.0)) * smoothstep(uSea.x - 16.0, uSea.x + 6.0, r)) * (1.0 - uCanalRingC * wCanalMaskE(xz));   // r5: 820-856 → 810-832 (cyan band at the l2 wall foot)
 }
 vec3 wBedTransmittance(float depth, float cv, float ls){
   float ct = sqrt(max(0.0, 1.0 - (1.0 - cv * cv) / 1.777));
@@ -98,7 +103,10 @@ uniform float uTime;
 uniform sampler2D tRefl; uniform sampler2D tReflDepth;
 uniform mat4 uReflMatrix; uniform mat4 uReflInvVP; uniform float uReflOn; uniform float uReflPix; uniform vec2 uReflSize;
 uniform vec4 uImp[${MAX_IMPACTS}]; uniform vec4 uImpB[${MAX_IMPACTS}]; uniform int uImpN;
-uniform vec4 uWakeA[${MAX_WAKES}]; uniform vec4 uWakeB[${MAX_WAKES}]; uniform int uWakeN;
+uniform vec4 uWakeA[${MAX_WAKES}]; uniform vec4 uWakeB[${MAX_WAKES}]; uniform vec4 uWakeC[${MAX_WAKES}]; uniform int uWakeN;
+uniform vec4 uWakeShape;    // r6: x far-line gain, y Kelvin-arm reach (hull lengths, broken wakes), z far-arm gain, w unused
+uniform vec4 uSunSide;      // r6: sun-side sky-reflection tint (rgb) + weight (w): the open sea mirrors the warm low sky toward the sun (ref 1)
+uniform float uSunSideK;    // r6: azimuthal sharpness of that tint
 uniform vec3 uScatter;      // ring / canal body (turquoise)
 uniform vec3 uScatterSea;   // open sea body (cobalt)
 uniform vec3 uFoamCol;
@@ -181,6 +189,13 @@ const SURF_COLOR = /* glsl */`
   // metres per pixel (geometric mean of the two pixel axes)
   float pxw = sqrt(max(length(dFdx(P.xz)), length(dFdy(P.xz))) * min(length(dFdx(P.xz)), length(dFdy(P.xz))));
   wSkyT = mix(uSkyRefl, uSkyReflSea, seaC);
+  if (uSunSide.w > 0.0) {
+    // r6: toward the low sun the sea mirrors the warm horizon sky (ref 1: cream-gold sea under the sun, navy away from it)
+    vec2 vh = -V.xz; float lv = length(vh); vec2 sh = uSunDir.xz; float lsn = length(sh);
+    float al = lv > 1e-4 && lsn > 1e-4 ? max(dot(vh / lv, sh / lsn), 0.0) : 0.0;
+    float ws = uSunSide.w * pow(al, uSunSideK) * seaC;
+    wSkyT = mix(wSkyT, uSunSide.rgb, ws);
+  }
   wRingK = 1.0 - max(max(seaK, wOutK(P.xz)), wCanalSea(P.xz));
   // ---- waterfall impacts: boiling white core, broken foam spreading outward, downstream trail,
   //      radial swell rings (normals only)
@@ -213,10 +228,12 @@ const SURF_COLOR = /* glsl */`
   float wakeF = 0.0, wakeTurb = 0.0, wakeFar = 0.0; vec2 wakeSlope = vec2(0.0);
   for (int i = 0; i < ${MAX_WAKES}; i++) {
     if (i >= uWakeN) break;
-    vec4 A = uWakeA[i]; vec4 B = uWakeB[i];   // A: bow x, z, forward dir x, z   B: hull length, beam, speed, oars (0/1)
+    vec4 A = uWakeA[i]; vec4 B = uWakeB[i]; vec4 C = uWakeC[i];   // A: bow x, z, forward dir x, z   B: hull length, beam, speed, oars (0/1)   C: trail e-fold (m, 0 = default), broken 0..1
     vec2 d = P.xz - A.xy;
     float Lh = B.x, bm = B.y, sp = B.z;
-    float reach = Lh * 2.0 + sp * 45.0 + 40.0;
+    float trE = C.x > 0.0 ? C.x : Lh * 0.9 + sp * 12.0 + 12.0;   // r6 (ships): e-fold of the white trail astern
+    float brk = C.y;
+    float reach = C.x > 0.0 ? Lh * 1.2 + trE * 3.2 : Lh * 2.0 + sp * 45.0 + 40.0;
     float along = -dot(d, A.zw);              // distance astern of the bow
     if (along < -bm * 2.0 || along > reach) continue;
     float across = dot(d, vec2(-A.w, A.z));
@@ -242,17 +259,25 @@ const SURF_COLOR = /* glsl */`
     // Kelvin arms (19.5 deg) starting at the bow, widening and fading astern
     float aT = along * 0.354 + hw * 0.6;
     float armW = 0.6 + bm * 0.15 + max(along, 0.0) * 0.035;
-    float arm = exp(-pow((ac - aT) / armW, 2.0)) * smoothstep(0.0, Lh * 0.15, along) * exp(-max(along, 0.0) / (Lh * 1.2 + sp * 18.0 + 10.0));
+    // r6: broken wakes keep the V short (≈ uWakeShape.y hull lengths, then gone) and strong near the hull (slow sea ships: spkW)
+    float armE = C.x > 0.0 ? Lh * 0.8 : Lh * 1.2 + sp * 18.0 + 10.0;
+    float spkW = mix(spk, max(spk, 0.9), brk);
+    float armL = exp(-pow((ac - aT) / max(armW, pxw * 0.8), 2.0)) * smoothstep(0.0, Lh * 0.15, along) * exp(-max(along, 0.0) / armE)
+               * (C.x > 0.0 ? 1.0 - smoothstep(Lh * uWakeShape.y * 0.5, Lh * uWakeShape.y, along) : 1.0);
     float armN = cgVnoise2(vec2(ac * 0.25, along * 0.06 - uTime * 0.1) + float(i) * 3.7);
-    arm *= (0.35 + 0.9 * smoothstep(0.3, 0.75, armN)) * spk;
+    // broken: lumps along the arm (cells ≈ a third of the hull), some missing
+    float lumpA = mix(1.0, smoothstep(0.35, 0.65, cgVnoise2(vec2(along / max(Lh * 0.33, 1.0) + float(i) * 4.3, sign(across) * 3.1))), brk);
+    float arm = armL * (0.35 + 0.9 * smoothstep(0.3, 0.75, armN)) * spkW * lumpA;
     // turbulent trail astern
     float sa = max(along - Lh * 0.85, 0.0);
     // r5: seen from 1.4 km (shot 1) a trail is 1-3 px wide and its lace averages out: keep it ≥ ~1.2 px wide, solid white
     float farW = smoothstep(0.15, 0.6, pxw);
     float trW = hw * 0.8 + bm * 0.25 + sa * 0.045;
-    float trail = exp(-pow(ac / trW, 2.0)) * smoothstep(Lh * 0.6, Lh * 0.95, along) * exp(-sa / (Lh * 0.9 + sp * 12.0 + 12.0));
+    float trail = exp(-pow(ac / trW, 2.0)) * smoothstep(Lh * 0.6, Lh * 0.95, along) * exp(-sa / trE);
     float trN = cgVnoise2(vec2(across * 0.6, sa * 0.12 - uTime * 0.25) + float(i) * 1.9);
-    trail *= (0.4 + 0.8 * smoothstep(0.3, 0.8, trN)) * spk;
+    // r6: broken trail — turbulent lumps ≈ half a hull long with gaps of churned (not white) water between them
+    float lumpT = mix(1.0, smoothstep(0.3, 0.62, cgVnoise2(vec2(sa / max(Lh * 0.5, 1.0) + float(i) * 2.7, across / max(bm * 1.5, 1.0)))), brk * smoothstep(0.0, Lh * 0.3, sa));
+    trail *= (0.4 + 0.8 * smoothstep(0.3, 0.8, trN)) * spkW * lumpT;
     // oar splashes: rows of small white puffs outboard of the hull (stroke cycle ~2.2 s)
     float oars = 0.0;
     if (oarsOn > 0.5) {
@@ -267,9 +292,11 @@ const SURF_COLOR = /* glsl */`
     }
     wakeF = max(wakeF, max(max(collar, arm * 0.8), max(trail, oars)));
     // (the far trail: twice as long, a thin continuous white line breaking up toward its end — ref 1)
-    float trWf = max(bm * 0.35 + sa * 0.012, pxw * 0.9);
-    float trFar = exp(-pow(ac / trWf, 2.0)) * smoothstep(Lh * 0.6, Lh * 0.95, along) * exp(-sa / (0.75 * (Lh * 0.9 + sp * 12.0 + 12.0))) * (0.35 + 0.65 * smoothstep(0.3, 0.7, trN));
-    wakeFar = max(wakeFar, farW * 0.6 * min(1.0, trFar * 0.9 + collar));
+    float trWf = max(mix(bm * 0.35 + sa * 0.012, bm * 0.6 + sa * 0.03, brk), pxw * 0.9);   // r6: broken wakes: a broad churned lump, not a line
+    float trFar = exp(-pow(ac / trWf, 2.0)) * smoothstep(Lh * 0.6, Lh * 0.95, along) * exp(-sa / (mix(0.75, 0.45, brk) * trE)) * (0.35 + 0.65 * smoothstep(0.3, 0.7, trN)) * lumpT;
+    // r6: the far V arms (resolved at ≥ 1 px) so the wake reads as a short broken V, not a contrail
+    float armFar = armL * lumpA * smoothstep(0.25, 0.7, armN + 0.15) * uWakeShape.z * spkW * step(0.01, brk);
+    wakeFar = max(wakeFar, mix(farW, max(farW, 0.75), brk) * mix(0.6, 0.92, brk) * min(1.0, trFar * 0.9 + collar * mix(1.0, uWakeShape.x, brk) + armFar));
     wakeTurb = max(wakeTurb, trail + collar * 0.6);
     // transverse waves inside the V + diverging waves along the arms (slope only)
     float kx = 9.81 / max(sp * sp, 1.0);
@@ -567,10 +594,11 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uSea: { value: new THREE.Vector4(826, 980, 70, 930) },   // r5: w = the mole tips (lighthouses, L.MOLES), was 1060
     uSeaSector: { value: new THREE.Vector4(0.2, 0.42, 1300, 1900) },
     uSeaDeep: { value: 1.6 },
+    uCanalRingC: { value: 1 },
   };
-  const impacts = [], impactsB = [], wakesA = [], wakesB = [];
+  const impacts = [], impactsB = [], wakesA = [], wakesB = [], wakesC = [];
   for (let i = 0; i < MAX_IMPACTS; i++) { impacts.push(new THREE.Vector4(0, 0, 1, 0)); impactsB.push(new THREE.Vector4(0, 1, 0, 0)); }
-  for (let i = 0; i < MAX_WAKES; i++) { wakesA.push(new THREE.Vector4(0, 0, 0, 1)); wakesB.push(new THREE.Vector4(30, 5, 0, 0)); }
+  for (let i = 0; i < MAX_WAKES; i++) { wakesA.push(new THREE.Vector4(0, 0, 0, 1)); wakesB.push(new THREE.Vector4(30, 5, 0, 0)); wakesC.push(new THREE.Vector4(0, 0, 0, 0)); }
   const uniforms = {
     ...common,
     ...waves,
@@ -585,7 +613,9 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     ...reflection.uniforms,
     uReflPix: { value: 0.001 },
     uImp: { value: impacts }, uImpB: { value: impactsB }, uImpN: { value: 0 },
-    uWakeA: { value: wakesA }, uWakeB: { value: wakesB }, uWakeN: { value: 0 },
+    uWakeA: { value: wakesA }, uWakeB: { value: wakesB }, uWakeC: { value: wakesC }, uWakeN: { value: 0 },
+    uWakeShape: { value: new THREE.Vector4(1.6, 2.2, 1.1, 0) },
+    uSunSide: { value: new THREE.Vector4(1, 0.8, 0.6, 0) }, uSunSideK: { value: 6 },
     uScatter: { value: new THREE.Vector3(0.004, 0.085, 0.19) },
     uScatterSea: { value: new THREE.Vector3(0.001, 0.01, 0.06) },
     uFoamCol: { value: new THREE.Vector3(0.80, 0.83, 0.84) },
@@ -683,6 +713,7 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
       const a = (w.heading * Math.PI) / 180, fx = Math.sin(a), fz = -Math.cos(a);
       wakesA[i].set(w.x, w.z, fx, fz);
       wakesB[i].set(w.length, w.beam, w.speed, (w.oars ? 1 : 0) + 2 * Math.round(Math.max(0, w.foam || 0) * 4));
+      wakesC[i].set(w.trail || 0, Math.min(1, Math.max(0, w.broken || 0)), 0, 0);
     });
     uniforms.uWakeN.value = list.length;
   }
@@ -696,13 +727,14 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     const rec = {
       x: p.length === 3 ? p[0] : p[0], z: p.length === 3 ? p[2] : p[1],
       heading: w.heading ?? 0, length: w.length ?? 30, beam: w.beam ?? 5, speed: w.speed ?? 3, oars: !!w.oars, foam: w.foam ?? 0, id: w.id,
+      trail: w.trail ?? 0, broken: w.broken ?? 0,   // r6 (agreed with ships): trail e-fold (m) astern, patchiness 0..1
     };
     wakes.push(rec);
     syncWakes();
     return {
       update(o) {
         if (o.pos) { rec.x = o.pos[0]; rec.z = o.pos.length === 3 ? o.pos[2] : o.pos[1]; }
-        for (const k of ['heading', 'length', 'beam', 'speed', 'oars', 'foam']) if (o[k] !== undefined) rec[k] = o[k];
+        for (const k of ['heading', 'length', 'beam', 'speed', 'oars', 'foam', 'trail', 'broken']) if (o[k] !== undefined) rec[k] = o[k];
         syncWakes();
       },
       remove() { const i = wakes.indexOf(rec); if (i >= 0) wakes.splice(i, 1); syncWakes(); },

@@ -14,6 +14,8 @@ import { shield, rosette } from './ornament.js';
 import { trident, pinnacle, pedimentRelief } from './atlantis.js';
 
 const PI = Math.PI;
+/** r6: fraction of the tympanum half-width kept free of silhouettes around the centre trident (sculpted horses) */
+export const RELIEF_GAP = 0.36;
 
 /**
  * @param {object} o
@@ -250,11 +252,12 @@ export function poseidonTemple(o = {}) {
       const run = new Run(a, b);
       const res = ionicRun(B, run, { y0: colH, D, fA, dA, hA, hF, owner: own, detail, gild: 1, frieze: 'plaques', plaqueSpacing: 1.45 * D, ov: 0.5 * D });
       yTop = res.yTop; yCor = res.yCorona;
-      // navy band behind the gilt plaques (frieze face)
-      run.frame(mn);
+      // r6: no navy band behind the gilt plaques any more (ref 3: white marble frieze with framed gilt panels);
+      // a thin gilt fillet under and over the frieze frames the plaque row instead
+      run.frame(mg);
       const sF0 = own ? -fA : -fA + dA, sF1 = own ? run.len + fA : run.len + fA - dA;
-      box(mn, [sF0, colH + hA + 0.02 * D, fA - 0.02 * D], [sF1, colH + hA + hF - 0.03 * D, fA - 0.008 * D], 0, [0.1, 0, 0.3, 0]);
-      mn.pop();
+      for (const yy of [colH + hA + 0.015 * D, colH + hA + hF - 0.06 * D]) box(mg, [sF0, yy, fA - 0.02 * D], [sF1, yy + 0.045 * D, fA - 0.0 * D], 0, [0.1, 0.4, 0, 0]);
+      mg.pop();
       runsBuilt.push(run);
       if (sunken) { const mid = run.p(run.len / 2, yTop, fA * 0.5); coral(mid, [0, 1, 0], 1.0, 'temple-entablature'); }
     }
@@ -277,7 +280,7 @@ export function poseidonTemple(o = {}) {
     const broken = id === 'front' ? frontBroken : backBroken;
     if (broken && id === 'back') continue;          // the back pediment fell (sunken)
     const before = B.info.pediments.length;
-    pediment(B, run, { yBase: yTop, fA, ov: ovE, D, pitch, hR, simaH, acroteria: 'none', corners: 'none', detail, gild: 1, pediments: B.info.pediments, rakingAntefixes: detail > 0.45, rakingAntefixH: 0.5, recess: 0.35 * D });
+    pediment(B, run, { yBase: yTop, fA, ov: ovE, D, pitch, hR, simaH, acroteria: 'none', corners: 'none', detail, gild: 1, pediments: B.info.pediments, rakingAntefixes: detail > 0.45, rakingAntefixH: 0.72, rakingSpacing: 1.1, recess: 0.35 * D });
     const P = B.info.pediments[before];
     if (!P) continue;
     pedRuns.push({ run, id, P });
@@ -295,17 +298,21 @@ export function poseidonTemple(o = {}) {
     if (broken) {
       // ruined: relief partly missing on the right half of the pediment
       const tmp = new MeshBuilder();
-      pedimentRelief(tmp, hb * 0.96, hp * 0.92, { depth: 0.4 });
+      pedimentRelief(tmp, hb * 0.96, hp * 0.92, { depth: 0.4, centre: 'trident', startX: hb * RELIEF_GAP });
       mg.merge(tmp);
-    } else pedimentRelief(mg, hb * 0.96, hp * 0.92, { depth: 0.4 });
+    } else pedimentRelief(mg, hb * 0.96, hp * 0.92, { depth: 0.4, centre: 'trident', startX: hb * RELIEF_GAP });
+    P.horseGap = hb * RELIEF_GAP;   // r6: room left for the sculpted horses (statues module: |x| < horseGap)
     mg.pop();
     // apex trident + corner pinnacles with tridents
     const apexY = yTop + Hp + hR / Math.cos(pitch) + simaH * 0.5;
     const apex = run.p(run.len / 2, apexY, fA + ovE * 0.3);
     if (!(broken && sunken && id === 'front' && false)) {
+      // r6 (ref 3): a bulky gilt acroterion — stepped plinth, gadrooned bulb, flanking volutes — carrying a heavy trident
       mg.push(); mg.translate(apex[0], apex[1] - 0.1, apex[2]); mg.rotateY(run.theta);
-      lathe(mg, [[0.55, 0, 0, 0, true], [0.55, 0.35, 0, 0.6, true], [0.38, 0.45, 0.2, 0], [0.3, 0.9, 0, 0]], 12, { capTop: true });
-      mg.translate(0, 0.85, 0); trident(mg, 5.2, { detail });
+      box(mg, [-0.95, 0, -0.75], [0.95, 0.4, 0.75], 0.04, [0.1, 0.6, 0.2, 0]);
+      lathe(mg, [[0.75, 0.4, 0, 0, true], [0.78, 0.55, 0, 0.6, true], [0.52, 0.66, 0.2, 0], [0.72, 0.95, 0, 0.5], [0.78, 1.2, 0, 0.6, true], [0.5, 1.5, 0.2, 0], [0.32, 1.7, 0.2, 0], [0.45, 1.82, 0, 0.6, true], [0.4, 1.95, 0, 0, true]], 14, { capTop: true });
+      for (const sv of [-1, 1]) { mg.push(); mg.translate(sv * 0.95, 0.4, 0); mg.rotateZ(sv * 0.35); lathe(mg, [[0.001, 0, 0, 0], [0.32, 0.12, 0, 0.5], [0.26, 0.55, 0.2, 0], [0.12, 1.0, 0, 0.4], [0.001, 1.25, 0, 0]], 10, {}); mg.pop(); }
+      mg.translate(0, 1.9, 0); trident(mg, 6.6, { detail, thick: 1.6 });
       mg.pop();
     }
     for (const s of [-1, 1]) {
@@ -323,9 +330,25 @@ export function poseidonTemple(o = {}) {
         B.info.statues.push({ pos: [c[0], c[1] + 1.15, c[2]], dir: [run.out[0], 0, run.out[1]], size: 3.6, tag: 'pinnacle', type: 'kingSpear' });
         continue;
       }
+      // r6 (ref 3): tall corner acroteria — marble die with a gilt band, gold pinnacle, trident finial
+      mb.push(); mb.translate(c[0], c[1], c[2]); mb.rotateY(run.theta);
+      box(mb, [-0.9, 0, -0.9], [0.9, 1.5, 0.9], 0.04, [0.1, 0.6, 0.3, 0]);
+      box(mb, [-1.05, 1.5, -1.05], [1.05, 1.75, 1.05], 0.04, [0.1, 0.9, 0.3, 0]);
+      mb.pop();
       mg.push(); mg.translate(c[0], c[1], c[2]); mg.rotateY(run.theta);
-      box(mg, [-0.6, 0, -0.6], [0.6, 0.5, 0.6], 0.04, [0.1, 0.6, 0, 0]);
-      mg.translate(0, 0.5, 0); pinnacle(mg, 4.2, { trident: true, detail });
+      box(mg, [-0.93, 1.0, -0.93], [0.93, 1.12, 0.93], 0, [0.1, 0.4, 0, 0]);
+      box(mg, [-0.7, 1.75, -0.7], [0.7, 2.2, 0.7], 0.04, [0.1, 0.6, 0, 0]);
+      mg.translate(0, 2.2, 0); pinnacle(mg, 5.6, { trident: true, detail, thick: 1.4 });
+      mg.pop();
+    }
+    // r6 (ref 3): gilt pinnacle-tridents half way up each raking cornice
+    for (const s of [-1, 1]) {
+      const sh = half * 0.5, sx = s < 0 ? -fA - ovE + sh : run.len + fA + ovE - sh;
+      const y = yTop + sh * Math.tan(pitch) + (hR + simaH) / Math.cos(pitch) - 0.05;
+      const c = run.p(sx, y, fA + ovE * 0.2);
+      mg.push(); mg.translate(c[0], c[1], c[2]); mg.rotateY(run.theta);
+      box(mg, [-0.42, 0, -0.42], [0.42, 0.35, 0.42], 0.03, [0.1, 0.6, 0, 0]);
+      mg.translate(0, 0.35, 0); pinnacle(mg, 3.4, { trident: true, detail, thick: 1.3 });
       mg.pop();
     }
   }
@@ -342,8 +365,8 @@ export function poseidonTemple(o = {}) {
       const z = zs[i];
       if (sunken && z < zF - (zF - zB) * 0.3) continue;
       mg.push(); mg.translate(sx * (half - 0.15), yEaves, z);
-      box(mg, [-0.35, 0, -0.35], [0.35, 0.3, 0.35], 0.03, [0.1, 0.6, 0, 0]);
-      mg.translate(0, 0.3, 0); pinnacle(mg, 2.4, { detail: 0.5, trident: i % 4 === 1 });
+      box(mg, [-0.42, 0, -0.42], [0.42, 0.35, 0.42], 0.03, [0.1, 0.6, 0, 0]);
+      mg.translate(0, 0.35, 0); pinnacle(mg, i % 4 === 1 ? 3.6 : 3.0, { detail: 0.5, trident: true, thick: 1.3 });   // r6: taller, all with tridents (ref 3)
       mg.pop();
     }
   }
@@ -386,7 +409,7 @@ export function poseidonTemple(o = {}) {
     const z = lerp(ridgeZ0, ridgeZ1, i / nTr);
     mg.push(); mg.translate(0, yRidge + 0.1, z); mg.rotateY(PI / 2);
     lathe(mg, [[0.3, 0, 0, 0, true], [0.3, 0.25, 0, 0.6, true], [0.18, 0.32, 0, 0]], 10, { capTop: true });
-    mg.translate(0, 0.3, 0); trident(mg, 2.6, { detail: detail * 0.6 });
+    mg.translate(0, 0.3, 0); trident(mg, 3.4, { detail: detail * 0.6, thick: 1.3 });
     mg.pop();
   }
   B.occFn([-half, yTop, zB - fA - ovE], [half, yRidge, zF + fA + ovE], (x, y) => y < yEaves + (half - Math.abs(x)) * Math.tan(pitch));
@@ -500,6 +523,17 @@ export function poseidonTemple(o = {}) {
         const z = (zs[i] + zs[i + 1]) / 2;
         if (z > z1 - 1 || z < z0 + 1) continue;
         B.info.banners.push({ pos: [s * (hw + 0.05), wallH - 1.0, z], dir: [s, 0, 0], width: 2.2, height: 7.5, size: 7.5, tag: 'temple-cella-wall', anchor: 'top-centre', priority: 2 });
+      }
+    }
+  }
+  // r6 (ref 3 right flank): long navy banners hanging from the architrave between the flank columns (front half,
+  // every second intercolumniation) — they read along the colonnade from the forecourt and as blue accents from afar
+  if (!sunken) {
+    const gapZ = (zs[1] - zs[0]) - D;
+    for (const s of [-1, 1]) {
+      for (let i = ns - 2; i >= Math.floor(ns * 0.35); i -= 2) {
+        const z = (zs[i] + zs[i + 1]) / 2;
+        B.info.banners.push({ pos: [s * ax, colH - 0.25, z], dir: [s, 0, 0], width: Math.min(2.4, gapZ * 0.62), height: 9.0, size: 9.0, tag: 'temple-flank', anchor: 'top-centre', priority: 1 });
       }
     }
   }

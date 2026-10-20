@@ -95,6 +95,8 @@ export async function build(engine) {
   // ---------------- braziers
   for (const s of dedupe(S.brazier, 0.6)) {
     const b = brazierFromSlot(s);
+    // r6 (ref 2): the canal-quay pier braziers read as specks behind the balustrade from the canal — big gilt bowls
+    if (/rings-canal/.test(tagOf(s)) && b.diameter < 1.1) { b.diameter = 1.3; b.flame = Math.max(b.flame, 1.25); }
     if (sunken) {
       const lab = `props:brazier:${s.pos.map((v) => v.toFixed(1)).join(',')}`;
       if (ruined(lab, 0.55)) {
@@ -140,6 +142,10 @@ export async function build(engine) {
       continue;
     }
     spec.plant = hero ? 'bougainvillea' : urnPlant(s);
+    // r6 (ref 5): an unplanted urn is a lidded finial vase, not an empty bowl; lotus urns get a leafy dome under the
+    // flowers (the lilies alone read as a few sticks)
+    if (spec.plant === 'none' && /empty/.test(tag)) spec.lid = true;
+    if (spec.plant === 'lotus') spec.foliage = true;
     urns.add(spec);
   }
   if (!sunken) for (const s of dedupe(S.planter, 0.5)) {
@@ -178,7 +184,12 @@ export async function build(engine) {
   if (!sunken) for (const it of urns.items) {
     if (!it.rim) continue;
     if (it.plant === 'lotus') lotus.pot({ pos: it.rim.pos, radius: it.rim.r });
-    else if (it.plant === 'bougainvillea') boug.bush({ pos: [it.rim.pos[0], it.rim.pos[1] - 0.05, it.rim.pos[2]], radius: it.rim.r * 1.15, height: it.rim.r * 1.3, spill: it.rim.r * 1.6 + 0.2 });
+    else if (it.plant === 'bougainvillea') {
+      // r6 LOD (as addFlowerSlot): card count ∝ (45 / d)² past 45 m, bigger cards keep the coverage
+      const dc = CAMS.reduce((m, c) => Math.min(m, Math.hypot(c[0] - it.pos[0], c[1] - it.pos[1], c[2] - it.pos[2])), Infinity);
+      const lodD = dc < 45 ? 1 : Math.max(0.08, (45 / dc) ** 2);
+      boug.bush({ pos: [it.rim.pos[0], it.rim.pos[1] - 0.05, it.rim.pos[2]], radius: it.rim.r * 1.15, height: it.rim.r * 1.3, spill: it.rim.r * 1.6 + 0.2, density: lodD, leafScale: Math.min(2.5, 1 / Math.sqrt(lodD)) });
+    }
   }
   for (const [name, set] of [['bougainvillea', boug], ['lotus', lotus], ['fire', fire]]) { try { set.build(); } catch (e) { console.error('[props] ' + name + ' failed:', e.stack || e); } }
 
@@ -209,9 +220,13 @@ function addFlowerSlot(sets, s, ground) {
     const k = s.size ?? 2;
     sets.boug.bush({ pos: liftPos(s.pos), radius: 0.42 * k, height: 0.6 * k, spill: 0.25 * k, density: 0.85 * lodD, leafScale }); return;
   }
-  if (/bush|mound|pot/.test(tag)) { sets.boug.bush({ pos: liftPos(s.pos), radius: sz[0], height: sz[1] ?? sz[0] * 1.1, spill: s.spill ?? 0.3, density: lodD, leafScale }); return; }
+  // r6 (ref 3): the masses beside the stair-top balustrades rise ≈ 1 m over the rail (set3 bushes stand ~1 m below it)
+  const tall = /set3/.test(tag) ? [1.3, 1.9] : [1, 1];
+  if (/bush|mound|pot/.test(tag)) { sets.boug.bush({ pos: liftPos(s.pos), radius: sz[0] * tall[0], height: (sz[1] ?? sz[0] * 1.1) * tall[1], spill: s.spill ?? 0.3, density: lodD, leafScale }); return; }
   if (/climb|column/.test(tag)) { sets.boug.climb({ pos: s.pos, radius: sz[0], height: sz[1] ?? 4, side: s.facing ?? 180, coverage: s.coverage ?? 0.55, density: lodD, leafScale }); return; }
-  sets.boug.curtain({ top: s.pos, facing: s.facing ?? 180, length: sz[0], drop: sz[1] ?? 1.2, depth: s.depth ?? 0.45, ground, density: lodD, leafScale });
+  // r6 (ref 3): the stair-top balustrade masses heap up over the coping (they rise well above the rail in the ref)
+  const heap = /set3/.test(tag) && !s.mound;
+  sets.boug.curtain({ top: s.pos, facing: s.facing ?? 180, length: sz[0] * (heap ? 1.25 : 1), drop: sz[1] ?? 1.2, depth: s.depth ?? (heap ? 0.8 : 0.45), mound: s.mound ?? (heap ? 0.85 : undefined), ground, density: lodD, leafScale });
 }
 
 /** default dressing where producers left a region empty */
@@ -241,6 +256,8 @@ async function addDefaults(engine, sets, d, { sunken, ground }) {
   }
   if (!sunken) { try { dressFlight(engine, sets, d, ground); } catch (e) { console.error('[props] flight dressing failed:', e.stack || e); } }
   if (!sunken) { try { await rampartBanners(engine, sets, d); } catch (e) { console.error('[props] rampart banners failed:', e.stack || e); } }
+  if (!sunken) { try { dressTerrace5(engine, sets, d); } catch (e) { console.error('[props] terrace dressing failed:', e.stack || e); } }
+  if (!sunken) { try { dressCanal2(engine, sets, d); } catch (e) { console.error('[props] canal dressing failed:', e.stack || e); } }
   // ---- garden terrace on land ring 2 (shot 5): brazier left, lotus pot right, framed in the shot camera.
   // The deck may sit on top of the ring wall (above the height field): use registry.sets.terrace when the sets
   // module published it, else the shot-5 eye height (2.2 m above the deck).
@@ -261,7 +278,7 @@ async function addDefaults(engine, sets, d, { sunken, ground }) {
     }
     if (!sunken && !near(sets.urns.items, [gx, 0, gz], 25)) {
       const [ux, uz] = at(4.2, 2.6);
-      sets.urns.add({ pos: [ux, deckAt(ux, uz), uz], height: 1.0, kind: 'urn', squat: 0.62, wide: 1.25, plant: 'lotus' });
+      sets.urns.add({ pos: [ux, deckAt(ux, uz), uz], height: 1.0, kind: 'urn', squat: 0.62, wide: 1.25, plant: 'lotus', foliage: true });
       d.terraceLotus = 1;
     }
   }
@@ -315,6 +332,75 @@ function dressFlight(engine, sets, d, ground) {
     n++;
   }
   d.flightBoug = n;
+}
+
+const compass = (from, to) => ((Math.atan2(to[0] - from[0], -(to[2] - from[2])) * 180) / Math.PI + 360) % 360;
+
+/**
+ * r6 (ref 5): the shot-5 terrace (registry.sets.terrace, src/sets/terrace.js) — bougainvillea climbing the near
+ * pavilion columns on their camera side and spilling over the rail behind the near lotus pot (bottom right).
+ */
+function dressTerrace5(engine, sets, d) {
+  const T = engine.registry.sets?.terrace;
+  if (!T || !Array.isArray(T.pavilion) || T.pavilion.length < 3 || !Number.isFinite(T.deckY)) return;
+  const cam = T.camera?.pos || SHOTS.find((q) => q.id === 5)?.pos;
+  if (!cam) return;
+  const y0 = T.deckY + 1.0;                      // pedestal tops (terrace.js: ped 1.0)
+  const [A, B, C] = T.pavilion;
+  // C: the near column at the left edge, heavy cover from the pedestal to the capital (ref 5 column 1)
+  sets.boug.climb({ pos: [C[0], y0, C[2]], radius: 0.36, height: 1.8, side: compass(C, cam) + 40, coverage: 0.34, crown: 0.4, density: 0.8, leafScale: 0.85, family: 0 });
+  // B: lighter, up to mid-shaft; A: a skirt around the pedestal top only (ref 5 column 3 is bare above)
+  sets.boug.climb({ pos: [B[0], y0, B[2]], radius: 0.35, height: 1.5, side: compass(B, cam) - 20, coverage: 0.38, crown: 0.4, density: 0.8, leafScale: 0.85, family: 2 });
+  sets.boug.climb({ pos: [A[0], y0, A[2]], radius: 0.36, height: 0.65, side: compass(A, cam) + 60, coverage: 0.5, crown: 0.35, density: 0.8, leafScale: 0.85, family: 1 });
+  let n = 3;
+  // over the rail behind the near lotus pot (ref 5 bottom right: magenta behind the white lilies)
+  const bal = T.balustrade;
+  const lot = (engine.slots.urn || []).find((u) => /lotus wide/.test(tagOf(u)) && /set5/.test(tagOf(u)));
+  if (Array.isArray(bal) && bal.length === 2 && lot) {
+    const [a, b] = bal, ab = [b[0] - a[0], b[2] - a[2]], L2 = ab[0] * ab[0] + ab[1] * ab[1];
+    const t = Math.min(1, Math.max(0, ((lot.pos[0] - a[0]) * ab[0] + (lot.pos[2] - a[2]) * ab[1]) / L2));
+    const ln = Math.sqrt(L2), dir = [ab[0] / ln, ab[1] / ln];
+    // outward normal = away from the camera
+    let nx = -dir[1], nz = dir[0];
+    if ((cam[0] - a[0]) * nx + (cam[2] - a[2]) * nz > 0) { nx = -nx; nz = -nz; }
+    for (const [dt, len] of [[-0.25, 1.4], [0.75, 1.2]]) {
+      const x = a[0] + ab[0] * t + dir[0] * dt + nx * 0.18, z = a[2] + ab[1] * t + dir[1] * dt + nz * 0.18;
+      sets.boug.curtain({ top: [x, T.deckY + 1.08, z], facing: compass([0, 0, 0], [nx, 0, nz]), length: len, drop: 0.8, depth: 0.35, mound: 0.45, density: 0.85, leafScale: 0.85, family: 1 });
+      n++;
+    }
+  }
+  d.terrace5 = n;
+}
+
+/**
+ * r6 (ref 2): the sea-canal quays seen from the canal — gilt urns with flowers on the balustrade piers midway between
+ * the pier braziers (rings/canal.js: braziers on every 4th pier). Only where the shot-2 camera sees them; nothing if
+ * the producer already put urns there. (Curtains over the quay balustrade were tried: at 60-150 m they read as thin
+ * dark strands, and ref 2 has none.)
+ */
+function dressCanal2(engine, sets, d) {
+  const cam = SHOTS.find((q) => q.id === 2)?.pos;
+  if (!cam) return;
+  const br = (engine.slots.brazier || []).filter((s) => /rings-canal/.test(tagOf(s)) && Array.isArray(s.pos));
+  if (br.length < 2) return;
+  const has = (list, x, z, r) => (list || []).some((s) => s && s.pos && Math.hypot(s.pos[0] - x, s.pos[2] - z) < r);
+  let nu = 0;
+  for (const sx of [-1, 1]) {
+    const side = br.filter((s) => Math.sign(s.pos[0]) === sx).sort((p, q) => q.pos[2] - p.pos[2]);   // nearest (south) first
+    for (let i = 0; i + 1 < side.length; i++) {
+      const p0 = side[i].pos, p1 = side[i + 1].pos;
+      const dz = p0[2] - p1[2];
+      if (dz < 12 || dz > 45) continue;
+      const zm = (p0[2] + p1[2]) / 2, dc = Math.hypot(cam[0] - p0[0], cam[2] - zm);
+      if (cam[2] - zm < 25 || dc > 260) continue;                           // behind / beside the lens, or too far
+      // urn on the middle pier
+      if (!has(engine.slots.urn, p0[0], zm, 3)) {
+        sets.urns.add({ pos: [p0[0], p0[1], zm], height: 1.15, kind: 'urn', plant: dc < 150 ? 'bougainvillea' : 'flowers', facing: side[i].facing });
+        nu++;
+      }
+    }
+  }
+  d.canalUrns = nu;
 }
 
 /**

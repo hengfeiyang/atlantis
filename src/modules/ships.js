@@ -20,6 +20,12 @@ const D2R = Math.PI / 180;
 const HERO_LEN = 0.84;
 const HERO_SPEED = 2.5;      // r5: m/s the hero advances during its shot-2 segment (ref 2: rowing toward the camera)
 const HERO_WAKE = 4.2;       // r5: wake / bow-wave strength (water: Kelvin V + bow spray scale with it; was 3.2)
+// r6 (ref 1): the sea fleet is fewer, bigger ships (the painter draws them ≈ 2x the lighthouse-relative size) with plain
+// cream / trident sails, and short broken wakes: addWake gets `trail` (m, e-fold length of the white trail astern) and
+// `broken` (0..1 patchiness) — agreed with water (unset = the water module's own formula: hero, canal, rings)
+const SEA_SCALE = 1.45;
+const SEA_TRAIL = 1.3;       // × hull length
+const SEA_BROKEN = 0.75;
 
 // ------------------------------------------------------------------ r5 motion schedule
 // Sailing ships advance along their heading during the golden video segments (src/video/sequence.js) and sit at their
@@ -56,6 +62,17 @@ const CAM_SAMPLES = [
     return { dt: w.seg.time + u * w.seg.dur - w.tm, p: cameraAt(w.shot, w.seg, u).pos, id: w.shot.id };
   })),
 ];
+/** r6: is (x, y, z) inside the frame of still `id` (margin m: fraction of the half-width outside the edges) within maxD m? */
+function inShotView(id, x, y, z, maxD, m = 0.15) {
+  const s = SHOTS.find((q) => q.id === id); if (!s) return false;
+  const f = [s.target[0] - s.pos[0], s.target[1] - s.pos[1], s.target[2] - s.pos[2]], fl = Math.hypot(...f); f[0] /= fl; f[1] /= fl; f[2] /= fl;
+  const r = [-f[2], 0, f[0]], rl = Math.hypot(r[0], r[2]); r[0] /= rl; r[2] /= rl;
+  const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+  const d = [x - s.pos[0], y - s.pos[1], z - s.pos[2]], dz = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+  if (dz <= 0 || dz > maxD) return false;
+  const t = Math.tan(s.fov * D2R / 2), nx = (d[0] * r[0] + d[2] * r[2]) / (dz * t * (1672 / 941)), ny = (d[0] * u[0] + d[1] * u[1] + d[2] * u[2]) / (dz * t);
+  return Math.abs(nx) < 1 + m && Math.abs(ny) < 1 + m;
+}
 let SAND = null, STONE = null;
 try { STONE = await import('../materials/stone.js'); } catch { /* shared stone not available */ }
 try { SAND = (await import('../terrain/sand.js')).sunkenGround; } catch { /* terrain sand not available */ }
@@ -128,6 +145,7 @@ async function buildGolden(engine, reg) {
     if (o.speed) {
       const bowOff = (o.bow ?? 20.5) * s, bx = x + fx * bowOff, bz = z + fz * bowOff;
       const w = { pos: [bx, bz], heading, length: (o.len ?? 38) * s, beam: (o.beam ?? 5.4) * s, speed: o.speed, oars: !!o.oars, prio: o.prio || 1, id: 'ship' + reg.ships.length };
+      if (o.sea) { w.trail = SEA_TRAIL * w.length; w.broken = SEA_BROKEN; }
       wakes.add(w);
       // r5: sails along its heading during the video segments; the wake (water API handle) follows the bow
       if (o.hold) fleet.add(variant, V[variant], m);
@@ -161,18 +179,29 @@ async function buildGolden(engine, reg) {
   wakes.add(heroWake);
 
   // ---- canal (ref 2 background: ships beyond the gate bridge; ref 1: ships between the moles)
+  // r6 (ref 2: a busy canal seen through the gate-bridge arch): the ship between the hero and the bridge (16, 760) hid
+  //     the right bridge pier + its gold relief → gone; instead 4 more under sail beyond the bridge (z 430-655, |x| ≤ 24:
+  //     inside the arch view from the shot-2 camera), mixed headings (sterns / bows), sizes 45-80 px
   const canalShips = [
     ['sailRow', 15, 640, 182, 2.5], ['sailOnly', -15, 590, 4, 2.0], ['sailRowB', 10, 520, 178, 2.6], ['row', -18, 470, 0, 2.2],
-    ['sailOnly', 16, 760, 186, 2.2], ['row', 18, 975, 2, 3.0], ['sailRowB', -6, 1060, 178, 2.8],
+    ['sailOnly', 23, 560, 184, 2.0], ['boatSail', -24, 655, 178, 1.4], ['sailRow', 4, 430, 181, 2.4],
+    ['merchant', -22, 535, 2, 1.8],
   ];
-  for (const [v, x, z, h, sp] of canalShips) if (clear(x, z, 16, h, sp) && waterClear(x, z, h, 38, 5.5, -2) && runClear(x, z, h, sp, 38, 5.5, -2)) put(v, x, z, h, { speed: sp, oars: v !== 'sailOnly', heel: v.startsWith('sail') ? 0.02 : 0, prio: 3 });
+  for (const [v, x, z, h, sp] of canalShips) {
+    const m = v.startsWith('merchant'), bt = v.startsWith('boat'), Lr = m ? 20 : bt ? 9 : 38, hw = m ? 3.5 : bt ? 1.5 : 5.5;
+    if (clear(x, z, m ? 10 : bt ? 6 : 16, h, sp) && waterClear(x, z, h, Lr, hw, -2) && runClear(x, z, h, sp, Lr, hw, -2)) put(v, x, z, h, { speed: sp, oars: !m && !bt && v !== 'sailOnly', heel: v.startsWith('sail') ? 0.02 : m || bt ? 0.04 : 0, prio: 3, r: m ? 10 : bt ? 5 : 18, bow: m ? 10.2 : bt ? 4.2 : 20.5, len: Lr === 38 ? 38 : m ? 19 : 8, beam: m ? 5.6 : bt ? 2.2 : 5.4 });
+    else console.warn(`[ships] canal ship ${v} at ${x},${z} rejected`);
+  }
 
   // ---- sea fleet (ref 1): a few fixed ones around the canal mouth (in every framing of shot 1), then a scatter
-  for (const [v, x, z, h, sp] of [['sailRow', 4, 985, 2, 3.2], ['sailRowB', -140, 955, 24, 3.0], ['sailOnly', 215, 935, 338, 2.6], ['row', -120, 870, 158, 3.4], ['merchant', 300, 965, 205, 2.0], ['boatSail', 120, 900, 300, 1.4]]) {
-    const m = v.startsWith('merchant'), b = v.startsWith('boat');
-    if (clear(x, z, 20, h, sp) && waterClear(x, z, h, m ? 20 : b ? 9 : 42, b ? 2 : 6, -3) && runClear(x, z, h, sp, m ? 20 : b ? 9 : 42, b ? 2 : 6, -3)) put(v, x, z, h, { speed: sp, oars: !m && !b && v !== 'sailOnly', heel: 0.03, r: m ? 10 : b ? 5 : 18, bow: m ? 10.2 : b ? 4.2 : 20.5, len: m ? 19 : b ? 8 : 38, beam: m ? 5.6 : b ? 2.2 : 5.4, prio: 2 });
+  // r6: ref-1 sizes (SEA_SCALE) and cream sails; boats a little bigger too (they read as specks); the two canal-mouth
+  //     ships (r5: canal list, furled 'row' at 18, 975) are sea ships now
+  for (const [v, x, z, h, sp] of [['seaA', 4, 985, 2, 3.2], ['seaB', -6, 1075, 178, 2.8], ['seaB', -140, 955, 24, 3.0], ['seaOnly', 215, 935, 338, 2.6], ['seaB', -120, 870, 168, 3.4], ['merchant', 300, 965, 195, 2.0], ['boatSail', 120, 900, 330, 1.4]]) {
+    const m = v.startsWith('merchant'), b = v.startsWith('boat'), sc = m ? 1.3 : b ? 1.2 : SEA_SCALE;
+    const Lr = (m ? 20 : b ? 9 : 42) * sc, hw = (b ? 2 : 6) * sc;
+    if (clear(x, z, 20 * sc, h, sp) && waterClear(x, z, h, Lr, hw, -3) && runClear(x, z, h, sp, Lr, hw, -3)) put(v, x, z, h, { speed: sp, oars: !m && !b && v !== 'seaOnly', heel: 0.03, r: m ? 10 : b ? 5 : 18, bow: m ? 10.2 : b ? 4.2 : 20.5, len: m ? 19 : b ? 8 : 38, beam: m ? 5.6 : b ? 2.2 : 5.4, prio: 2, scale: sc, sea: true });
   }
-  const nSea = Math.round(16 + 10 * dens);
+  const nSea = Math.round(12 + 6 * dens);
   const mouth = [0, 1060];
   for (let i = 0, n = 0; i < 400 && n < nSea; i++) {
     // r4 (director): the r4 shot-1 camera sees the sea between the l2 wall (z ≈ 800) and z ≈ 1000 (|x| < 340) — the fleet goes there
@@ -180,21 +209,24 @@ async function buildGolden(engine, reg) {
     const x = near ? rng.range(-360, 360) : rng.range(-950, 950), z = near ? 835 + rng.random() * 175 : rng.range(1050, 1500);
     if (Math.hypot(x, z - 1060) < 90) continue;
     const toMouth = (Math.atan2(mouth[0] - x, -(mouth[1] - z)) / D2R + 360) % 360;
-    const hd = rng.chance(0.55) ? toMouth + rng.range(-25, 25) : rng.chance(0.5) ? rng.range(150, 210) : rng.range(0, 360);
+    // r6 (ref 1): nearly every ship sails toward / away from the camera (sails broad to the lens, V wakes), few crossing
+    const hq = rng.random();
+    const hd = (hq < 0.5 ? toMouth + rng.range(-25, 25) : hq < 0.88 ? rng.range(150, 210) : (rng.chance(0.5) ? 0 : 180) + rng.range(-60, 60) + 360) % 360;
     const r = rng.random();
-    const type = r < 0.62 ? 'tri' : r < 0.82 ? 'merchant' : 'boat';
-    const hw = type === 'tri' ? 8 : 4;
+    const type = r < 0.72 ? 'tri' : r < 0.88 ? 'merchant' : 'boat';
+    const sc = type === 'tri' ? SEA_SCALE * rng.range(0.92, 1.06) : type === 'merchant' ? 1.3 : 1.2;
+    const hw = (type === 'tri' ? 8 : 4) * sc;
     // r5: tested at the type's top speed along its heading (space-time camera clearance + open water over the run)
-    const spMax = type === 'tri' ? 4.5 : type === 'merchant' ? 2.8 : 2.0, Lr = type === 'tri' ? 42 : 20;
-    if (!clear(x, z, type === 'tri' ? 42 : 28, hd, spMax) || !waterClear(x, z, hd, Lr, hw, -4) || !runClear(x, z, hd, spMax, Lr, hw, -4)) continue;
-    if (L.MOLES.some((mo) => Math.hypot(x - mo.lighthouse[0], z - mo.lighthouse[1]) < 45)) continue;
+    const spMax = type === 'tri' ? 4.5 : type === 'merchant' ? 2.8 : 2.0, Lr = (type === 'tri' ? 42 : 20) * sc;
+    if (!clear(x, z, (type === 'tri' ? 42 : 28) * sc, hd, spMax) || !waterClear(x, z, hd, Lr, hw, -4) || !runClear(x, z, hd, spMax, Lr, hw, -4)) continue;
+    if (L.MOLES.some((mo) => Math.hypot(x - mo.lighthouse[0], z - mo.lighthouse[1]) < 45 + 10 * sc)) continue;
     if (type === 'tri') {
-      const v = rng.pick(['sailRow', 'sailRowB', 'sailRow', 'row', 'sailOnly']);
-      put(v, x, z, hd, { speed: rng.range(2.5, 4.5), oars: v !== 'sailOnly', heel: v.startsWith('sail') ? rng.range(0.02, 0.05) : 0, scale: rng.range(0.95, 1.05) });
+      const v = rng.pick(['seaA', 'seaB', 'seaA', 'seaOnly', 'seaB']);
+      put(v, x, z, hd, { speed: rng.range(2.5, 4.5), oars: v !== 'seaOnly', heel: rng.range(0.02, 0.05), scale: sc, sea: true });
     } else if (type === 'merchant') {
-      put(rng.chance(0.7) ? 'merchant' : 'merchantStr', x, z, hd, { speed: rng.range(1.5, 2.8), heel: rng.range(0.03, 0.06), r: 10, bow: 10.2, len: 19, beam: 5.6 });
+      put('merchant', x, z, hd, { speed: rng.range(1.5, 2.8), heel: rng.range(0.03, 0.06), r: 10, bow: 10.2, len: 19, beam: 5.6, scale: sc, sea: true });
     } else {
-      put(rng.chance(0.5) ? 'boatSail' : 'boatSailB', x, z, hd, { speed: rng.range(1.0, 2.0), heel: rng.range(0.03, 0.07), r: 5, bow: 4.2, len: 8, beam: 2.2 });
+      put(rng.chance(0.5) ? 'boatSail' : 'boatSailB', x, z, hd, { speed: rng.range(1.0, 2.0), heel: rng.range(0.03, 0.07), r: 5, bow: 4.2, len: 8, beam: 2.2, scale: sc, sea: true });
     }
     n++;
   }
@@ -205,10 +237,13 @@ async function buildGolden(engine, reg) {
     if (s5) {
       const f = [s5.target[0] - s5.pos[0], s5.target[2] - s5.pos[2]], fl = Math.hypot(f[0], f[1]); f[0] /= fl; f[1] /= fl;
       const camH = (Math.atan2(f[0], -f[1]) / D2R + 360) % 360;
-      for (const [dist, ang, rel, v, sc] of [[94, 4, 118, 'sailRow', 1.0], [128, -11, 252, 'sailRowB', 0.95]]) {
+      // r6: both sail AWAY to the left (ref 5: wakes trail to the right, sterns toward the camera-right), tangential to
+      //     the ring, yards braced so the sails face the camera; the second one (r5: rejected, its heading cut the
+      //     citadel quay) now sits at the ref's px ≈ 645, 520 (ref 690, 545), the first at ≈ 920, 590 (ref 925, 645)
+      for (const [dist, ang, rel, v, sc] of [[92, 6, 312, 'braced5a', 0.85], [128, -13, 300, 'braced5b', 0.8]]) {
         const a = (camH + ang) * D2R, x = s5.pos[0] + Math.sin(a) * dist, z = s5.pos[2] - Math.cos(a) * dist;
         const hd = (camH + rel) % 360;
-        if (!(L.zoneAt(x, z) === 'w1' && waterClear(x, z, hd, 38, 6, -2))) continue;
+        if (!(L.zoneAt(x, z) === 'w1' && waterClear(x, z, hd, 38, 6, -2))) { console.warn(`[ships] shot-5 trireme at ${x.toFixed(0)},${z.toFixed(0)} rejected (not in open w1 water)`); continue; }
         // r5: they sail through the shot-5 segment unless the straight run would leave open water (then: under way, held)
         const run = runClear(x, z, hd, 2.6, 38, 6, -2);
         if (!run) console.warn(`[ships] shot-5 trireme at ${x.toFixed(0)},${z.toFixed(0)} held (run leaves open water)`);
@@ -236,6 +271,8 @@ async function buildGolden(engine, reg) {
       if (bb.some((b) => Math.abs(((tr.b - b + 540) % 360) - 180) * D2R * tr.r < 45)) continue;
       if (rs.ring === 'w1' && Math.abs(((tr.b - 180 + 540) % 360) - 180) * D2R * tr.r < 50) continue;
       const [x, z] = L.polar(tr.r, tr.b);
+      // r6: ref 5 shows exactly two triremes in w1 (placed above): no random ring ship in / at the edge of the shot-5 frame
+      if (!tr.forced && rs.ring === 'w1' && (inShotView(5, x, 4, z, 220, 0.35) || inShotView(5, x, 12, z, 220, 0.35))) continue;
       const hd = (tr.b + 90 * tr.dir + 360) % 360;   // tangential
       if (!clear(x, z, 30, hd, 3) || !waterClear(x, z, hd, 40, 7, -2.5) || !runClear(x, z, hd, 3, 40, 7, -2.5)) continue;
       const moored = !tr.forced && rng.chance(0.25);

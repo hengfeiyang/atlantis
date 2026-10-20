@@ -121,12 +121,21 @@ export function buildMoleHead(kit) {
         }
       }
     }
+    // r6 (ref 4 richness): statue / brazier pedestals at both ends of the parapet (gold figures face the canal)
+    for (const [xe, k] of [[x0 + 1.0, 0], [x1 - 1.0, 1]]) for (const f of [-1, 1]) {
+      const top = pedestal(kit, xe, balY - 0.1, f * (hd + 0.12), 1.05, 1.35, { panel: true });
+      if (sunken && ruined(`mole-bridge:end:${k}:${f}`, 0.5)) continue;
+      if (f < 0) kit.slots.statue.push({ pos: kit.W(xe, top, f * (hd + 0.12)), facing: kit.compass(0, f), size: 2.7, tag: 'pinnacle', source: 'bridges-mole' });
+      else if (!sunken) kit.slots.brazier.push({ pos: kit.W(xe, top, f * (hd + 0.12)), facing: kit.compass(0, f), size: 0.85, tag: 'pedestal', source: 'bridges-mole' });
+    }
+    // r6: blue trident banners hanging from the frieze over the arch haunches at both ends (camera face + back face)
+    if (!sunken) for (const f of [-1, 1]) for (const xe of [x0 + 2.6, x1 - 2.6]) kit.slots.banner.push({ pos: kit.W(xe, yFr - 0.15, f * (hd + 0.2)), facing: kit.compass(0, f), size: [1.5, 4.6], tag: 'wall', style: 'V', source: 'bridges-mole' });
     const cx = arches[0];
     corniceX(w, x0 - 2, x1 + 0.5, yCo, hd, coH, coP);
     boxA(lime, -2.5, D - 0.5, -hd + 0.05, x1 + 0.5, D, hd - 0.05, AUX.pave(1.1));
     // deck under the pier tower start (inside the tunnel block skew) + parapet strips
     boxA(w, -2.5, yFr, -hd, tw0, D - 0.5, hd, AUX.ashlar(0.8));
-    const stops = nA === 2 ? [[x0 + 0.3, x0 + span + pierW / 2 - 0.8], [x0 + span + pierW / 2 + 0.8, x1 - 0.3]] : [[x0 + 0.3, x1 - 0.3]];
+    const stops = nA === 2 ? [[x0 + 1.75, x0 + span + pierW / 2 - 0.8], [x0 + span + pierW / 2 + 0.8, x1 - 1.75]] : [[x0 + 1.75, x1 - 1.75]];   // r6: end pedestals
     for (const f of [-1, 1]) for (const [sa, sb] of stops) balustradeX(kit, sa, sb, balY, f * (hd + 0.12), { h: 1.1, post: 2.8, broken: sunken ? (i, xx) => (ruined(`mole-bridge:bal:${f}:${Math.round(xx)}`, 0.45) ? 1 : 0) : null });
     if (sunken) kit.coralAt(cx, sp + b + thick + 0.2, -hd - 0.15, 0, 0.3, -1, 0.8, 'mole-bridge-arch');
     // ---- pier tower (between the tunnel block and the arch): pylon with a gold statue (ref 4)

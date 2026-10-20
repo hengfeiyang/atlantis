@@ -8,10 +8,10 @@ import { MeshBuilder, box, lathe, tube, extrudeOutline, ellipsoid, lerp, clamp, 
 const PI = Math.PI;
 
 // ------------------------------------------------------------------------------------ trident
-/** gold trident standing on y = 0, height h, prongs in the X-Y plane. o: { detail, barbs } */
+/** gold trident standing on y = 0, height h, prongs in the X-Y plane. o: { detail, barbs, thick (r6: shaft/prong radius ×) } */
 export function trident(mb, h, o = {}) {
   const det = o.detail ?? 1;
-  const r = h * 0.02;
+  const r = h * 0.02 * (o.thick ?? 1);
   const sg = det > 0.6 ? 10 : 6;
   lathe(mb, [[r * 1.9, 0, 0.2, 0, true], [r * 1.9, h * 0.035, 0, 0.5, true], [r * 1.05, h * 0.05, 0.3, 0], [r, h * 0.62, 0, 0],
     [r * 1.9, h * 0.635, 0.1, 0.5, true], [r * 2.1, h * 0.655, 0, 0.6], [r * 1.9, h * 0.675, 0.1, 0.5, true], [r * 1.3, h * 0.69, 0.3, 0], [r * 0.9, h * 0.72, 0, 0]], sg, { capTop: true, capBottom: true });
@@ -103,14 +103,32 @@ export function pedimentRelief(mb, hb, hp, o = {}) {
   const wave = hp * 0.12;
   // waves along the floor
   mb.push(); mb.translate(-hb * 0.97, 0, 0); waveBand(mb, hb * 1.94, wave, d * 0.8, hp * 0.32); mb.pop();
-  // centre: god + trident
+  // centre: god + trident (default) | r6 (ref 3): a big trident rising from a shell urn (the statues module sets
+  // two sculpted rearing horses beside it, o.startX leaves them room)
   const gh = hp * 0.86;
-  mb.push(); mb.translate(0, wave * 0.4, 0); silhouette(mb, 'god', gh, d * 1.2); mb.pop();
-  mb.push(); mb.translate(gh * 0.22, wave * 0.4 + gh * 0.08, d * 0.6); trident(mb, gh * 1.0, { detail: 0.4 }); mb.pop();
+  if (o.centre === 'trident') {
+    const uh = hp * 0.22;
+    mb.push(); mb.translate(0, wave * 0.4, d * 0.3);
+    lathe(mb, [[0.001, 0, 0, 0], [uh * 0.5, 0.02 * uh, 0.2, 0.4, true], [uh * 0.62, uh * 0.25, 0, 0.5], [uh * 0.5, uh * 0.62, 0.1, 0.4], [uh * 0.3, uh * 0.8, 0.3, 0], [uh * 0.42, uh * 0.92, 0, 0.6, true], [uh * 0.36, uh, 0, 0, true], [0.001, uh, 0, 0]], 14, {});
+    mb.translate(0, uh * 0.95, 0); trident(mb, hp * 0.97 - uh * 0.95 - wave * 0.4, { detail: 0.7, thick: 1.8 });
+    mb.pop();
+    // gilt sea-weed sprigs scattered over the field (ref 3)
+    for (let k = 0; k < 14; k++) {
+      const x = (hash3(k, 5, 1) - 0.5) * 2 * hb * 0.92, yMax = avail(x) - hp * 0.12;
+      if (yMax < hp * 0.2 || Math.abs(x) < hp * 0.25) continue;
+      const y = wave + (yMax - wave) * (0.45 + 0.5 * hash3(k, 5, 2)), sh = hp * (0.07 + 0.05 * hash3(k, 5, 3));
+      mb.push(); mb.translate(x, y, 0); mb.rotateZ((hash3(k, 5, 4) - 0.5) * 0.8);
+      for (const a of [-0.5, 0, 0.5]) { mb.push(); mb.rotateZ(a); box(mb, [-sh * 0.05, 0, 0], [sh * 0.05, sh, d * 0.35], 0, [0.15, 0.4, 0, 0]); mb.pop(); }
+      mb.pop();
+    }
+  } else {
+    mb.push(); mb.translate(0, wave * 0.4, 0); silhouette(mb, 'god', gh, d * 1.2); mb.pop();
+    mb.push(); mb.translate(gh * 0.22, wave * 0.4 + gh * 0.08, d * 0.6); trident(mb, gh * 1.0, { detail: 0.4 }); mb.pop();
+  }
   const seq = o.sequence || ['hippocamp', 'triton', 'hippocamp', 'dolphin', 'hippocamp', 'dolphin', 'dolphin'];
   const A = 0.94 * (hp - wave * 0.4);
   for (const s of [-1, 1]) {
-    let x = gh * 0.27;
+    let x = o.startX ?? gh * 0.27;
     for (let k = 0; k < 12; k++) {
       const name = seq[k % seq.length];
       const h = (A * (1 - x / hb)) / (1 + A / hb);
@@ -199,6 +217,16 @@ export function palace(B, o) {
   box(mM, [-w / 2 - 0.15, y0 + h * 0.48, -d / 2 - 0.15], [w / 2 + 0.15, y0 + h * 0.48 + 0.35, zf + 0.15], 0.03, [0.1, 0.7, 0.5, 0]);
   if (!ruin) box(mM, [-w / 2 - 0.4, y0 + h, -d / 2 - 0.4], [w / 2 + 0.4, y0 + h + 0.7, d / 2 + 0.4], 0.04, [0.1, 0.8, 0.6, 0]);
   if (!ruin) box(mG, [-w / 2 - 0.42, y0 + h + 0.5, -d / 2 - 0.42], [w / 2 + 0.42, y0 + h + 0.58, d / 2 + 0.42], 0, [0.1, 0.5, 0, 0]);
+  // r6 (refs 1, 5: more gold on the citadel palaces): a broad gilt frieze under the cornice with raised panels
+  if (!ruin && o.giltFrieze !== false) {
+    const fy0 = y0 + h - 0.85, fy1 = y0 + h - 0.12;
+    box(mG, [-w / 2 - 0.06, fy0, -d / 2 - 0.06], [w / 2 + 0.06, fy1, zf + 0.06], 0, [0.15, 0.4, 0, 0]);
+    const np = Math.max(2, Math.round(w / 2.4));
+    for (let i = 0; i < np; i++) {
+      const x = -w / 2 + (i + 0.5) * (w / np);
+      for (const [zz, sg] of [[zf + 0.06, 1], [-d / 2 - 0.06, -1]]) box(mG, [x - 0.55, fy0 + 0.12, zz], [x + 0.55, fy1 - 0.12, zz + 0.07 * sg], 0.01, [0.3, 0.6, 0, 0]);
+    }
+  }
   // parapet
   const yp = y0 + h + 0.7;
   if (!ruin) for (const [a, b] of [[[-w / 2 - 0.4, -d / 2 - 0.4], [w / 2 + 0.4, -d / 2 - 0.1]], [[-w / 2 - 0.4, d / 2 + 0.1], [w / 2 + 0.4, d / 2 + 0.4]], [[-w / 2 - 0.4, -d / 2 - 0.4], [-w / 2 - 0.1, d / 2 + 0.4]], [[w / 2 + 0.1, -d / 2 - 0.4], [w / 2 + 0.4, d / 2 + 0.4]]]) {

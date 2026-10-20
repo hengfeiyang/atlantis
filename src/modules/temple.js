@@ -210,6 +210,18 @@ function buildForecourt(engine, ctx) {
   }
   reg.nereidBasins = nb;
   // ---- spring fountains (hot + cold): big basins with a central pedestal and bowl (ref 3)
+  // r6 (ref 3): palms + cypress behind the fountains at the temple's front corners (golden; the sunken era has none)
+  if (!sunken) {
+    const P = (engine.slots.palm ||= []), Fl = engine.slots.flowers;
+    for (const sx of [-1, 1]) {
+      const list = sx < 0 ? [[37, 45, 'date', 13.5], [42.5, 39, 'cypress', 15], [33.5, 31, 'date', 11.5], [44, 51, 'cypress', 13]]
+        : [[25, 46, 'date', 13], [31, 37, 'cypress', 13.5], [33.5, 30, 'date', 11.5], [40, 42, 'cypress', 15]];   // right: in frame beside the temple corner
+      for (const [x, z, tag, size] of list) {
+        P.push({ pos: [sx * x, heightAt(sx * x, z), z], size, tag: tag + ' forecourt' });
+        if (tag === 'date' && Fl) Fl.push({ pos: [sx * x, SUMMIT + 0.4, z + 1.6], facing: 180, size: 2.2, tag: 'forecourt-palm-bougainvillea' });
+      }
+    }
+  }
   const fr = [];
   for (const F of L.FOUNTAINS) {
     const [x, , z] = F.pos, Rb = F.radius, hb = 1.15;
@@ -483,8 +495,11 @@ function buildStair(engine, ctx) {
       for (const [sx0, sx1] of sides) for (let p = 0; p < parts; p++) {
         const x0 = sx0 + ((sx1 - sx0) / parts) * p, x1 = x0 + (sx1 - sx0) / parts, pk = (sx0 < 0 ? 0 : 2) + p;
         const sag = sunken ? (ruinRand('stair:' + F.k + ':' + j + ':' + pk) - 0.5) * 0.1 - (ruined('stair:c:' + F.k + ':' + j + ':' + pk, 0.06) ? 0.14 : 0) : 0;
-        box(mT, [x0 + (sunken ? 0.01 : 0), g, za - 0.02], [x1 - (sunken ? 0.01 : 0), y + sag, zb + 0.01], 0.02, [0.05, 1, 0.05, 5.12]);
-        if (!sunken) box(mb, [x0, y - 0.09, zb - 0.02], [x1, y, zb + 0.05], 0.015, [0.05, 0.9, 0.05, 0]);
+        // r6 (shot 1: the stair read as one pale tower): the last six steps of every flight are red stone with a gilt
+        // nosing on the foot step → six red-gold bands cross the stair column (Atlantis banding, refs 1 / 5)
+        const band = j >= F.n - 6;
+        box(band ? mr : mT, [x0 + (sunken ? 0.01 : 0), g, za - 0.02], [x1 - (sunken ? 0.01 : 0), y + sag, zb + 0.01], 0.02, [0.05, 1, 0.05, band ? 5.1 : 5.12]);
+        if (!sunken) box(j === F.n - 1 ? mg : mb, [x0, y - 0.09, zb - 0.02], [x1, y, zb + 0.05], 0.015, [0.05, 0.9, 0.05, 0]);
       }
       // channel floor step (white marble under the water: one weir per riser)
       box(mb, [-cxi - 0.02, g, za - 0.02], [cxi + 0.02, y, zb + 0.01], 0.01, [0.05, 0.9, 0.1, 0]);
@@ -880,7 +895,7 @@ function buildPalaces(engine, ctx) {
     }
     if (i % 4 === 2 && w < 24) return pav(r, b, y, w, i);
     place(r, b, y, { w, d, h: 9 + 4 * hash3(i, 2, 2), wall: hash3(i, 3, 3) < 0.5 ? 'red' : 'banded', portico: true, colGeo: colA, colKey: 'palColsA', porticoDepth: 4.2, podium: 1.2,
-      dome: w > 16 && hash3(i, 4, 4) < 0.7 ? Math.min(w * 0.2, 4.2 + 2 * hash3(i, 5, 5)) : 0, storey2: hash3(i, 6, 6) < 0.4, seed: i + 3, colSpacing: 3.0 });
+      dome: w > 14 && hash3(i, 4, 4) < 0.88 ? Math.min(w * 0.22, 4.4 + 2 * hash3(i, 5, 5)) : 0, storey2: hash3(i, 6, 6) < 0.4, seed: i + 3, colSpacing: 3.0 });
   });
   fillLedge((t2.r0 + t2.r1) / 2 + 1, t2.y, Math.min(10, t2.r1 - t2.r0 - 5), 10, 20, (r, b, y, w, d, i) => {
     if (south(b)) {
@@ -890,7 +905,7 @@ function buildPalaces(engine, ctx) {
     }
     if (i % 3 === 1) return pav(r, b, y, Math.min(w, 13), i);
     place(r, b, y, { w, d, h: 6 + 2.5 * hash3(i, 7, 2), wall: hash3(i, 7, 3) < 0.6 ? 'red' : 'marble', portico: hash3(i, 7, 4) < 0.7, colGeo: colB, colKey: 'palColsB', porticoDepth: 3.2, podium: 0.9,
-      dome: w > 14 && hash3(i, 7, 5) < 0.35 ? 3.2 : 0, seed: 100 + i, colSpacing: 2.6 });
+      dome: w > 12 && hash3(i, 7, 5) < 0.6 ? 3.4 : 0, seed: 100 + i, colSpacing: 2.6 });
   });
   // red ramparts at the inner edge of each ledge (the red wall bands in tiers, refs 4, 5) with white towers
   const stairGap = (b, r) => Math.abs(b - 180) < ((L.CITADEL_STAIR.width / 2 + 4) / r) * (180 / PI);

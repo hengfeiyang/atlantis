@@ -27,7 +27,7 @@ export const SEQUENCE = [
   { shot: 1, dur: 8.0, time: 10, move: { push: 520, crane: -15, track: [0, 80, 0] }, ease: 'linear', range: [-0.3, 0.7] }, // r5: drone flies 520 m in over the fleet + the l2 wall at ≈ constant altitude, the temple held on screen (the colonnade rises clear of the stair head)
   { shot: 2, dur: 7.0, time: 40, move: { dolly: 9, crane: 0.8, pan: -0.8 }, ease: 'linear' },     // gliding up the canal, the hero trireme rowing toward us
   { shot: 4, dur: 6.5, time: 70, move: { push: 14, pan: 1.5 }, ease: 'linear' },             // r5: horizontal push 14 m along the ship-shed mole (eye stays 2.5 m; r4 trucked away from the sheds), slight pan toward them
-  { shot: 5, dur: 6.5, time: 100, move: { truck: -1.8, pan: 1.6 }, ease: 'linear', range: [0, 1] }, // r5: OPENS on the ref-5 framing, then trucks left along the balustrade (r4 range [-0.2, 0.8] opened with the hero palm trunk at the right edge)
+  { shot: 5, dur: 6.5, time: 100, move: { truck: -0.45, pan: 3.0, dolly: 0.4 }, ease: 'linear', range: [0, 1] }, // r6: OPENS on the ref-5 framing, slow pan right toward the w1-180 bridge with a little parallax (r5 truck -1.8 ended with the two bougainvillea columns covering the left 40 % of the frame)
   { shot: 3, dur: S36, time: 130, move: M36, ease: 'linear', xfade: X36 },  // r5: opens 2.3 m higher over the balustrade, swoops down into the ref-3 framing at u = 0.5 (no stair-head pier in the opening) ...
   { shot: 6, dur: S36, time: 30, move: M36, ease: 'linear', along: { shot: 3, de: DE6 } }, // ... continued underwater on the same path: the shot-6 still at u = 0.5
   { shot: 7, dur: 6.5, time: 60, move: { dolly: 5, crane: 1.5, tilt: 1.0 }, ease: 'linear' },
