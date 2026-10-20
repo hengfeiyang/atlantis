@@ -128,11 +128,11 @@ export function towerKit(spec) {
     sweep(W, F, -hw - 0.65, hw + 0.65, P_CORNICE.map(([d, y]) => [d, y + yS]), [0.96, 0.95, 0.93], true);
     W.aux = [0, 0.3, 0, AUX_ASHLAR(0.5)];
     box(W, F, -hw - 0.6, hw + 0.6, yPl - 0.01, yPl + 0.8, -0.55, 0.62, [0.95, 0.94, 0.92], FACES.pz | FACES.py | FACES.nz);
-    const nM = 5;
-    for (let m = 0; m < nM; m++) {
-      if (spec.state !== 'intact' && ((m * 7 + i * 3) % 3 === 0)) continue;
-      const sc = -hw - 0.6 + (m + 0.5) * ((2 * hw + 1.2) / nM);
-      chamferBox(W, F, sc - 0.55, sc + 0.55, yPl + 0.8, yPl + 1.9, -0.55, 0.62, 0.04, [0.96, 0.95, 0.93]);
+    // r2: no merlons (they read medieval): moulded parapet coping with gilt urn finials at the corners + centre
+    box(W, F, -hw - 0.7, hw + 0.7, yPl + 0.8, yPl + 0.98, -0.65, 0.7, [0.97, 0.96, 0.94], FACES.pz | FACES.py | FACES.ny | FACES.nz);
+    if (spec.state === 'intact') {
+      lathe(K.get('gilt'), F, -hw - 0.15, yPl + 0.98, 0.05, [[0, 0], [0.3, 0], [0.32, 0.1], [0.18, 0.2], [0.3, 0.5], [0.12, 0.85], [0.04, 1.2], [0, 1.25]], 8, COL);
+      if (i % 2 === 0) lathe(K.get('gilt'), F, 0, yPl + 0.98, 0.05, [[0, 0], [0.24, 0], [0.26, 0.08], [0.14, 0.16], [0.24, 0.4], [0.1, 0.68], [0.03, 0.95], [0, 1.0]], 8, COL);
     }
     W.aux = [0, 0, 0, 0];
   }
@@ -243,7 +243,10 @@ export function buildTowers(ctx, M) {
     const setback = Math.abs(e.faceR - e.wallR);
     const shedHere = inShedRange(e, t.bearing, TOWER_HALF + 1);
     const water = setback < TOWER_PROJ && !shedHere;
-    const design = t.end ? 'tholos' : e.ring === 'l1' ? (Math.round(t.bearing * 10) % 5 === 0 ? 'dome' : 'pylon') : (Math.round(t.bearing * 10) % 4 === 0 ? 'tholos' : 'dome');
+    // r2: land ring 1 = slender pylons with gold flame bowls (ref 4; a few domed towers on the outer face only),
+    // citadel shore = open tholoi with gold domes (ref 4 left), land ring 2 = domed towers with some tholoi
+    const hsh = ((Math.round(t.bearing * 100) * 2654435761) >>> 0) / 4294967296;
+    const design = t.end ? 'tholos' : e.id === 'citadel' ? 'tholos' : e.ring === 'l1' ? (e.id === 'l1-out' && hsh < 0.25 ? 'dome' : 'pylon') : (hsh < 0.25 ? 'tholos' : 'dome');
     const banded = t.end;
     let state = 'intact', lean = 0;
     const label = `rings:tower:${t.edge}:${Math.round(t.bearing * 100)}`;
@@ -278,10 +281,14 @@ export function buildTowers(ctx, M) {
     const front = (dy, dd = 0) => { const v = new THREE.Vector3(0, dy, TOWER_PROJ + dd).applyMatrix4(m); return [v.x, v.y, v.z]; };
     if (!ctx.sunken) {
       if (design === 'pylon') {
-        engine.slots.banner.push({ pos: front(e.wallTop + 9.5 - 4.0, 0.32), facing: t.facing, size: [1.7, 10.5], tag: 'rings-pylon' });
+        engine.slots.banner.push({ pos: front(e.wallTop + 9.5 - 4.0, 0.42), facing: t.facing, size: [1.7, 10.5], tag: 'rings-pylon' });
         const v = new THREE.Vector3(0, e.wallTop + 9.5 + 2.8, TOWER_PROJ - PYLON_HALF).applyMatrix4(m);
         engine.slots.brazier.push({ pos: [v.x, v.y, v.z], facing: t.facing, size: 2.6, tag: 'rings-pylon' });
-      } else engine.slots.banner.push({ pos: front(e.wallTop + 4.5 - 2.6, 0.12), facing: t.facing, size: e.id === 'citadel' ? [2.4, 7] : [2.8, 8.5], tag: 'rings-tower' });
+      } else {
+        // r2: hung in front of the string courses (proj 0.24) and below the upper window (sill yS - 4.2)
+        const top = e.wallTop + 4.5 - 4.45, h = Math.min(e.id === 'citadel' ? 7 : 8.5, top - e.landY - 1.2);
+        if (h > 2.5) engine.slots.banner.push({ pos: front(top, 0.42), facing: t.facing, size: [e.id === 'citadel' ? 2.4 : 2.8, h], tag: 'rings-tower' });
+      }
       if (design === 'dome' && ctx.lodAt(x, z) === 0) {
         for (const sx of [-1, 1]) {
           const v = new THREE.Vector3(sx * (TOWER_HALF - 0.1), e.wallTop + 5.4 + 2.5, TOWER_PROJ - 0.1).applyMatrix4(m);

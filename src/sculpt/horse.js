@@ -52,6 +52,13 @@ export const HORSE_POSES = {
   },
 };
 
+// (r2 arch-b) swept-back-wing twins: neighbouring horses alternate forward-spread / swept-back wings so the
+// heroic wings pass in front of / behind each other instead of interpenetrating (chariotLayout picks them)
+for (const k of ['A', 'B', 'C']) {
+  const P = HORSE_POSES[k];
+  HORSE_POSES[k + 'b'] = { ...P, wing: { ...P.wing, sweep: 46, raise: P.wing.raise + 10, chordUp: P.wing.chordUp + 6 } };
+}
+
 // ------------------------------------------------------------------ the horse
 /**
  * spec: one of HORSE_POSES plus optional { broken: { hindL, hindR, foreL, foreR: fraction cut, wingL, wingR: span cut },

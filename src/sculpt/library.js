@@ -11,8 +11,22 @@ import { poseidonSpec, tridentSdf } from './poseidon.js';
 import { makeNereid, NEREID_VARIANTS } from './nereid.js';
 import { chariotLayout, carSdf, carGold, wheelSdf, waveBaseSdf } from './chariot.js';
 import { STATUE_KINDS, buildSmallStatue } from './statuary.js';
+import { decimate, sdfNormals } from './decimate.js';
 
-export const STAT_VERSION = 1;
+export const STAT_VERSION = 2; // r2 (arch-b): QEM-decimated bakes, swept-back wing twins, Nereid drapery, lower waves
+
+/** decimation targets (triangles) per job family — tuned for the shot distances (≥ 25 m for the group) */
+const BUDGET = { horse: 115000, poseidon: 150000, colossus: 90000, nereid: 80000, car: 70000, wheel: 26000, waves: 150000, trident: 24000 };
+/** QEM-decimate an SDF mesh, re-derive SDF normals and bake AO / cavity / gilt (runtime builds stay coarse) */
+function reduce(g, target, sdf, cell, goldFn, bakeOpts) {
+  if (isNode && g.index.count / 3 > target * 1.1) {
+    const t0 = Date.now(), n0 = triCount(g);
+    g = decimate(g, target);
+    sdfNormals(g, sdf, cell * 0.5);
+    log(`  decimated ${n0} → ${triCount(g)} tris in ${Date.now() - t0} ms`);
+  }
+  return bakeAttributes(g, sdf, goldFn, bakeOpts);
+}
 const isNode = typeof window === 'undefined';
 const log = (...a) => { if (typeof console !== 'undefined') console.log('[statues]', ...a); };
 
@@ -26,8 +40,8 @@ function horseJob(key, spec) {
       const t0 = Date.now();
       const H = makeHorse(spec);
       const cell = 0.0115 / Math.sqrt(detail);
-      const g = meshRegion(H.sdf, H.bounds, cell, { smooth: 1, bandScale: 1.7 });
-      bakeAttributes(g, H.sdf, H.gold, { aoDist: 0.3, cavDist: 0.025, extraOcc: (x, y) => Math.max(0, 0.4 * (1 - y / 0.3)) });
+      let g = meshRegion(H.sdf, H.bounds, cell, { smooth: 1, bandScale: 1.7 });
+      g = reduce(g, BUDGET.horse, H.sdf, cell, H.gold, { aoDist: 0.3, cavDist: 0.025, extraOcc: (x, y) => Math.max(0, 0.4 * (1 - y / 0.3)) });
       log(`horse ${key}: ${triCount(g)} tris in ${Date.now() - t0} ms`);
       return g;
     },
@@ -50,7 +64,8 @@ function poseidonJobs(variant, res) {
       bakeAttributes(body, full, fig.gold, { aoDist: 0.09, cavDist: 0.01 });
       bakeAttributes(head, full, fig.gold, { aoDist: 0.06, cavDist: 0.006 });
       const hands = fig.hands.map((H) => { const hg = meshRegion(H.sdf, H.bounds, res.head * 1.15 * f, { smooth: 1 }); bakeAttributes(hg, full, fig.gold, { aoDist: 0.05, cavDist: 0.006 }); return hg; });
-      const g = mergeGeos([body, head, ...hands]);
+      let g = mergeGeos([body, head, ...hands]);
+      if (isNode) { g = decimate(g, variant === 'colossus' ? BUDGET.colossus : BUDGET.poseidon); sdfNormals(g, full, res.head * f * 0.5); bakeAttributes(g, full, fig.gold, { aoDist: 0.08, cavDist: 0.008 }); }
       log(`poseidon ${variant}: ${triCount(g)} tris in ${Date.now() - t0} ms`);
       return g;
     },
@@ -60,9 +75,9 @@ function poseidonJobs(variant, res) {
     build: (detail = 1) => {
       const P = poseidonSpec(variant);
       const T = P.trident, tri = tridentSdf(T.L, T.r);
-      const g = meshRegion(tri, { min: [-0.2, 0, -0.05], max: [0.2, T.L + 0.02, 0.05] }, res.head * 1.1 / Math.sqrt(detail), { smooth: 1 });
-      bakeAttributes(g, tri, () => 1, { aoDist: 0.04, cavDist: 0.005 });
-      return g;
+      const cell = res.head * 1.1 / Math.sqrt(detail);
+      const g = meshRegion(tri, { min: [-0.2, 0, -0.05], max: [0.2, T.L + 0.02, 0.05] }, cell, { smooth: 1 });
+      return reduce(g, BUDGET.trident * (variant === 'colossus' ? 0.7 : 1), tri, cell, () => 1, { aoDist: 0.04, cavDist: 0.005 });
     },
   });
   return out;
@@ -80,7 +95,8 @@ function nereidJob(v) {
       bakeAttributes(body, N.sdf, N.gold, { aoDist: 0.1, cavDist: 0.012, extraOcc: (x, y) => Math.max(0, 0.35 * (1 - y / 0.1)) });
       bakeAttributes(head, N.sdf, N.gold, { aoDist: 0.06, cavDist: 0.006 });
       const hands = N.fig.hands.map((H) => { const hg = meshRegion(H.sdf, H.bounds, 0.0065 * f, { smooth: 1 }); bakeAttributes(hg, N.sdf, N.gold, { aoDist: 0.05, cavDist: 0.006 }); return hg; });
-      const g = mergeGeos([body, head, ...hands]);
+      let g = mergeGeos([body, head, ...hands]);
+      if (isNode) { g = decimate(g, BUDGET.nereid); sdfNormals(g, N.sdf, 0.003 * f); bakeAttributes(g, N.sdf, N.gold, { aoDist: 0.09, cavDist: 0.009, extraOcc: (x, y) => Math.max(0, 0.35 * (1 - y / 0.1)) }); }
       log(`nereid ${v}: ${triCount(g)} tris in ${Date.now() - t0} ms`);
       return g;
     },
@@ -95,27 +111,27 @@ function chariotJobs() {
       name: `stat-car-v${STAT_VERSION}`,
       build: (detail = 1) => {
         const c = LAY.car.c;
-        const g = meshRegion(car, { min: [c[0] - 4.8, LAY.car.floor - 1.3, c[2] - 3.2], max: [c[0] + 4.8, LAY.car.floor + 5.2, c[2] + 3.9] }, 0.045 / Math.sqrt(detail), { smooth: 1, bandScale: 2 });
-        bakeAttributes(g, car, carGold(LAY.car), { aoDist: 0.6, cavDist: 0.06 });
-        return g;
+        const cell = 0.045 / Math.sqrt(detail);
+        const g = meshRegion(car, { min: [c[0] - 4.8, LAY.car.floor - 1.3, c[2] - 3.2], max: [c[0] + 4.8, LAY.car.floor + 5.2, c[2] + 3.9] }, cell, { smooth: 1, bandScale: 2 });
+        return reduce(g, BUDGET.car, car, cell, carGold(LAY.car), { aoDist: 0.6, cavDist: 0.06 });
       },
     },
     {
       name: `stat-wheel-v${STAT_VERSION}`,
       build: (detail = 1) => {
         const R = LAY.wheels[0].R;
-        const g = meshRegion(wheel, { min: [-0.9, -R - 0.3, -R - 0.3], max: [0.9, R + 0.3, R + 0.3] }, 0.035 / Math.sqrt(detail), { smooth: 1 });
-        bakeAttributes(g, wheel, () => 0.9, { aoDist: 0.4, cavDist: 0.04 });
-        return g;
+        const cell = 0.035 / Math.sqrt(detail);
+        const g = meshRegion(wheel, { min: [-0.9, -R - 0.3, -R - 0.3], max: [0.9, R + 0.3, R + 0.3] }, cell, { smooth: 1 });
+        return reduce(g, BUDGET.wheel, wheel, cell, () => 0.9, { aoDist: 0.4, cavDist: 0.04 });
       },
     },
     {
       name: `stat-waves-v${STAT_VERSION}`,
       build: (detail = 1) => {
         const W = LAY.footprint.w / 2, D = LAY.footprint.d / 2;
-        const g = meshRegion(wave, { min: [-W, -0.05, -D], max: [W, 11.5, D] }, 0.085 / Math.sqrt(detail), { smooth: 1, bandScale: 2.2 });
-        bakeAttributes(g, wave, () => 0.85, { aoDist: 0.9, cavDist: 0.08 });
-        return g;
+        const cell = 0.085 / Math.sqrt(detail);
+        const g = meshRegion(wave, { min: [-W, -0.05, -D], max: [W, 11.5, D] }, cell, { smooth: 1, bandScale: 2.2 });
+        return reduce(g, BUDGET.waves, wave, cell, () => 0.85, { aoDist: 0.9, cavDist: 0.08 });
       },
     },
   ];

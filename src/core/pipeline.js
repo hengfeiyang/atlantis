@@ -47,6 +47,11 @@ export const GRADE = {
   uBloom: { value: 0.045 },       // fraction of the (energy-normalised) bloom image mixed in
   uBloomClamp: { value: 60 },     // r5b: HDR luminance cap of the bloom source (sun disk; the sun glow comes from the lens glare)
   uToneMap: { value: 1 },        // 0 ACES fitted, 1 AgX (punchy), 2 Khronos neutral
+  // r2 (look-golden): 0..1 hue-preserving highlights — the tone-mapped luminance with the scene-linear chroma ratios
+  // (gamut-squeezed toward white only where the colour leaves [0,1]) mixed over the tone mapper's own result: keeps
+  // sun glitter / gold metal / lit cloud rims gold instead of bleaching them white (refs 1-3: glitter ≈ rgb 250,197,121);
+  // the sun disk (luminance → 1) still ends white. 0 = off (default; sunken shots unchanged).
+  uHuePreserve: { value: 0 },
   uAgxPunch: { value: 1.1 },      // AgX look saturation; r5: 1.05 → 1.1 (AgX bleaches warm mid-tone stone toward grey; refs' lit stone s 34-46 %)
   uSharpen: { value: 0.28 },     // r4: 0.18 → 0.28 (crisper mid-ground)
   uChroma: { value: 0.0004 },     // lateral chromatic aberration at the edges (r4: 0.0012 fringed ridges / wall edges)
@@ -261,7 +266,7 @@ export class Pipeline {
         uniform float uHighlights;
         uniform float uExposure; uniform vec3 uWhiteBalance; uniform float uContrast; uniform float uSaturation; uniform float uVibrance;
         uniform vec3 uLift; uniform vec3 uGamma; uniform vec3 uGain; uniform vec2 uVignette; uniform float uGrain;
-        uniform float uBloom; uniform float uToneMap; uniform float uAgxPunch; uniform float uSharpen; uniform float uChroma; uniform float uDither;
+        uniform float uBloom; uniform float uToneMap; uniform float uHuePreserve; uniform float uAgxPunch; uniform float uSharpen; uniform float uChroma; uniform float uDither;
         uniform float uShadowSat; uniform float uToe; uniform float uPivot; uniform vec3 uShadowTint; uniform vec3 uHighTint; uniform float uBloomNorm; uniform float uClarity;
         uniform sampler2D tMeter; uniform float uMeterOn; uniform float uAutoExpo; uniform float uAutoKey;
         uniform sampler2D tL0; uniform sampler2D tL2; uniform sampler2D tL4; uniform float uLtmOn;
@@ -393,12 +398,20 @@ export class Pipeline {
           float v = smoothstep(uVignette.y * 1.25, uVignette.y * 0.3, length(q));
           c *= mix(1.0 - uVignette.x, 1.0, v);
           // tone map → linear display 0..1
+          vec3 cLin = max(c, vec3(0.0));
           if (uToneMap < 0.5) c = acesFit(c * 0.6 * 1.6667);
           else if (uToneMap < 1.5) {
             c = AgXToneMapping(c);
             // "punchy" look: saturation boost after the AgX base curve
             c = max(mix(vec3(luma(c)), c, uAgxPunch), 0.0);
           } else c = NeutralToneMapping(c);
+          if (uHuePreserve > 0.0) {
+            float lt = luma(c), li = luma(cLin);
+            vec3 hp = cLin * (lt / max(li, 1e-6));
+            float mx = max(max(hp.r, hp.g), hp.b);
+            if (mx > 1.0) hp = mix(vec3(lt), hp, (1.0 - lt) / max(mx - lt, 1e-4));
+            c = mix(c, clamp(hp, 0.0, 1.0), uHuePreserve * smoothstep(0.25, 0.7, lt));
+          }
           // ---- grade in perceptual (sRGB-encoded) space
           vec3 o = toPerc(clamp(c, 0.0, 1.0));
           o = o * uGain;

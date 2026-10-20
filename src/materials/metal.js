@@ -21,6 +21,10 @@
 //   panels: { w, h, seam, rivets }  world-space cladding panel grid on vertical faces (m); seams darker,
 //           rivets as bright dots (cladding of walls, cella). Default: none.
 //   hammered 0..1  hammered-sheet micro normal (default 0.3 for orichalcum/tin, else 0)
+//   crust 0..1  (r2 arch-b) sunken encrustation: patchy coral / verdigris / chalky crust over the metal (rough,
+//               dielectric), the metal glinting through the gaps; crustScale (m, default 0.35) patch size;
+//               crustColor THREE.Color (default verdigris-green, mixed with coral pink / lime white). e.g.
+//               goldMaterial({ crust: 0.55 }) — the fallen trident of shot 8, gold on sunken pinnacles
 //   ao (AOVolume), vertexColors, side
 // Geometry: optional `aux` vec4 (x cavity → tarnish + AO, y edge → rubbed bright edges); missing = zeros.
 // Every material is tagged userData.sunken = 'metal' (gold / gilt: 'gold') for the core/sunken.js overlay.
@@ -39,6 +43,16 @@ uniform vec3 uDark;     // tarnish colour
 uniform vec4 uMet;      // x wear, y patina, z roughness, w hammered
 uniform vec3 uPatina;   // verdigris colour
 uniform vec4 uPanel;    // x panel w, y panel h, z seam width, w rivets (0/1); x = 0 → no panels
+uniform vec4 uCrust;    // x amount (0 = none), y 1/patch size, z up-face bias, w seed
+uniform vec3 uCrustCol; // main crust colour (linear)
+/** encrustation mask 0..1 (sunken): fbm patches, more on up faces and in cavities, metal shows through gaps */
+float cgCrust(vec3 p, vec3 n, float cav){
+  if (uCrust.x <= 0.0) return 0.0;
+  vec3 q = p * uCrust.y + uCrust.w;
+  float f = cgN4(q).x * 0.55 + cgN4(q * 2.3 + 1.7).y * 0.3 + cgN4(q * 6.1 + 4.1).z * 0.15;
+  float th = 1.0 - uCrust.x * (0.75 + 0.35 * max(n.y, 0.0) * uCrust.z) - 0.25 * cav;
+  return smoothstep(th - 0.1, th + 0.14, f);
+}
 float cgPanelSeam = 0.0, cgRivet = 0.0, cgPanelId = 0.0;
 void cgPanels(vec3 p, vec3 n){
   cgPanelSeam = 0.0; cgRivet = 0.0; cgPanelId = 0.0;
@@ -81,6 +95,15 @@ const METAL_COLOR = /* glsl */ `
   c = mix(c, uBase * 1.15, cgRivet);
   float pv = smoothstep(0.45, 0.7, cgN4(p * 1.7 + 2.0).w + cav * 0.5 + max(cgN.y, 0.0) * 0.2) * uMet.y;
   c = mix(c, uPatina, pv);
+  float crs = cgCrust(p, cgN, cav);
+  if (crs > 0.0) {
+    vec4 cn = cgN4(p * uCrust.y * 3.7 + 7.3);
+    vec3 cc = mix(uCrustCol, vec3(0.30, 0.25, 0.14), smoothstep(0.3, 0.7, cn.w));       // algae brown-olive
+    cc = mix(cc, vec3(0.48, 0.24, 0.20), smoothstep(0.62, 0.8, cn.x) * 0.8);            // coral pink patches
+    cc = mix(cc, vec3(0.50, 0.48, 0.42), smoothstep(0.68, 0.85, cn.y) * 0.6);           // chalky (tube-worm / barnacle) white
+    cc *= 0.7 + 0.45 * cn.z;
+    c = mix(c, cc, crs);
+  }
   diffuseColor.rgb *= c;
 `;
 
@@ -90,6 +113,7 @@ const METAL_ROUGH = /* glsl */ `
     float n = cgN4(cgP * 5.0).x;
     float pv = smoothstep(0.45, 0.7, cgN4(cgP * 1.7 + 2.0).w + cav * 0.5 + max(cgN.y, 0.0) * 0.2) * uMet.y;
     roughnessFactor = clamp(uMet.z + 0.12 * (n - 0.5) + 0.3 * cav + 0.45 * pv + 0.25 * cgPanelSeam, 0.08, 1.0);
+    roughnessFactor = mix(roughnessFactor, 0.92, cgCrust(cgP, cgN, cav));
   }
 `;
 
@@ -97,7 +121,7 @@ const METAL_METAL = /* glsl */ `
   {
     float cav = clamp(vCgAux.x, 0.0, 1.0);
     float pv = smoothstep(0.45, 0.7, cgN4(cgP * 1.7 + 2.0).w + cav * 0.5 + max(cgN.y, 0.0) * 0.2) * uMet.y;
-    metalnessFactor = clamp(1.0 - pv - cav * 0.35, 0.0, 1.0);
+    metalnessFactor = clamp(1.0 - pv - cav * 0.35, 0.0, 1.0) * (1.0 - cgCrust(cgP, cgN, cav));
   }
 `;
 
@@ -114,6 +138,11 @@ const METAL_NORMAL = /* glsl */ `
     if (uMet.w > 0.0 && fm > 0.0) {
       vec3 q = cgP * 3.2 + 5.0; float d0 = cgN4(q).z;
       g += vec3(cgN4(q + vec3(0.3,0,0)).z - d0, cgN4(q + vec3(0,0.3,0)).z - d0, cgN4(q + vec3(0,0,0.3)).z - d0) / 0.3 * 0.09 * uMet.w * fm;
+    }
+    float crs = cgCrust(cgP, cgN, clamp(vCgAux.x, 0.0, 1.0));
+    if (crs > 0.0 && fm > 0.0) {
+      vec3 q = cgP * uCrust.y * 9.0; float d0 = cgN4(q).w;
+      g += vec3(cgN4(q + vec3(0.2,0,0)).w - d0, cgN4(q + vec3(0,0.2,0)).w - d0, cgN4(q + vec3(0,0,0.2)).w - d0) / 0.2 * 0.18 * crs * fm;
     }
     cgBump = g - cgN * dot(g, cgN);
   }
@@ -148,6 +177,8 @@ export function metalMaterial(o = {}) {
     uPatina: { value: new THREE.Vector3(pat.r, pat.g, pat.b) },
     uMet: { value: new THREE.Vector4(o.wear ?? d.wear, o.patina ?? d.patina, o.roughness ?? d.roughness, o.hammered ?? d.hammered) },
     uPanel: { value: new THREE.Vector4(pn ? pn.w ?? 1.2 : 0, pn ? pn.h ?? 0.9 : 1, pn ? pn.seam ?? 0.006 : 0, pn && pn.rivets ? 1 : 0) },
+    uCrust: { value: new THREE.Vector4(Math.max(0, Math.min(1, o.crust ?? 0)), 1 / (o.crustScale ?? 0.35), o.crustUp ?? 1, o.crustSeed ?? 3.1) },
+    uCrustCol: { value: (() => { const c = lin(o.crustColor) || new THREE.Color(0.14, 0.24, 0.17); return new THREE.Vector3(c.r, c.g, c.b); })() },
     ...aoUniforms(o.ao),
   };
   const mat = proceduralMaterial({

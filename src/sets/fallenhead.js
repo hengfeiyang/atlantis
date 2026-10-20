@@ -206,6 +206,10 @@ export async function buildFallenHeadSet(engine, o) {
   group.add(sand);
 
   for (const c of coral) engine.slots.coral.push(c);
+  // hand-placed reef dressing read off ref 8 (marine places it as is)
+  if (sunken && engine.slots?.coral) {
+    try { const { dressShot8 } = await import('./dress8.js'); o.dressed = dressShot8(engine, F, group); } catch (e) { console.warn('[sets] dress8 failed', e); }
+  }
   // keep-clear zones for marine scatter (the face, the mosaic and the trident head must stay readable)
   const hc = new THREE.Vector3(0, -0.15, 0.45).multiplyScalar(HEAD_SCALE).applyMatrix4(M);
   engine.registry.sets = { ...(engine.registry.sets || {}), keepClear8: [{ x: hc.x, z: hc.z, r: 3.2 }, { x: o.mosaic.x, z: o.mosaic.z, r: o.mosaic.r * 0.9 }, { x: engine.registry.sets?.tridentHead?.[0] ?? hc.x, z: engine.registry.sets?.tridentHead?.[2] ?? hc.z, r: 2.5 }] };

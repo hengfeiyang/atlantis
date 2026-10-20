@@ -61,6 +61,7 @@ export const SKY = {
   uCloudLight: { value: new THREE.Vector2(999, 1) }, // x: elevation (deg) the cumulus are lit from (999 = the sun's), y: light optical-depth scale
   uCloudGlowAmb: { value: 0 },  // 0..1+: cloud ambient tinted toward the sky-glow colour inside the glow region
   uCloudFar: { value: new THREE.Vector2(9000, 38000) }, // far-field thinning of the cumulus (start, end m)
+  uCloudFarMin: { value: 0.35 },   // r2 (look-golden): density multiplier reached at uCloudFar.y (0 = clear low sky: the low sun shows)
   // ---- high cirrus / altocumulus streaks (refs 1, 3, 7): x amount, y altitude (m), z streak direction (rad)
   uCirrus: { value: new THREE.Vector3(0.25, 7500, 0.6) },
   uEnvPass: { value: 0 },
@@ -198,6 +199,7 @@ uniform float uCloudAmbient;
 uniform float uCloudPowder;
 uniform float uCloudErode;
 uniform vec2 uCloudFar;
+uniform float uCloudFarMin;
 uniform float uCloudGlowAmb;
 uniform vec2 uCloudLight;
 uniform vec3 uCirrus;
@@ -232,7 +234,7 @@ vec2 skyWeather(vec2 q){
   return vec2(cov, top);
 }
 
-float skyDensity(vec3 p, float hf, bool detail){
+float skyDensity(vec3 p, float hf, float detail){
   if (hf <= 0.0 || hf >= 1.0) return 0.0;
   vec2 q = (p.xz + uCloudOffset * 1000.0 + uCloudWind * uSkyTime) / uCloudScale;
   vec2 w = skyWeather(q);
@@ -247,11 +249,12 @@ float skyDensity(vec3 p, float hf, bool detail){
   float shape = pw * 0.6 + fbm * 0.4;
   float base = cgRemapU(shape * grad, 1.0 - w.x, 1.0, 0.0, 1.0) * w.x;
   if (base <= 0.0) return 0.0;
-  if (detail) {
+  if (detail > 0.0) {
     vec3 dn = textureLod(tCloudDetail, vec3(q.x, p.y, q.y) * (1.0 / 430.0) + vec3(0.0, uSkyTime * 0.002, 0.0), 0.0).rgb;
     float dfbm = clamp((dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125 - 0.6) / 0.3, 0.0, 1.0);
     float mod_ = mix(dfbm, 1.0 - dfbm, clamp(hf * 5.0, 0.0, 1.0)); // wispy bases, billowy tops
-    base = cgRemapU(base, mod_ * uCloudErode, 1.0, 0.0, 1.0);
+    // r2 (look-golden): erosion fades out with distance (was a hard on/off at 16 km → seam + blocky far puffs)
+    base = cgRemapU(base, mod_ * uCloudErode * detail, 1.0, 0.0, 1.0);
   }
   return clamp(base, 0.0, 1.0);
 }
@@ -272,7 +275,7 @@ float skyLightOD(vec3 p, float alt){
     vec3 q = p + L * tt;
     float a = alt + L.y * tt;
     float hf = (a - uCloudBase) / uCloudThick;
-    od += skyDensity(vec3(q.x, a, q.z), hf, j < 2) * ds;
+    od += skyDensity(vec3(q.x, a, q.z), hf, j < 2 ? 1.0 : 0.0) * ds;
     t += ds; ds *= 2.1;
   }
   return od * uCloudSigma * uCloudLight.y;
@@ -288,8 +291,13 @@ vec4 skyClouds(vec3 cam, vec3 rd, float steps, float jit, out float dist){
   tOut = min(tOut, uCloudMaxDist);
   if (tOut <= tIn) return vec4(0.0, 0.0, 0.0, 1.0);
   float len = tOut - tIn;
-  float dt = len / steps;
-  float t = tIn + dt * jit;
+  // r2 (look-golden) BLOCKY-CLOUD FIX: the step used to be len / steps (fine = 1/4 of it). Grazing rays cross the
+  // 1.1 km layer over 20-50 km → 1.5 km coarse / 400 m fine steps through σ 0.06 /m cloud: every first fine sample
+  // was opaque (1 - e^-24), so the visible surface was the density iso-surface quantised to 400 m slabs along the
+  // ray → hard cut-out edges, terraced "pixel" blobs, specks (worse with more cumulus thickness). Now both steps are
+  // bounded in metres and grow with distance (≈ constant screen-space footprint), with a larger iteration budget.
+  float dt0 = len / steps;
+  float t = tIn + min(dt0, 60.0 + 0.02 * tIn) * jit;
   float mu = dot(rd, uSunDir);
   // ambient: sky dome above (blue), ground + lower sky below (warm grey)
   vec3 ambTop = cgCloudAmbTop();
@@ -302,25 +310,27 @@ vec4 skyClouds(vec3 cam, vec3 rd, float steps, float jit, out float dist){
   }
   vec3 scat = vec3(0.0);
   float T = 1.0, wsum = 0.0, dsum = 0.0;
-  // adaptive march: coarse steps through clear air, 1/4 steps inside cloud
+  // adaptive march: coarse steps through clear air, fine steps inside cloud
   bool fine = false;
-  float zeros = 0.0, st = dt;
-  float iters = steps * 3.0;
-  for (int i = 0; i < 200; i++) {
+  float zeros = 0.0;
+  float iters = steps * 10.0;
+  for (int i = 0; i < 480; i++) {
     if (float(i) >= iters || T < 0.012 || t > tOut) break;
+    float dtC = min(dt0, 60.0 + 0.02 * t);            // coarse: 60 m near … 660 m at 30 km
+    float dtF = clamp(dtC * 0.3, 10.0, 18.0 + 0.004 * t); // fine: ≤ 18 m near … 140 m at 30 km
     vec3 rp = ro + rd * t;
     float alt = length(rp) - RE;
     float hf = (alt - uCloudBase) / uCloudThick;
     vec3 p = vec3(cam.x + rd.x * t, alt, cam.z + rd.z * t);
-    bool lod = fine && t < 16000.0;
+    float lod = fine ? smoothstep(24000.0, 12000.0, t) : 0.0;
     // thin out the far field so the horizon is not a carpet of identical puffs
-    float dens = skyDensity(p, hf, lod) * mix(1.0, 0.35, smoothstep(uCloudFar.x, uCloudFar.y, t));
+    float dens = skyDensity(p, hf, lod) * mix(1.0, uCloudFarMin, smoothstep(uCloudFar.x, uCloudFar.y, t));
     if (!fine) {
-      if (dens > 0.0) { fine = true; zeros = 0.0; t = max(tIn, t - dt * 0.75); continue; }
-      t += dt; continue;
+      if (dens > 0.0) { fine = true; zeros = 0.0; t = max(tIn, t - dtC * 0.85); continue; }
+      t += dtC; continue;
     }
-    st = dt * 0.25;
-    if (dens <= 0.003) { zeros += 1.0; if (zeros > 8.0) fine = false; t += st; continue; }
+    float st = dtF;
+    if (dens <= 0.003) { zeros += 1.0; if (zeros > 10.0) fine = false; t += st; continue; }
     zeros = 0.0;
     {
       float sigma = dens * uCloudSigma;

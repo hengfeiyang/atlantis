@@ -25,7 +25,9 @@
 //   uUwDome      float  split-level dome-port radius (m): waterline sits asin(h/dome) below the horizon for a
 //                       camera h metres above the surface (ref 9)
 //   uUwDomeWave  float  scale of the wave height used for the waterline on the dome (gentler meniscus)
-//   uUwSigma     vec3   view-path extinction per channel (1/m): ~40 m blue silhouettes, ~90 m gone
+//   uUwSigma     vec3   view-path extinction per channel (1/m) at short range
+//   uUwFar       vec4   x: range Lf (m) of the far term — optical depth = sigma · s · (1 + s / Lf): crisp to
+//                       ≈ 60-80 m, blue silhouettes at 150-250 m, gone by ≈ 300 m (refs 6, 7, 9); 0 = off
 //   uUwKd        vec3   ambient (downwelling) attenuation with depth (1/m) of the IBL on surfaces
 //   uUwKdScat    vec3   depth attenuation of the in-scattered ambient (water lighter toward the surface)
 //   uUwKdSun     vec3   sun attenuation along the refracted path (1/m)
@@ -37,7 +39,12 @@
 //   uUwShaft2    vec4   x filament contrast, y path-length multiplier of the filament slice, z beam drift speed
 //   uUwCaustic   vec4   caustics: x strength, y focus (wave-slope multiplier of the splat: higher = the network
 //                       sharpens / folds at shallower depth), z depth fade (m), w base blur (m)
-//   uUwCaustic2  vec4   x blur per metre of path (sun disk ≈ 0.0035 physically; art: crisper), y dispersion
+//   uUwCaustic2  vec4   x blur per metre of path (sun disk ≈ 0.0035 physically; art: crisper), y dispersion,
+//                       z floor brightening under the broad god-ray beams (0..1), w anti-repeat: blend of a second,
+//                       rotated lookup of the 32 m caustic tile through a ≈ 40 m noise mask (0 = off)
+//   uUwShaftOcc  vec4   god-ray occlusion by geometry: x strength (0..1), y depth bias, z lateral blur (m) per
+//                       metre below the surface, w half-size (m) of the occlusion map box (rendered once per shot
+//                       from the refracted sun with three's shadow machinery; tUwShaft / uUwShaftM, runtime)
 //   uUwAmbTint   vec3   multiplies the IBL (sky) on surfaces under water
 //   uUwSunSurf   float  multiplies the direct sun on surfaces under water
 //   uUwSkyColor  vec3   sky radiance seen through Snell's window (background fallback)
@@ -94,18 +101,20 @@ export const UW = {
   uUwSurface: { value: SUNKEN.surface },
   uUwDome: { value: 1.2 },
   uUwDomeWave: { value: 0.5 },
-  uUwSigma: { value: new THREE.Vector3(0.042, 0.025, 0.022) },
-  uUwKd: { value: new THREE.Vector3(0.020, 0.013, 0.011) },
-  uUwKdScat: { value: new THREE.Vector3(0.034, 0.020, 0.016) },
-  uUwKdSun: { value: new THREE.Vector3(0.0105, 0.0092, 0.0088) },
-  uUwAmbColor: { value: new THREE.Vector3(0.045, 0.42, 0.72) },
-  uUwSunScatter: { value: new THREE.Vector3(0.0026, 0.0170, 0.0260) },
-  uUwPhase: { value: new THREE.Vector2(0.72, 0.6) },
-  uUwShaft: { value: new THREE.Vector4(1.5, 3.2, 30, 2.5) },
-  uUwShaft2: { value: new THREE.Vector4(1.6, 2.0, 0.35, 0) },
-  uUwCaustic: { value: new THREE.Vector4(1.15, 0.4, 80, 0.015) },
-  uUwCaustic2: { value: new THREE.Vector4(0.0012, 0.0005, 0, 0) },
-  uUwAmbTint: { value: new THREE.Vector3(0.84, 0.94, 1.0) },
+  uUwSigma: { value: new THREE.Vector3(0.0095, 0.006, 0.005) }, // r2 (look-sunken)
+  uUwFar: { value: new THREE.Vector4(150, 0, 0, 0) }, // r2 (look-sunken)
+  uUwKd: { value: new THREE.Vector3(0.005, 0.0042, 0.004) }, // r2 (look-sunken)
+  uUwKdScat: { value: new THREE.Vector3(0.03, 0.018, 0.014) }, // r2 (look-sunken)
+  uUwKdSun: { value: new THREE.Vector3(0.0045, 0.004, 0.004) }, // r2 (look-sunken)
+  uUwAmbColor: { value: new THREE.Vector3(0.004, 0.28, 0.85) }, // r2 (look-sunken)
+  uUwSunScatter: { value: new THREE.Vector3(0.006, 0.045, 0.08) }, // r2 (look-sunken)
+  uUwPhase: { value: new THREE.Vector2(0.8, 0.7) }, // r2 (look-sunken)
+  uUwShaft: { value: new THREE.Vector4(2.8, 7.0, 70, 4.0) }, // r2 (look-sunken)
+  uUwShaft2: { value: new THREE.Vector4(1.2, 2.0, 0.35, 0) }, // r2 (look-sunken)
+  uUwCaustic: { value: new THREE.Vector4(1.3, 0.2, 140, 0.015) }, // r2 (look-sunken): deeper reach (refs 7, 8: sand caustics at depth)
+  uUwCaustic2: { value: new THREE.Vector4(0.0012, 0.0005, 0.35, 1) }, // r2 (look-sunken)
+  uUwShaftOcc: { value: new THREE.Vector4(1, 0.0004, 0.01, 170) }, // r2 (look-sunken)
+  uUwAmbTint: { value: new THREE.Vector3(1.4, 1.45, 1.5) }, // r2 (look-sunken)
   uUwSunSurf: { value: 1.0 },
   uUwSkyColor: { value: new THREE.Vector3(1.6, 2.4, 3.0) },
   uUwSteps: { value: 16 },
@@ -121,10 +130,13 @@ export const UW = {
   uUwTile: { value: UW_TILE },
   uUwMapRes: { value: 1024 },
   uUwPixAngle: { value: 0.001 },
+  tUwShaft: { value: null },
+  uUwShaftM: { value: new THREE.Matrix4() },
+  uUwShaftOn: { value: 0 },
 };
 
 // set at runtime (engine / install), never snapshotted or overridden per shot
-export const UW_RUNTIME = new Set(['uUwTime', 'uUwFrame', 'uUwSunDir', 'uUwSunIrr', 'tUwCaustic', 'uUwSlices', 'uUwTile', 'uUwMapRes', 'uUwPixAngle']);
+export const UW_RUNTIME = new Set(['uUwTime', 'uUwFrame', 'uUwSunDir', 'uUwSunIrr', 'tUwCaustic', 'uUwSlices', 'uUwTile', 'uUwMapRes', 'uUwPixAngle', 'tUwShaft', 'uUwShaftM', 'uUwShaftOn']);
 
 // ------------------------------------------------------------------------------------------------ GLSL
 // surface waves (also used by the caustic-map pass and the meniscus); the water agent may use them for
@@ -165,6 +177,7 @@ uniform float uUwSurface;
 uniform float uUwDome;
 uniform float uUwDomeWave;
 uniform vec3 uUwSigma;
+uniform vec4 uUwFar;
 uniform vec3 uUwKd;
 uniform vec3 uUwKdScat;
 uniform vec3 uUwKdSun;
@@ -187,6 +200,10 @@ uniform vec4 uUwSlices;         // refracted path length (m) of each slice
 uniform float uUwTile;
 uniform float uUwMapRes;
 uniform float uUwPixAngle;      // radians per pixel (footprint → mip level)
+uniform vec4 uUwShaftOcc;
+uniform highp sampler2DShadow tUwShaft;   // god-ray occlusion depth map (orthographic, from the refracted sun)
+uniform mat4 uUwShaftM;
+uniform float uUwShaftOn;
 
 float uwHash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float uwHash13(vec3 p3){ p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
@@ -222,6 +239,26 @@ vec4 uwSliceW(float d, out float w0){
   if (d <= D.w) { float t = (l - log(D.z)) / (log(D.w) - log(D.z)); return vec4(0.0, 0.0, 1.0 - t, t); }
   return vec4(0.0, 0.0, 0.0, 1.0);
 }
+// broad god-ray beams at the surface entry point q (low-frequency focusing by the long swell, value noise
+// drifting with time), mean ≈ 1
+float uwBeams(vec2 q){
+  float sc = 1.0 / uUwShaft.y;
+  vec2 drift = vec2(0.31, 0.17) * uUwTime * uUwShaft2.z;
+  float n = 0.62 * uwNoise2(q * sc + drift) + 0.38 * uwNoise2(q * sc * 2.37 - drift * 1.7 + 11.3);
+  return n * n * n * n * 9.5;                                 // E[n^4] ≈ 0.105 for this blend
+}
+// visibility of the (refracted) sun from a point in the water: occlusion by geometry (bridge arch, temple,
+// columns...) from the per-shot depth map; jitter r (m) blurs the shaft edges (sun disk + forward scattering)
+float uwSunVis(vec3 x, vec2 jit){
+  if (uUwShaftOn < 0.5 || uUwShaftOcc.x <= 0.0) return 1.0;
+  float z = max(uUwSurface - x.y, 0.0);
+  x.xz += jit * (uUwShaftOcc.z * z);
+  vec4 c = uUwShaftM * vec4(x, 1.0);
+  vec3 s = c.xyz / c.w;
+  if (s.x < 0.0 || s.y < 0.0 || s.x > 1.0 || s.y > 1.0 || s.z > 1.0) return 1.0;
+  float v = texture(tUwShaft, vec3(s.xy, s.z - uUwShaftOcc.y));
+  return 1.0 - uUwShaftOcc.x * (1.0 - v);
+}
 // caustic multiplier on a lit surface at P (mean ≈ 1): the splatted caustic map at the refracted path
 // length, blurred by the sun disk (≈ 0.0035 rad in water) and by the pixel footprint; slight dispersion
 vec3 uwCaustics(vec3 P){
@@ -238,8 +275,19 @@ vec3 uwCaustics(vec3 P){
   vec2 dsp = normalize(sw.xz + vec2(1e-5)) * (uUwCaustic2.y * d / uUwTile);
   vec4 cr = textureLod(tUwCaustic, p + dsp, lod), cg = textureLod(tUwCaustic, p, lod), cb = textureLod(tUwCaustic, p - dsp, lod);
   vec3 I = vec3(dot(cr, w), dot(cg, w), dot(cb, w)) + w0;
+  if (uUwCaustic2.w > 0.0) {
+    // anti-repeat: a second lookup through a rotated (≈ 37°), rescaled lattice, swapped in by a ≈ 40 m mask
+    vec2 q = P.xz + sw.xz * d;
+    float m = smoothstep(0.32, 0.68, 0.65 * uwNoise2(q * 0.025 + 3.1) + 0.35 * uwNoise2(q * 0.061 - 7.7)) * uUwCaustic2.w;
+    vec2 p2 = mat2(0.8, -0.6, 0.6, 0.8) * p * 0.87 + vec2(0.37, 0.71);
+    vec4 c2r = textureLod(tUwCaustic, p2 + dsp, lod), c2g = textureLod(tUwCaustic, p2, lod), c2b = textureLod(tUwCaustic, p2 - dsp, lod);
+    I = mix(I, vec3(dot(c2r, w), dot(c2g, w), dot(c2b, w)) + w0, m);
+  }
   float f = uUwCaustic.x * exp(-z / uUwCaustic.z) * smoothstep(0.0, 1.0, z);
-  return max(mix(vec3(1.0), I, f), vec3(0.0));
+  vec3 C = max(mix(vec3(1.0), I, f), vec3(0.0));
+  // the broad god-ray beams land on the floor as large soft bright patches (same pattern as the shafts)
+  if (uUwCaustic2.z > 0.0) C *= max(1.0 + uUwCaustic2.z * exp(-z / uUwShaft.z) * (uwBeams(P.xz + sw.xz * d) - 1.0), 0.0);
+  return C;
 }
 
 // god-ray pattern at a point in the water: broad beams (low-frequency focusing by the long swell, value
@@ -248,10 +296,7 @@ vec3 uwCaustics(vec3 P){
 float uwShaft(vec3 x, float z, vec3 sw){
   float d = z / sw.y;
   vec2 q = x.xz + sw.xz * d;
-  float sc = 1.0 / uUwShaft.y;
-  vec2 drift = vec2(0.31, 0.17) * uUwTime * uUwShaft2.z;
-  float n = 0.62 * uwNoise2(q * sc + drift) + 0.38 * uwNoise2(q * sc * 2.37 - drift * 1.7 + 11.3);
-  float beams = n * n * n * n * 9.5;                        // E[n^4] ≈ 0.105 for this blend
+  float beams = uwBeams(q);
   float w0; vec4 w = uwSliceW(max(d, 0.25) * uUwShaft2.y, w0);
   float fil = dot(textureLod(tUwCaustic, q / uUwTile, uUwShaft.w), w) + w0;
   float fade = exp(-z / uUwShaft.z);
@@ -267,6 +312,8 @@ vec3 uwPhaseSun(vec3 dir, vec3 sw){
   return uUwSunScatter * uUwSunIrr * uwSunTransmit() * mix(1.0, hg, uUwPhase.y);
 }
 
+// view-path optical depth over s metres (linear + far term)
+vec3 uwTau(float s){ return uUwSigma * (s * (1.0 + (uUwFar.x > 0.0 ? s / uUwFar.x : 0.0))); }
 // the water medium on the segment a (near the eye) → b (far)
 vec3 uwMedium(vec3 col, vec3 a, vec3 b){
   vec3 V = b - a; float L = length(V);
@@ -276,20 +323,22 @@ vec3 uwMedium(vec3 col, vec3 a, vec3 b){
   vec3 sw = uwSunW();
   vec3 sunC = uwPhaseSun(dir, sw);
   float N = clamp(uUwSteps, 2.0, 24.0);
-  float j = uwHash13(vec3(b.xz * 7.31 + a.xy * 1.7, uUwFrame * 0.61803 + b.y * 3.1));
+  // per-pixel march offset: interleaved gradient noise (low-discrepancy across neighbours) + golden-ratio frame step
+  float j = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + uUwFrame * 0.61803399);
   vec3 acc = vec3(0.0), Tp = vec3(1.0);
   for (int i = 0; i < 24; i++) {
     if (float(i) >= N) break;
     float f1 = (float(i) + 1.0) / N;
     float fm = (float(i) + j) / N;
-    vec3 T1 = exp(-uUwSigma * (Lc * f1 * f1));
+    vec3 T1 = exp(-uwTau(Lc * f1 * f1));
     vec3 x = a + dir * (Lc * fm * fm);
     float z = max(uUwSurface - x.y, 0.0);
-    vec3 src = uUwAmbColor * exp(-uUwKdScat * z) + sunC * exp(-uUwKdSun * (z / sw.y)) * uwShaft(x, z, sw);
+    vec2 jt = vec2(uwHash13(vec3(x.zx * 3.1, j * 17.0 + float(i))), uwHash13(vec3(x.xy * 2.3, j * 29.0 - float(i)))) * 2.0 - 1.0;
+    vec3 src = uUwAmbColor * exp(-uUwKdScat * z) + sunC * exp(-uUwKdSun * (z / sw.y)) * uwShaft(x, z, sw) * uwSunVis(x, jt);
     acc += src * (Tp - T1);
     Tp = T1;
   }
-  return col * exp(-uUwSigma * L) + acc;
+  return col * exp(-uwTau(L)) + acc;
 }
 
 // is the (dome-port) origin of a view ray under the wavy surface?
@@ -551,6 +600,7 @@ class CausticMap {
     r.setRenderTarget(prevRT);
     r.shadowMap.enabled = prevSM;
     this.time = UW.uUwTime.value;
+    this.focus = UW.uUwCaustic.value.y;
   }
 }
 
@@ -627,7 +677,7 @@ export function installUnderwater(engine, deps) {
     setTime(t) {
       UW.uUwTime.value = t;
       if (snow) snow.material.uniforms.uSnowT.value = t;
-      if (cmap && cmap.time !== t) cmap.render();
+      if (cmap && (cmap.time !== t || cmap.focus !== UW.uUwCaustic.value.y)) cmap.render();
     },
     /** after lighting.update(): refract the (jittered) CSM light direction; LENS follows when under water */
     afterLightUpdate() {
@@ -654,7 +704,8 @@ export function installUnderwater(engine, deps) {
       UW.uUwSunIrr.value.set(SUN.color.r, SUN.color.g, SUN.color.b).multiplyScalar(SUN.intensity);
       placeSnow();
       UW.uUwPixAngle.value = (2 * Math.tan((engine.camera.fov * Math.PI) / 360)) / engine.height;
-      if (cmap.time !== UW.uUwTime.value) cmap.render();
+      if (cmap.time !== UW.uUwTime.value || cmap.focus !== UW.uUwCaustic.value.y) cmap.render();   // per-shot focus
+      shaftDirty = true;
       const cam = engine.camera;
       const nearSurf = Math.abs(cam.position.y - UW.uUwSurface.value) < UW.uUwDome.value * 1.5 && UW.uUwMeniscus.value.w > 0;
       engine.pipeline.hdrHook = nearSurf ? meniscusPass : null;
@@ -668,6 +719,58 @@ export function installUnderwater(engine, deps) {
   const cmap = new CausticMap(engine.renderer, hiQ ? 2048 : 1024, hiQ ? 640 : 384);
   UW.uUwSteps.value = hiQ ? 24 : 16;   // medium ray-march steps (per-pixel jitter converges with spp)
   cmap.render();
+
+  // -------- god-ray occlusion map: an orthographic depth map from the refracted sun over a box ahead of the
+  // camera, rendered ONCE per shot with three's own shadow machinery (alpha-tested cutouts, instancing and
+  // batching handled; only castShadow objects occlude). Called from inside the main render (a hook object drawn
+  // first) because WebGLShadowMap needs the renderer's current render state.
+  const shaftLight = new THREE.DirectionalLight(0xffffff, 0);
+  shaftLight.castShadow = true;
+  const sres = hiQ ? 4096 : 2048;
+  shaftLight.shadow.mapSize.set(sres, sres);
+  shaftLight.shadow.bias = 0; shaftLight.shadow.normalBias = 0;
+  shaftLight.shadow.autoUpdate = true;
+  let shaftDirty = true;
+  function placeShaft() {
+    const cam = engine.camera;
+    const R = UW.uUwShaftOcc.value.w;
+    const fwd = new THREE.Vector3(); cam.getWorldDirection(fwd);
+    fwd.y = 0; if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize();
+    const F = cam.position.clone().addScaledVector(fwd, R * 0.62);
+    F.y = Math.min(F.y, UW.uUwSurface.value);
+    const d = ATMO.uSunDir.value.clone().normalize(); d.y = Math.max(d.y, 0.02); d.normalize();
+    const sw = refract(d.clone().negate(), 1 / 1.333).negate();     // toward the sun, under water
+    const up = (UW.uUwSurface.value + 40 - F.y) / Math.max(sw.y, 0.1);
+    shaftLight.position.copy(F).addScaledVector(sw, up);
+    shaftLight.target.position.copy(F);
+    shaftLight.updateMatrixWorld(true); shaftLight.target.updateMatrixWorld(true);
+    const c = shaftLight.shadow.camera;
+    c.left = -R; c.right = R; c.top = R; c.bottom = -R; c.near = 1; c.far = up + 320 / Math.max(sw.y, 0.1);
+    c.updateProjectionMatrix();
+  }
+  const hookGeo = new THREE.BufferGeometry();
+  hookGeo.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 0], 3));
+  const hookMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, depthTest: false, fog: false });
+  hookMat.userData.uwSkip = true;
+  const hook = new THREE.Mesh(hookGeo, hookMat);
+  hook.name = 'uwShaftHook'; hook.frustumCulled = false; hook.renderOrder = -1e9;
+  hook.castShadow = false; hook.receiveShadow = false; hook.userData.noPatch = true;
+  hook.onBeforeRender = (renderer, scene, camera) => {
+    if (!shaftDirty || scene !== engine.scene || UW.uUwShaftOcc.value.x <= 0) return;
+    shaftDirty = false;
+    try {
+      placeShaft();
+      const sm = renderer.shadowMap;
+      const au = sm.autoUpdate, nu = sm.needsUpdate;
+      sm.autoUpdate = true;
+      sm.render([shaftLight], scene, camera);
+      sm.autoUpdate = au; sm.needsUpdate = nu;
+      UW.tUwShaft.value = shaftLight.shadow.map.depthTexture;
+      UW.uUwShaftM.value.copy(shaftLight.shadow.matrix);
+      UW.uUwShaftOn.value = 1;
+    } catch (e) { console.warn('[underwater] shaft occlusion map failed', e); UW.uUwShaftOn.value = 0; }
+  };
+  engine.scene.add(hook);
 
   // -------- background
   const bgMat = new THREE.ShaderMaterial({
@@ -716,12 +819,12 @@ export function installUnderwater(engine, deps) {
         vec3 sw = uwSunW();
         vec3 V = normalize(vSnowWP - cameraPosition);
         // particle radiance: forward-scattered sun (bright toward the sun, inside shafts) + ambient
-        vec3 sun = uwPhaseSun(V, sw) * exp(-uUwKdSun * (z / sw.y)) * uwShaft(vSnowWP, z, sw) * 22.0;
+        vec3 sun = uwPhaseSun(V, sw) * exp(-uUwKdSun * (z / sw.y)) * uwShaft(vSnowWP, z, sw) * uwSunVis(vSnowWP, vec2(0.0)) * 22.0;
         vec3 amb = uUwAmbColor * exp(-uUwKdScat * z) * 2.2;
         vec3 col = (sun + amb) * uUwSnowV.x * mix(0.6, 1.4, vRnd);
         // additive: the medium in-scatter in front of the particle is already in the background,
         // so only the particle's own light, attenuated along the view path, is added
-        col *= exp(-uUwSigma * length(vSnowWP - cameraPosition));
+        col *= exp(-uwTau(length(vSnowWP - cameraPosition)));
         gl_FragColor = vec4(col * a, 0.0);
       }`,
     transparent: true, depthWrite: false, depthTest: true,

@@ -7,7 +7,7 @@ import { proceduralMaterial, cached } from '../core/materials.js';
 import { RNG } from '../core/rng.js';
 import { Simplex } from '../core/noise.js';
 
-const NAVY = [10, 24, 86], NAVY2 = [22, 46, 128], WHITE = [232, 226, 210], RED = [168, 38, 26], GOLD = [222, 166, 58], BLACK = [26, 26, 30];
+const NAVY = [18, 40, 128], NAVY2 = [34, 70, 170], WHITE = [238, 232, 216], RED = [178, 44, 30], GOLD = [232, 176, 60], BLACK = [26, 26, 34];
 
 function tridentShape(x, y) { // x,y in [-1,1] of the roundel; returns true inside the trident glyph
   const ax = Math.abs(x);
@@ -114,7 +114,7 @@ export function mosaicMaterial(sunken) {
       color: `diffuseColor.rgb *= 0.92 + 0.12 * cgVnoise2(cgP.xz * 1.3);`,
     });
     m.userData.sunken = 'stone';
-    m.userData.sunkenAmount = 0.55;
+    m.userData.sunkenAmount = 0.3;   // ref 8: the medallion reads crisp (sand only drifts against its rim)
     return m;
   });
 }

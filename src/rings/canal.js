@@ -176,6 +176,35 @@ export function buildCanal(ctx) {
       box(R, F, s0, s1, yT - 2.2, yT - 1.5, -0.2, 0.03, tone(rng, 0.05), FACES.pz | FACES.py | FACES.ny);
       W.aux = [0, 0.3, 0, AUX_ASHLAR(0.72)];
       chamferBox(W, F, s0 - 0.6, s0 + 0.6, quayY, yT - 0.75, -0.2, 0.25, lod <= 1 ? 0.04 : 0, tone(rng, 0.04), FACES.pz | FACES.px | FACES.nx);
+      // r2 (ref 2): blind arcade on the embankment face — red arched panels in moulded frames, gilt keystones
+      if (lod <= 1) {
+        const ar = Math.min(2.1, bl / 2 - 1.0), sc = sm, ya = quayY + 2.5, ysA = yT - 2.55 - ar;
+        if (ysA > ya + 0.8) {
+          R.aux = [0.3, 0, 0, AUX_ASHLAR(0.6)];
+          R.quadToward(F.p(sc - ar, ya, 0.012), F.p(sc + ar, ya, 0.012), F.p(sc + ar, ysA, 0.012), F.p(sc - ar, ysA, 0.012), [0.85, 0.85, 0.85], F.az);
+          const na = lod === 0 ? 10 : 6;
+          for (let i = 0; i < na; i++) {
+            const a0 = (Math.PI * i) / na, a1 = (Math.PI * (i + 1)) / na;
+            R.polyToward([F.p(sc, ysA, 0.012), F.p(sc + Math.cos(a0) * ar, ysA + Math.sin(a0) * ar, 0.012), F.p(sc + Math.cos(a1) * ar, ysA + Math.sin(a1) * ar, 0.012)], [0.85, 0.85, 0.85], F.az);
+          }
+          R.aux = [0, 0, 0, 0];
+          W.aux = [0, 0.4, 0, 0];
+          box(W, F, sc - ar - 0.4, sc - ar, ya - 0.2, ysA, 0, 0.16, tone(rng, 0.04), FACES.pz | FACES.px | FACES.nx | FACES.py);
+          box(W, F, sc + ar, sc + ar + 0.4, ya - 0.2, ysA, 0, 0.16, tone(rng, 0.04), FACES.pz | FACES.px | FACES.nx | FACES.py);
+          box(W, F, sc - ar - 0.55, sc + ar + 0.55, ya - 0.42, ya - 0.2, 0, 0.22, tone(rng, 0.04), FACES.pz | FACES.py | FACES.px | FACES.nx);
+          const nv = lod === 0 ? 11 : 7, ring = 0.4;
+          for (let i = 0; i < nv; i++) {
+            const a0 = Math.PI - (Math.PI * i) / nv, a1 = Math.PI - (Math.PI * (i + 1)) / nv, key = i === (nv - 1) / 2;
+            const B = key ? S.get('gilt', p[0], p[2]) : W, R1 = ar + ring * (key ? 1.4 : 1), dF = key ? 0.24 : 0.16;
+            const P = (a, rr, d) => F.p(sc + Math.cos(a) * rr, ysA + Math.sin(a) * rr, d);
+            const ctr = F.p(sc, ysA, -0.5);
+            B.quadOut(P(a0, ar, dF), P(a1, ar, dF), P(a1, R1, dF), P(a0, R1, dF), key ? [1, 1, 1] : tone(rng, 0.04), ctr);
+            B.quadOut(P(a0, R1, dF), P(a1, R1, dF), P(a1, R1, 0), P(a0, R1, 0), tone(rng, 0.04), ctr);
+            B.quadOut(P(a0, ar, 0), P(a1, ar, 0), P(a1, ar, dF), P(a0, ar, dF), [0.8, 0.78, 0.75], F.p(sc, ysA, 0.5));
+          }
+          W.aux = [0, 0, 0, 0];
+        }
+      }
       W.aux = [0, 0.2, 0, 0];
       sweep(W, F, s0, s1, P_CORNICE.map(([d, y]) => [d, y + yT - 0.75]), tone(rng, 0.03), k === 0 || k === nb - 1);
       // promenade paving at the top + balustrade at the edge
@@ -228,7 +257,9 @@ export function buildCanal(ctx) {
     }
     // stoas along the promenade (skip around the gate bridge towers)
     const gz = L.GATE_BRIDGE.z;
-    for (const [z0, z1] of [[zA + 16, gz - 26], [gz + 26, zB - 16]]) {
+    // r2: the near (south) stoas start well clear of the gate bridge so the arcaded side viaducts (deck 30,
+    // arches 18-24 over the quays) stay visible from the canal (refs 2, 7)
+    for (const [z0, z1] of [[zA + 16, gz - 26], [gz + 72, zB - 16]]) {
       if (z1 - z0 < 20) continue;
       stoa(ctx, sx, faceX + 6.0, z0, z1, yT);
       nStoa++;

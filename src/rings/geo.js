@@ -55,6 +55,17 @@ export class GeoBuilder {
     const i0 = this._v(a, nx, ny, nz, col), i1 = this._v(b, nx, ny, nz, col), i2 = this._v(c, nx, ny, nz, col), i3 = this._v(d, nx, ny, nz, col);
     this._i3(i0, i1, i2); this._i3(i0, i2, i3);
   }
+  /** quad with explicit per-vertex normals + optional per-vertex aux (smooth-shaded rock); wound to face `dir` */
+  quadSmooth(P4, N4, col, A4, dir) {
+    const [a, b, , d] = P4;
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = d[0] - a[0], wy = d[1] - a[1], wz = d[2] - a[2];
+    const nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    const order = nx * dir[0] + ny * dir[1] + nz * dir[2] >= 0 ? [0, 1, 2, 3] : [3, 2, 1, 0];
+    const save = this.aux, idx = [];
+    for (const i of order) { if (A4) this.aux = A4[i]; const n = N4[i]; idx.push(this._v(P4[i], n[0], n[1], n[2], col)); }
+    this.aux = save;
+    this._i3(idx[0], idx[1], idx[2]); this._i3(idx[0], idx[2], idx[3]);
+  }
   poly(pts, col) { for (let i = 1; i < pts.length - 1; i++) this.tri(pts[0], pts[i], pts[i + 1], col); }
   /** quad oriented to face away from `center` */
   quadOut(a, b, c, d, col, center) {

@@ -161,7 +161,7 @@ export function gateTower(kit, o) {
   const R = T.R ?? Lmin * 0.38;
   let tip = yTop + parH;
   if (!o.fallenTop) {
-    tip = tholosTop(kit, cx, yTop + 0.15, cz, R, { n: T.n ?? 12, colH: T.colH ?? R * 0.72, domeH: T.domeH, tridentH: T.tridentH ?? R * 0.62, tridentBroken: o.tridentBroken, missing: o.missingCols, trident: T.trident, stepF: T.stepF, entF: T.entF, knobF: T.knobF, drumH: T.drumH });
+    tip = tholosTop(kit, cx, yTop + 0.15, cz, R, { n: T.n ?? 12, colH: T.colH ?? R * 0.72, domeH: T.domeH, tridentH: T.tridentH ?? R * 0.62, tridentBroken: o.tridentBroken, missing: o.missingCols, trident: T.trident, tridentThick: T.tridentThick, stepF: T.stepF, entF: T.entF, knobF: T.knobF, drumH: T.drumH });
     if (kit.sunken) for (let i = 0; i < 4; i++) { const a = i * PI / 2 + 0.4; kit.coralAt(cx + Math.sin(a) * R * 1.02, yTop + 0.3, cz + Math.cos(a) * R * 1.02, Math.sin(a), 0.6, Math.cos(a), 0.6, 'tholos-step'); }
   }
   if (kit.sunken) {

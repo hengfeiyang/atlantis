@@ -19,11 +19,11 @@ export function districts() {
   const w1b = L.RING_BRIDGES.find((b) => b.ring === 'w1').bearings, w2b = L.RING_BRIDGES.find((b) => b.ring === 'w2').bearings, w3b = L.RING_BRIDGES.find((b) => b.ring === 'w3').bearings;
   return [
     { id: 'l1', r0: l1.r0 + 15, r1: l1.r1 - 15, streets: [{ r: (l1.r0 + l1.r1) / 2, hw: 7, avenue: true }], spacing: 46,
-      main: [...new Set([...w1b, ...w2b])].filter((b) => b !== 180), style: { flat: 0.72, storeys: [2, 3], big: 1.12, classical: 1.9, kiosk: 0.12 }, lot: { w: [10, 18], d: [14, 21] }, keep: 1.0 },
+      main: [...new Set([...w1b, ...w2b])].filter((b) => b !== 180), style: { flat: 0.72, storeys: [2, 3], big: 1.12, classical: 1.9, kiosk: 0.24 }, lot: { w: [10, 18], d: [14, 21] }, keep: 1.0 },
     { id: 'l2', r0: l2.r0 + 15, r1: l2.r1 - 15, streets: [{ r: 634, hw: 3.2 }, { r: 690, hw: 7, avenue: true }, { r: 748, hw: 3.2 }], spacing: 44,
-      main: [...new Set([...w2b, ...w3b])], style: { flat: 0.72, storeys: [2, 3], big: 1.0, classical: 1.3, kiosk: 0.08 }, lot: { w: [9, 17], d: [13, 21] }, keep: 1.0 },
+      main: [...new Set([...w2b, ...w3b])], style: { flat: 0.72, storeys: [2, 3], big: 1.0, classical: 1.3, kiosk: 0.18 }, lot: { w: [9, 17], d: [13, 21] }, keep: 1.0 },
     { id: 'outer', r0: L.OUTER_CITY.r0 + 16, r1: L.OUTER_CITY.r1 - 20, every: 66, spacing: 56, main: [...w3b, 30, 330, 60, 300, 90, 270],
-      sector: [L.SEA_SECTOR[1] + 9, L.SEA_SECTOR[0] + 360 - 9], style: { flat: 0.55, storeys: [1, 2], big: 0.95, classical: 0.7, kiosk: 0.03 }, lot: { w: [10, 20], d: [13, 22] }, keep: 0.85 },
+      sector: [L.SEA_SECTOR[1] + 9, L.SEA_SECTOR[0] + 360 - 9], style: { flat: 0.55, storeys: [1, 2], big: 0.95, classical: 0.7, kiosk: 0.06 }, lot: { w: [10, 20], d: [13, 22] }, keep: 0.85 },
   ];
 }
 
@@ -172,8 +172,8 @@ export class CityPlan {
 
   pickLandmarks(D, blocks, rng) {
     const want = D.id === 'l1'
-      ? { tholos: 9, temple: 4, hall: 3, palace: 3, gym: 1, tower: 8, arcade: 3 }
-      : D.id === 'l2' ? { tholos: 12, temple: 6, hall: 4, palace: 3, gym: 2, tower: 14, arcade: 5 }
+      ? { tholos: 11, temple: 4, hall: 3, palace: 3, gym: 1, tower: 13, arcade: 3 }   // r2: more gold domes / towers (ref 1)
+      : D.id === 'l2' ? { tholos: 15, temple: 6, hall: 4, palace: 3, gym: 2, tower: 20, arcade: 5 }
       : { tholos: 6, temple: 6, hall: 2, palace: 2, gym: 1, tower: 8, arcade: 1 };
     // pinned bearings: what the shot compositions want to see (ref 5 / ref 4 / ref 1)
     const pins = D.id === 'l1' ? [['tholos', 128, 'outer'], ['hall', 150, 'outer'], ['tholos', 165, 'inner'], ['palace', 110, 'inner'], ['tholos', 40, 'outer'], ['hall', 20, 'outer'], ['tholos', 300, 'inner'], ['temple', 212, 'outer'], ['tower', 154, 'inner', 355], ['arcade', 170, 'inner'], ['tower', 146, 'outer'], ['tower', 55, 'outer'], ['tower', 8, 'outer'], ['tholos', 70, 'outer']]

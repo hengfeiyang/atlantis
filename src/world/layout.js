@@ -8,7 +8,7 @@
 export const SEA_LEVEL = 0;
 
 export const SUNKEN = {
-  surface: 78,          // sea surface in the sunken era: temple ridge ≈ 75 sits 3 m under it, the 5 m ridge tridents / pinnacles break it (ref 9). r1: 64 → 78
+  surface: 87,          // sea surface in the sunken era. r2 (director): 78 → 87 — ref 9 solved: eye at the surface ≈ 11 m above the temple ridge (≈ 76), i.e. the temple roof is well under water and seen from above (docs/COMPOSITION.md). r1: 64 → 78
   sandLevelRings: -4,   // sand has filled the water rings up to about this height (with drifts)
   visibility: 80,       // m: horizontal visibility (art target; core/underwater.js owns the actual coefficients)
 };
@@ -49,8 +49,8 @@ export const SEA_CANAL = { x: 0, width: 70, floor: -10, z0: 300, z1: 1060 };
 export const GATE_BRIDGE = { z: 690, deck: 30, arch: { span: 56, rise: 26 }, towers: { offset: 52, height: 58 } }; // ref 2 / ref 7
 export const CANAL_TUNNEL = { z0: 300, z1: 440, clear: 22 };          // through land ring 1
 export const MOLES = [
-  { side: -1, from: [-55, 820], to: [-55, 1050], lighthouse: [-55, 1050] },
-  { side: 1, from: [55, 820], to: [55, 1050], lighthouse: [55, 1050] },
+  { side: -1, from: [-55, 820], to: [-55, 930], lighthouse: [-55, 930] },   // r2 (director): 1050 → 930, ref 1 lighthouses stand just off the outer ring (shot-1 solve)
+  { side: 1, from: [55, 820], to: [55, 930], lighthouse: [55, 930] },
 ];
 
 // Ring bridges (arched, gate tower at each end) cross the water rings at these compass bearings.
@@ -62,17 +62,26 @@ export const RING_BRIDGES = [
 ];
 
 // ------------------------------------------------------------------ citadel buildings
+// r2 (director): width 46 → 54, length 92 → 100, centre z -12 → -16 (front podium face stays at z 34, front columns
+// at z ≈ 19.6). Refs 3/6/9 solved: column height / facade width ≈ 0.31 (ours was 0.38) — rms 27 → 11 px.
 export const TEMPLE = {                // Temple of Poseidon (ref 3): front faces SOUTH toward the stair
-  center: [0, CITADEL.summit, -12], heading: 180, width: 46, length: 92, podium: 6, height: 24,
+  center: [0, CITADEL.summit, -16], heading: 180, width: 54, length: 100, podium: 6, height: 24,
 };
-export const CHARIOT = { pos: [0, CITADEL.summit, 56], heading: 180, pedestal: 7 };   // Poseidon + 6 winged horses (ref 3)
-export const NEREIDS = { center: [0, CITADEL.summit, 56], radius: 24, count: 8 };      // Nereids on dolphins around the chariot
+export const CHARIOT = { pos: [0, CITADEL.summit, 46], heading: 180, pedestal: 7 };   // Poseidon + 6 winged horses (ref 3). r2: z 56 → 46 (closer to the temple stair: the group overlaps the lower colonnade from the shot-3 landing camera)
+// r2 (director): 5 Nereids (no basin on the axis in front of the pedestal: refs 3/6 show two at each front corner)
+export const NEREIDS = { center: [0, CITADEL.summit, 47], radius: 24, count: 5 };      // Nereids on dolphins around the chariot
 export const FOUNTAINS = [                                                              // hot (steaming) and cold springs
-  { id: 'hot', pos: [-30, CITADEL.summit, 78], radius: 9 },
-  { id: 'cold', pos: [30, CITADEL.summit, 78], radius: 9 },
+  { id: 'hot', pos: [-26, CITADEL.summit, 62], radius: 8 },                             // r2: (±30, 78) r 9 → (±26, 62) r 8, flanking the pedestal (ref 3)
+  { id: 'cold', pos: [26, CITADEL.summit, 62], radius: 8 },
 ];
 export const COLOSSUS = { pos: [0, CITADEL.summit, -78], height: 30, pedestal: 22, heading: 180 }; // Poseidon with trident behind the temple (refs 1, 5)
-export const CITADEL_STAIR = { x: 0, width: 34, from: [0, CITADEL.summit, 110], to: [0, CITADEL.quayY, 226] }; // grand stair down the south face (ref 3 camera stands on it)
+export const CITADEL_STAIR = { x: 0, width: 34, from: [0, 50, 97], to: [0, CITADEL.quayY, 226] }; // grand stair down the south face. r2: starts on the raised stair-head landing (STAIR_HEAD), was [0, 45, 110]
+// r2 (director): raised stair head (refs 3 / 6: the camera stands on a landing ABOVE the forecourt and looks down a short,
+// broad flight of steps into the court). Landing y 50 (5 m above the court) z 97 → 104 (the grand stair's top tread);
+// the north flight descends from the landing (z 97, y 50) to the court (z 79, y 45), same width as the grand stair.
+// heightfield.js raises the ground under both; the temple module builds the flight (request in docs/COMPOSITION.md).
+export const STAIR_HEAD = { x: 0, width: 34, y: 50, landing: [97, 104], flight: { from: [0, 50, 97], to: [0, CITADEL.summit, 79] } };
+export const FORECOURT = { rose: { center: [0, 72], radius: 6.5 } };   // r2: compass-rose mosaic between the front Nereids, in front of the pedestal (was hard-coded [0, 94])
 
 // ------------------------------------------------------------------ land ring features
 export const RACECOURSE = { ring: 'l2', bearing: 70, length: 320, width: 64 };
@@ -81,7 +90,7 @@ export const SHIP_SHEDS = [            // rock-cut arched sheds at water level (
   { ring: 'l1', face: 'outer', bearings: [200, 340] },
   { ring: 'l2', face: 'inner', bearings: [20, 100] },
 ];
-export const GARDEN_TERRACE = { ring: 'l1', bearing: 135, r: 302, deck: 28, size: [28, 18] };   // ref 5 viewpoint terrace: a garden bastion ON TOP of the l1 INNER wall (wallR 297.5, wall top 28), overlooking water ring 1 toward the citadel (r1: moved from l2, where the l1 wall blocked the view); size = [along the wall, radial]
+export const GARDEN_TERRACE = { ring: 'l1', bearing: 100, r: 302, deck: 28, size: [28, 18] };   // ref 5 viewpoint terrace: a garden bastion ON TOP of the l1 INNER wall (wallR 297.5, wall top 28), overlooking water ring 1 toward the citadel (r1: moved from l2, where the l1 wall blocked the view); size = [along the wall, radial]. r2 (director): bearing 135 → 100 so the w1-90 ring bridge recedes from the right of the shot-5 frame toward the citadel (ref 5)
 
 // ------------------------------------------------------------------ sunken-era features
 export const FALLEN_HEAD = { pos: [140, RINGS[1].top, 366], heading: 220, size: 9 };   // ref 8: head of the fallen colossus (≈ 9 m tall)
@@ -141,7 +150,7 @@ export const ISLETS = [
 // ------------------------------------------------------------------ ships (added by the ships agent)
 // hero trireme of shot 2 (ref 2): leaving the canal toward the camera, bow (eye) on the left of frame
 export const SHIPS = {
-  hero: { pos: [-16, 0, 862], heading: 185, heel: 0.015 },
+  hero: { pos: [-12, 0, 806], heading: 200, heel: 0.015 },   // r2 (director): shot-2 solve — mast ≈ 50 m ahead-left of the camera, bow toward the camera-left (ref 2)
   // ref 7 wreck pose (overrides WRECKS[0] pos/heading for the ships module): bow to the left, away from the shot-7 camera
-  wreck: { pos: [-11, 759], heading: 204, roll: -0.15, pitch: 0.14, lift: 0.5 },
+  wreck: { pos: [-15, 790], heading: 198, roll: -0.15, pitch: 0.14, lift: 0.5 },   // r2 (director): shot-7 solve — bow near-left, stern toward the left pier (ref 7)
 };

@@ -130,7 +130,7 @@ export function buildGateBridge(kit) {
     const tw = gateTower(kit, {
       x0: px0, x1: px1, z0: -zH, z1: zH, yDeck: deck, yTop: T.top,
       passage: { hw: 4.8, h: 12.5 }, gilt: true, banded: true, bannerFaces: ['+z', '-z'], seed: s > 0 ? 3 : 7, tag: 'gate-tower',
-      tholos: { R: 7.8, n: 12, colH: 5.2, domeH: 5.0, tridentH: 3.9, stepF: 0.028, entF: 0.8, knobF: 0.55, drumH: 1.2 }, midFrac: 0.5,
+      tholos: { R: 8.2, n: 12, colH: 8.2, domeH: 3.9, tridentH: 7.0, tridentThick: 1.6, stepF: 0.028, entF: 0.85, knobF: 0.6, drumH: 1.6 }, midFrac: 0.5,   // r2: ref 2 proportions (tall colonnade ≈ R, low dome, chunky trident)
       missingCols: sunken ? (i) => ruined(`${label}:col:${s}:${i}`, s > 0 ? 0.12 : 0.05) : null,
     });
     kit.registryTowers = kit.registryTowers || [];

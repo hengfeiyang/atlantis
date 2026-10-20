@@ -9,7 +9,7 @@ const HEAD = /* glsl */ `
 varying vec4 vSt;
 vec3 stoneTint(float s){
   float k = fract(s * 4.73);
-  vec3 c = k < 0.4 ? vec3(0.58, 0.52, 0.43) : k < 0.7 ? vec3(0.61, 0.54, 0.43) : k < 0.9 ? vec3(0.54, 0.50, 0.43) : vec3(0.61, 0.50, 0.36);
+  vec3 c = k < 0.4 ? vec3(0.66, 0.60, 0.50) : k < 0.7 ? vec3(0.68, 0.60, 0.47) : k < 0.9 ? vec3(0.62, 0.57, 0.49) : vec3(0.67, 0.55, 0.40); // r2: warmer, brighter (white-stone palette)
   return c * (0.92 + 0.14 * fract(s * 21.1));
 }
 `;

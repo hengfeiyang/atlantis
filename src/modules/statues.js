@@ -234,25 +234,26 @@ async function buildSmall(engine, reg, stats) {
     let rotY = L.headingToRotY(s.facing ?? 180) + rng.range(-0.15, 0.15);
     pv.set(...s.pos);
     let quat = q.setFromAxisAngle(Y, rotY);
+    const gilt = s.tag === 'pinnacle';                              // r2: gold figures on pinnacles / roof corners
     if (sunken) {
       if (ruined('statue:' + i, 0.3)) continue;                    // gone (buried / broken up)
-      if (ruined('statue-top:' + i, 0.35)) {                        // toppled off its pedestal, lying beside it
+      if (!gilt && ruined('statue-top:' + i, 0.35)) {                        // toppled off its pedestal, lying beside it
         const a = ruinRand('statue-top:' + i, 1) * Math.PI * 2;
         pv.set(s.pos[0] + Math.sin(a) * H * 0.6, s.pos[1] - 1.4, s.pos[2] + Math.cos(a) * H * 0.6);
         quat = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2 - 0.1, a, 0, 'YXZ'));
       }
     }
     const lod = screenPx(pv, H) > 140 ? 0 : 1;
-    const key = `${kind}|${lod}|${mirror ? 1 : 0}`;
+    const key = `${kind}|${lod}|${mirror ? 1 : 0}|${gilt ? 'g' : 'b'}`;
     if (!buckets.has(key)) buckets.set(key, []);
     m4.compose(pv, quat, sv.set(mirror ? -sc : sc, sc, sc));
     buckets.get(key).push(m4.clone());
     if (sunken && i % 2 === 0) engine.slots.coral.push({ pos: [pv.x, pv.y + H * 0.5, pv.z], normal: [0, 1, 0], size: 0.4, tag: 'small-statue' });
   }
-  const mat = statueMat(engine, 'body');
+  const mat = statueMat(engine, 'body'), goldMat = statueMat(engine, 'gold');
   let count = 0;
   for (const [key, list] of buckets) {
-    const [kind, lod, mir] = key.split('|');
+    const [kind, lod, mir, mk] = key.split('|');
     const g = await statueGeometry(`stat-small-${kind}-l${lod}`);
     // mirrored instances: negative-determinant instance matrices need flipped winding → separate geometry
     let geo = g;
@@ -262,7 +263,7 @@ async function buildSmall(engine, reg, stats) {
       for (let t = 0; t < src.length; t += 3) { ix[t] = src[t]; ix[t + 1] = src[t + 2]; ix[t + 2] = src[t + 1]; }
       geo.setIndex(new THREE.BufferAttribute(ix, 1));
     }
-    const im = new THREE.InstancedMesh(geo, mat, list.length);
+    const im = new THREE.InstancedMesh(geo, mk === 'g' ? goldMat : mat, list.length);
     list.forEach((m, k) => im.setMatrixAt(k, m));
     im.instanceMatrix.needsUpdate = true;
     im.computeBoundingSphere();
@@ -291,18 +292,21 @@ export async function build(engine) {
 export async function test(engine) {
   const C = L.CHARIOT;
   // stand-in pedestal so the group sits at its real height above the "plaza" (y = 0 here)
-  const ped = new THREE.Mesh(new THREE.BoxGeometry(30, C.pedestal, 18), new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.5 }));
-  ped.position.set(0, C.pedestal / 2, 0);
+  const PD = { w: 24, d: 15, h: 5.4 };   // = temple.js PED
+  const ped = new THREE.Mesh(new THREE.BoxGeometry(PD.w, PD.h, PD.d), new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.5 }));
+  ped.position.set(0, PD.h / 2, 0);
   engine.add(ped);
   const off = new THREE.Vector3(-C.pos[0], -L.CITADEL.summit, -C.pos[2]);
   // fake temple registry + slots relative to the origin
-  engine.registry.temple = { chariot: { pos: C.pos, top: L.CITADEL.summit + C.pedestal, w: 30, d: 18 } };
+  engine.registry.temple = { chariot: { pos: C.pos, top: L.CITADEL.summit + PD.h, w: PD.w, d: PD.d } };
   const before = new Set(engine.scene.children);
   const reg = (engine.registry.statues ||= {});
   const stats = { tris: 0 };
-  await buildChariot(engine, reg, stats);
+  const part = engine.params?.get?.('part');   // r2: 'nereid' → only the Nereids (quick look-dev)
+  if (part !== 'nereid') await buildChariot(engine, reg, stats);
   for (const [i, x] of [-26, -18, 18, 26].entries()) engine.slots.statue.push({ pos: [C.pos[0] + x, L.CITADEL.summit + 1.55, C.pos[2] + 22], facing: 180 + (x < 0 ? -30 : 30), tag: 'nereid' });
   await buildNereids(engine, reg, stats);
+  if (part === 'nereid') { for (const o of engine.scene.children) if (!before.has(o)) o.position.add(off); return { views: [{ pos: [-14, 5, 40], target: [-22, 5, 22], fov: 40, sun: { azimuth: 292, elevation: 14 } }, { pos: [-22, 4.5, 31], target: [-22, 4.2, 22], fov: 40, sun: { azimuth: 250, elevation: 25 } }] }; }
   engine.slots.statue.push({ pos: [C.pos[0] + 60, L.CITADEL.summit, C.pos[2] - 10], facing: 180, size: 30, tag: 'colossus' });
   for (let i = 0; i < 5; i++) engine.slots.statue.push({ pos: [C.pos[0] - 40 + i * 4, L.CITADEL.summit, C.pos[2] + 20], facing: 180, size: 3, tag: 'stair-pedestal' });
   await buildSmall(engine, reg, stats);

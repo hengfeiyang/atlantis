@@ -28,16 +28,17 @@ float cityRecAO = 1.0;
 vec3 cityPlaster(float s){
   float k = fract(s * 7.13);
   vec3 c;
-  if (k < 0.18) c = vec3(0.77, 0.74, 0.67);        // lime white (warm)
-  else if (k < 0.40) c = vec3(0.76, 0.69, 0.56);   // cream
-  else if (k < 0.54) c = vec3(0.72, 0.62, 0.46);   // warm ochre (muted: refs read white/cream)
-  else if (k < 0.65) c = vec3(0.72, 0.57, 0.45);   // pale peach
-  else if (k < 0.79) c = vec3(0.68, 0.61, 0.49);   // sand
-  else if (k < 0.87) c = vec3(0.64, 0.60, 0.53);   // grey-beige
-  else if (k < 0.95) c = vec3(0.74, 0.66, 0.47);   // soft yellow
-  else c = vec3(0.70, 0.57, 0.47);                 // terracotta pink
+  // r2 (arch-b): ref 1 reads bright white-cream — more lime white / cream, fewer grey-beige / sand houses
+  if (k < 0.32) c = vec3(0.79, 0.75, 0.67);        // lime white (warm)
+  else if (k < 0.56) c = vec3(0.78, 0.70, 0.56);   // cream
+  else if (k < 0.66) c = vec3(0.74, 0.63, 0.46);   // warm ochre (muted: refs read white/cream)
+  else if (k < 0.74) c = vec3(0.74, 0.58, 0.45);   // pale peach
+  else if (k < 0.83) c = vec3(0.72, 0.64, 0.50);   // sand
+  else if (k < 0.88) c = vec3(0.68, 0.63, 0.55);   // grey-beige
+  else if (k < 0.96) c = vec3(0.76, 0.67, 0.47);   // soft yellow
+  else c = vec3(0.72, 0.58, 0.47);                 // terracotta pink
   float j = fract(s * 31.7);
-  c *= 0.8 + 0.24 * j;
+  c *= 0.86 + 0.18 * j;
   return c;
 }
 vec3 cityShutter(float s){

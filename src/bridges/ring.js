@@ -134,7 +134,7 @@ export function buildRingBridge(kit, P) {
   const towerOpts = (id) => ({
     passage: { hw: 2.9, h: 6.8 }, gilt: false, banded: true, seed: hash3(P.bearing, id.length, 7) * 100,
     bannerFaces: ['+z', '-z'], tag: 'ring-tower',
-    tholos: { R: 4.1, n: 10, colH: 3.3, domeH: 1.9, tridentH: 2.4 },
+    tholos: { R: 4.4, n: 10, colH: 4.0, domeH: 2.1, tridentH: 3.4, tridentThick: 1.4 },
     tridentBroken: sunken && ruined(`${label}:trident:${id}`, 0.3),
     missingCols: sunken ? (i) => ruined(`${label}:col:${id}:${i}`, 0.15) : null,
     fallenTop: fallen === id,

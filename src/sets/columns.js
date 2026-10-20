@@ -38,6 +38,7 @@ function smooth(a, b, x) { const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
 /** drum spec → baked geometry (with bands) */
 export async function drumPiece(spec, q) {
   const s = { taper: 0.01, flutes: 0, chips: 4, cracks: 1, ...spec };
+  s.h = Math.round(s.h * 50) / 50; s.phase = Math.round((s.phase ?? 0) * 50) / 50; // stable bake names (ground heights move a little)
   const cell = (s.cell ?? Math.max(0.018, Math.min(0.04, s.r * 0.045))) * (q >= 1 ? 1 : 1.7);
   const name = `sets-drum-${s.seed}-${PIECE_GEN}-${hashSpec({ ...s, cell })}`;
   return loadOrBuild(name, () => paintBands(buildDrum({ ...s, cell }), { band: s.band ?? s.r * 1.7, phase: s.phase ?? 0, seed: s.bandSeed ?? 1 }));

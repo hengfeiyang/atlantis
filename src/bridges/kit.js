@@ -415,24 +415,25 @@ export function medallionZ(kit, x, y, zf, f, R, seed = 1) {
 
 // ------------------------------------------------------------------------------------------------ gold pieces
 /** 3D trident (gold) standing at (x, y, z), height h, its plane facing local z rotated by ry */
-export function trident(mb, x, y, z, h, ry = 0, broken = 0) {
+export function trident(mb, x, y, z, h, ry = 0, broken = 0, thick = 1) {
   mb.push(); mb.translate(x, y, z); mb.rotateY(ry);
-  const r = h * 0.028;
+  const r = h * 0.028 * thick;
   const top = broken ? h * 0.55 : h;
   lathe(mb, [[0, 0], [r * 2.2, 0, 0, 0, true], [r * 2.2, h * 0.05], [r * 1.2, h * 0.08], [r, h * 0.1], [r, top * 0.62], [r * 2.4, top * 0.64], [r * 2.4, top * 0.68], [r, top * 0.7], [r, top * 0.76], [0, top * 0.76]], 8, { aux: [0.1, 0, 0, 0] });
   if (!broken) {
-    const yb = h * 0.74, wd = h * 0.24;
+    // r2 (ref 2 / 7): U-shaped crossbar, long straight side prongs, taller centre prong — reads as a trident
+    // (not a "Y") from 150 m
+    const yb = h * 0.6, wd = h * 0.2, yu = h * 0.7, yp = h * 0.86;
     for (const s of [-1, 1]) {
       tube(mb, (t, o) => {
         const a = t * PI * 0.5;
-        o[0] = s * wd * Math.sin(a) * (1 + 0.15 * t); o[1] = yb + h * 0.03 + (1 - Math.cos(a)) * h * 0.08 + t * t * h * 0.12; o[2] = 0;
-      }, r * 0.85, 8, 6);
-      // side prong up to its tip
-      tube(mb, (t, o) => { o[0] = s * wd * 1.15; o[1] = yb + h * 0.03 + h * 0.2 + t * h * 0.02; o[2] = 0; }, r * 0.85, 1, 6);
-      tine(mb, s * wd * 1.15, yb + h * 0.23, h * 0.14, r, s);
+        o[0] = s * wd * Math.sin(a); o[1] = yb + (1 - Math.cos(a)) * (yu - yb); o[2] = 0;
+      }, r * 1.0, 8, 6);
+      tube(mb, (t, o) => { o[0] = s * wd; o[1] = yu + t * (yp - yu); o[2] = 0; }, r * 0.9, 1, 6);
+      tine(mb, s * wd, yp, h * 0.12, r, s);
     }
-    lathe(mb, [[r, yb], [r, h * 0.86], [0, h * 0.86]], 6);
-    tine(mb, 0, h * 0.85, h * 0.15, r, 0);
+    lathe(mb, [[r, yb], [r, h * 0.88], [0, h * 0.88]], 6);
+    tine(mb, 0, h * 0.87, h * 0.13, r, 0);
   }
   mb.pop();
 }
@@ -568,7 +569,7 @@ export function tholosTop(kit, cx, y, cz, R, o = {}) {
   lathe(g, [[R * 0.16, yk - 0.1], [R * 0.13, yk + kn * 0.04], [kn * 0.06, yk + kn * 0.1], [kn * 0.1, yk + kn * 0.14], [kn * 0.11, yk + kn * 0.2], [kn * 0.06, yk + kn * 0.26], [0, yk + kn * 0.28]], 12);
   g.pop();
   const yT = yD + yk + kn * 0.26;
-  if (o.trident !== false) trident(g, cx, yT, cz, o.tridentH ?? R * 0.6, o.tridentRy ?? 0, o.tridentBroken ? 1 : 0);
+  if (o.trident !== false) trident(g, cx, yT, cz, o.tridentH ?? R * 0.6, o.tridentRy ?? 0, o.tridentBroken ? 1 : 0, o.tridentThick ?? 1);
   return yT + (o.tridentH ?? R * 0.6);
 }
 

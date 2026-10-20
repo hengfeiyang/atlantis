@@ -310,6 +310,19 @@ export function poseidonTemple(o = {}) {
     }
     for (const s of [-1, 1]) {
       const c = run.p(s < 0 ? -fA - ovE * 0.4 : run.len + fA + ovE * 0.4, yTop + hR + simaH * 0.3, fA + ovE * 0.3);
+      if (id === 'back') {
+        // r2 (arch-b): back corners carry gold acroterion figures (refs 1, 5: gold statues on the roof corners)
+        // on a moulded marble plinth; the statues module fills the 'pinnacle' slots
+        mb.push(); mb.translate(c[0], c[1], c[2]); mb.rotateY(run.theta);
+        box(mb, [-0.85, 0, -0.85], [0.85, 0.9, 0.85], 0.04, [0.1, 0.6, 0.3, 0]);
+        box(mb, [-1.0, 0.9, -1.0], [1.0, 1.15, 1.0], 0.04, [0.1, 0.9, 0.3, 0]);
+        mb.pop();
+        mg.push(); mg.translate(c[0], c[1], c[2]); mg.rotateY(run.theta);
+        box(mg, [-0.87, 0.62, -0.87], [0.87, 0.72, 0.87], 0, [0.1, 0.4, 0, 0]);
+        mg.pop();
+        B.info.statues.push({ pos: [c[0], c[1] + 1.15, c[2]], dir: [run.out[0], 0, run.out[1]], size: 3.6, tag: 'pinnacle', type: 'kingSpear' });
+        continue;
+      }
       mg.push(); mg.translate(c[0], c[1], c[2]); mg.rotateY(run.theta);
       box(mg, [-0.6, 0, -0.6], [0.6, 0.5, 0.6], 0.04, [0.1, 0.6, 0, 0]);
       mg.translate(0, 0.5, 0); pinnacle(mg, 4.2, { trident: true, detail });

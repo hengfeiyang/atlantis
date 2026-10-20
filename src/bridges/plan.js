@@ -14,7 +14,7 @@ export const GATE = {
   z: G.z, deck: G.deck,
   span: G.arch.span, rise: G.arch.rise, spring: 3.0,
   halfDepth: 11,                                    // spandrel faces at z = G.z ± 11
-  tower: { w: 19, d: 24, inner: G.arch.span / 2, top: 45.0, height: G.towers.height },   // tower x ∈ ±[28, 47]
+  tower: { w: 21, d: 24, inner: G.arch.span / 2, top: 50.0, height: G.towers.height },   // tower x ∈ ±[28, 49]; r2: body top 45 → 50, tips ≈ 74 (< sunken surface 78)
   sideBays: 3, sideSpan: 12, sideSpring: 18, viaductEnd: 104, abutment: 6, stairEnd: 156, stairHalfW: 9,
   // NOTE: layout GATE_BRIDGE.towers.offset (52) ≈ the OUTER edge of the towers here (centre 39): the ref 2
   // proportions put each tower directly over the arch springing (tower width ≈ 0.43 span).
@@ -52,11 +52,12 @@ export function bridgePlan() {
       if (special) {
         // tower standing in w1 just off the citadel quay (the grand stair lands behind it); the outer end
         // abuts the curtain of land ring 1 above the canal-tunnel portal
-        towers.push({ x0: g.r0 + 2, x1: g.r0 + 2 + 12, halfW: 7, top: deck + 11 });
+        towers.push({ x0: g.r0 + 2, x1: g.r0 + 2 + 12, halfW: 7, top: deck + 13.5 });
         x0 = towers[0].x1; x1 = fOut - 4.5;
       } else {
-        towers.push({ x0: fIn - td, x1: fIn, halfW: tw / 2, top: Math.max(deck + 10.5, wIn + 4) });
-        towers.push({ x0: fOut, x1: fOut + td, halfW: tw / 2, top: Math.max(deck + 10.5, wOut + 4) });
+        // r2: gate towers clearly taller than the curtain they interrupt (l1 wall top 28, wall towers 37)
+        towers.push({ x0: fIn - td, x1: fIn, halfW: tw / 2, top: Math.max(deck + 14, wIn + 11.5) });
+        towers.push({ x0: fOut, x1: fOut + td, halfW: tw / 2, top: Math.max(deck + 14, wOut + 11.5) });
         x0 = fIn; x1 = fOut;
       }
       out.push({ id: `${rb.ring}-${b}`, ring: rb.ring, bearing: b, deck, rotY: Math.PI / 2 - (b * Math.PI) / 180, x0, x1, halfWidth: hw, towers, special,

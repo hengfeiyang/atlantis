@@ -191,7 +191,7 @@ const pick = (rng, table) => {
 };
 // base sizes (instance scale multipliers) per species
 // the city is scaled for camera reading (colossal statues, 5 m fountains): reef growth is scaled up with it
-const BASE = { finger: 2.3, brain: 2.0, table: 1.9, whorl: 2.4, staghorn: 2.3, bush: 2.6, softtree: 2.7, whip: 2.0, tube: 2.1, barrel: 1.8, lump: 2.0, anemone: 1.8, urchin: 1.5, fan: 2.4, grass: 1.15 };
+const BASE = { finger: 2.0, brain: 1.6, table: 1.6, whorl: 1.7, staghorn: 2.0, bush: 2.0, softtree: 2.1, whip: 1.8, tube: 1.8, barrel: 1.6, lump: 1.8, anemone: 1.6, urchin: 1.4, fan: 1.9, grass: 1.15 };
 const ON_STONE = { bush: 0.2, softtree: 0.17, finger: 0.14, whorl: 0.1, lump: 0.11, tube: 0.1, brain: 0.07, fan: 0.07, anemone: 0.05, urchin: 0.04, staghorn: 0.04, whip: 0.03, table: 0.02, barrel: 0.015 };
 const SATELLITE = { finger: 0.12, lump: 0.14, bush: 0.17, softtree: 0.14, tube: 0.12, anemone: 0.1, urchin: 0.08, whorl: 0.09, fan: 0.06, grass: 0.06 };
 const ON_SAND = { finger: 0.06, brain: 0.22, lump: 0.18, staghorn: 0.12, table: 0.1, barrel: 0.08, urchin: 0.1, anemone: 0.06, softtree: 0.06, whip: 0.05, tube: 0.03 };
@@ -264,8 +264,7 @@ export function kelpAt(lib, rng, x, y, z, { maxH = null, lo = false } = {}) {
   let vi = Hs.findIndex((h) => h <= avail * 1.12);
   if (vi < 0) vi = Hs.length - 1;
   const s = THREE.MathUtils.clamp(avail / Hs[vi], 0.75, 1.15);
-  lib.place('kelp', new V(x, y - 0.1, z), UP, s, rng.range(0, 6.28), null, vi, rng, lo);
-  return true;
+  return lib.place('kelp', new V(x, y - 0.1, z), UP, s, rng.range(0, 6.28), null, vi, rng, lo) !== false;
 }
 
 export function noise01(x, z, f, seed = 0) { return 0.5 + 0.5 * noiseA.noise2(x * f + seed * 17.3, z * f - seed * 9.1); }

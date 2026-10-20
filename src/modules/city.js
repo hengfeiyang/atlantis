@@ -173,6 +173,44 @@ function buildSite(B, site, rng, engine, sunken) {
   return null;
 }
 
+// ------------------------------------------------------------------ sunken coral slots (r2 arch-b)
+/**
+ * Fewer, larger coral slots (marine places ~9k of ~29k): merge the city's slots per 9 m cell into one bigger
+ * anchor (the largest, grown), then add vertical-face anchors low on the ruined house walls (outward normals).
+ */
+function thinCoral(engine, from, reg, rng, ground) {
+  const all = engine.slots.coral;
+  const mine = all.splice(from);
+  const cell = 9, cells = new Map();
+  for (const c of mine) {
+    const k = Math.floor(c.pos[0] / cell) + ',' + Math.floor(c.pos[2] / cell) + ',' + (c.normal[1] > 0.5 ? 'u' : 's');
+    const e = cells.get(k);
+    if (!e) cells.set(k, { c, n: 1 }); else { e.n++; if (c.size > e.c.size) e.c = c; }
+  }
+  let up = 0;
+  for (const { c, n } of cells.values()) {
+    all.push({ ...c, size: Math.min(3.2, c.size * (1.15 + 0.12 * Math.min(4, n - 1))) });
+    up++;
+  }
+  // vertical faces: one or two anchors on the outer walls of every ~third house, 0.4-1.6 m above the sand
+  let side = 0;
+  for (const h of reg.houses) {
+    if (rng.random() > 0.34) continue;
+    const nA = rng.random() < 0.3 ? 2 : 1;
+    for (let k = 0; k < nA; k++) {
+      const f = Math.floor(rng.random() * 4), u = rng.range(-0.8, 0.8);
+      const c = Math.cos(h.rot), sn = Math.sin(h.rot);
+      // local (lx, lz) → world, Frame convention: x' = x*cos + z*sin, z' = -x*sin + z*cos
+      const [lx, lz, nx, nz] = f === 0 ? [u * h.hw, h.hd + 0.05, 0, 1] : f === 1 ? [u * h.hw, -h.hd - 0.05, 0, -1] : f === 2 ? [h.hw + 0.05, u * h.hd, 1, 0] : [-h.hw - 0.05, u * h.hd, -1, 0];
+      const x = h.x + lx * c + lz * sn, z = h.z - lx * sn + lz * c;
+      const wnx = nx * c + nz * sn, wnz = -nx * sn + nz * c;
+      all.push({ pos: [x, Math.max(h.floorY, ground(x, z)) + rng.range(0.4, 1.6), z], normal: [wnx, 0, wnz], size: rng.range(0.8, 1.6), tag: 'city-wall-face' });
+      side++;
+    }
+  }
+  return { before: mine.length, up, side };
+}
+
 // ------------------------------------------------------------------ build
 export async function build(engine) {
   const t0 = performance.now();
@@ -186,6 +224,7 @@ export async function build(engine) {
   setRuin(sunken ? { ground, coral: engine.slots.coral, rubble: 1, colStand: 0.42 } : null);
   const T = {}; let tp = t0; const lap = (k) => { const n = performance.now(); T[k] = Math.round(n - tp); tp = n; };
   try {
+    const coral0 = engine.slots.coral.length;
     const plan = new CityPlan(engine, rng.fork('plan'));
     // racecourse first (the plan keeps clear of it)
     const R = L.RACECOURSE, rRing = L.ringById(R.ring);
@@ -328,6 +367,7 @@ export async function build(engine) {
     engine.add(group);
     for (const m of meshes) if (m.name.startsWith('city-street')) { m.castShadow = false; }
     lap('meshes');
+    if (sunken) { const r = thinCoral(engine, coral0, reg, rng.fork('coral'), ground); T.coral = r; }
     const ms = Math.round(performance.now() - t0);
     const kinds = {}; for (const s of plan.sites) kinds[s.kind] = (kinds[s.kind] || 0) + 1;
     console.log(`[city] ${engine.era}: ${plan.lots.length} lots → ${nHouses} houses (${reg.houses.length} volumes), ${plan.sites.length} landmarks ${JSON.stringify(kinds)}, ${plan.streets.length} streets (${nSq} paving quads, ${nCols} avenue columns), ${plan.gardens.length} gardens, ${engine.slots.tree.length} tree slots, coral ${engine.slots.coral.length}, ${meshes.length} meshes, ${(tris / 1e6).toFixed(2)} M tris, gold=${gold.name === 'cityGold' ? 'local' : 'shared'}, ${ms} ms ${JSON.stringify(T)}`);

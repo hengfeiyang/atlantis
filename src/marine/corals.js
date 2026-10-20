@@ -76,7 +76,8 @@ export function brainCoral(rng, { r = 0.5, detail = 1 } = {}) {
 
 // ------------------------------------------------------------------ plates: table coral and whorl / shelf plates
 /** one plate: a curled disc sector. center, frame (n = plate normal), R, arc (rad), thickness, curl (edge lift / R) */
-function plate(B, nz, rng, center, n, R, { arc = Math.PI * 2, a0 = 0, thick = 0.035, curl = 0.15, wav = 0.12, rings = 6, sectors = 30, tipCol = null } = {}) {
+function plate(B, nz, rng, center, n, R, opt = {}) {
+  const { arc = Math.PI * 2, a0 = 0, thick = 0.035, curl = 0.15, wav = 0.12, rings = 6, sectors = 30, tipCol = null } = opt;
   const u = perp(n), w = new V().crossVectors(n, u);
   const full = arc >= Math.PI * 1.99;
   const S = full ? sectors : Math.max(6, Math.round(sectors * arc / (Math.PI * 2)));
@@ -89,7 +90,7 @@ function plate(B, nz, rng, center, n, R, { arc = Math.PI * 2, a0 = 0, thick = 0.
         const ct = Math.cos(th), st = Math.sin(th);
         const edge = 1 + wav * nz.noise2(ct * 1.7 + center.x * 3, st * 1.7 + center.z * 3) + wav * 0.35 * nz.noise2(ct * 3.5, st * 3.5);
         const rr = R * fr * edge * (full ? 1 : (0.35 + 0.65 * Math.sin(Math.PI * (j / S)) ** 0.5));
-        const lift = curl * R * fr * fr + 0.02 * R * nz.noise2(ct * 3 + 9, st * 3);
+        const lift = curl * R * fr * fr + 0.02 * R * nz.noise2(ct * 3 + 9, st * 3) + (opt.ruffle ? opt.ruffle * R * fr * fr * fr * Math.sin(th * (opt.ruffleN || 7) * (full ? 1 : 6.2832 / arc) + center.x * 17) : 0);
         const off = side > 0 ? 0 : -thick * (1 - 0.6 * fr);
         B.a = side > 0 ? 0.75 + 0.25 * fr : 0.35 + 0.3 * fr; B.t = fr * fr; B.s = 0;
         if (tipCol) B.c = mixC([0.85, 0.85, 0.85], tipCol, fr * fr);
@@ -129,30 +130,34 @@ export function whorlCoral(rng, { R = 0.45, plates = 6, detail = 1 } = {}) {
   const nz = noiseFor(rng);
   B.c = [0.8, 0.8, 0.8]; B.a = 0.45;
   tube(B, [new V(0, -0.02, 0), new V(0, R * 0.25, 0)], R * 0.18, { radial: 7, cap: 'none' });
-  for (let k = 0; k < plates; k++) {
-    const az = (k / plates) * Math.PI * 2 + rng.range(-0.35, 0.35);
-    const h = (0.08 + 0.55 * rng.random()) * R;
+  // lettuce / Turbinaria rosette: many thin, ruffled, overlapping plates in 2-3 tiers, opening outward
+  const n = Math.round(plates * (detail < 0.3 ? 1 : 1.9));
+  const tiers = detail < 0.3 ? 1 : 3;
+  for (let k = 0; k < n; k++) {
+    const tier = k % tiers;
+    const az = (k / n) * Math.PI * 2 * 2.618 + rng.range(-0.3, 0.3);
+    const h = (0.06 + 0.22 * tier + 0.2 * rng.random()) * R;
     const out = new V(Math.cos(az), 0, Math.sin(az));
-    const tilt = rng.range(0.35, 0.85);
-    const n = new V(0, Math.cos(tilt), 0).addScaledVector(out, Math.sin(tilt)).normalize();
-    const u = perp(n), w = new V().crossVectors(n, u);
-    const arc = rng.range(1.8, 2.8);
+    const tilt = rng.range(0.25, 0.75) + tier * 0.12;
+    const nrm = new V(0, Math.cos(tilt), 0).addScaledVector(out, Math.sin(tilt)).normalize();
+    const u = perp(nrm), w = new V().crossVectors(nrm, u);
+    const arc = rng.range(1.4, 2.4);
     const phi = Math.atan2(out.dot(w), out.dot(u));
-    const c = out.clone().multiplyScalar(R * rng.range(0.02, 0.12)).add(new V(0, h, 0));
-    B.c = [1, 1, 1];
-    plate(B, nz, rng, c, n, R * rng.range(0.6, 1.0), {
-      arc, a0: phi - arc / 2, thick: 0.022, curl: rng.range(0.25, 0.5), wav: 0.1,
-      rings: Math.round(4 * detail) + 3, sectors: Math.round(20 * detail) + 10,
+    const c = out.clone().multiplyScalar(R * rng.range(0.0, 0.25) * (1 - tier * 0.3)).add(new V(0, h, 0));
+    const tip = [rng.range(1.05, 1.25), rng.range(1.0, 1.2), rng.range(0.9, 1.1)];
+    plate(B, nz, rng, c, nrm, R * rng.range(0.45, 0.85) * (1 - tier * 0.18), {
+      arc, a0: phi - arc / 2, thick: 0.012, curl: rng.range(0.3, 0.6), wav: 0.14, ruffle: detail < 0.3 ? 0 : rng.range(0.05, 0.1), ruffleN: rng.int(5, 9),
+      rings: Math.round(5 * detail) + 3, sectors: Math.round(28 * detail) + 10, tipCol: tip,
     });
   }
   return B.toGeometry();
 }
 
 /** finger / lobe coral: a mound of blunt upright fingers */
-export function fingerCoral(rng, { R = 0.3, fingers = 22, detail = 1 } = {}) {
+export function fingerCoral(rng, { R = 0.3, fingers = 38, detail = 1 } = {}) {
   const B = new GeoBuilder();
   const lo = detail < 0.3;
-  const radial = detail >= 0.9 ? 7 : lo ? 4 : 5;
+  const radial = detail >= 0.9 ? 9 : lo ? 4 : 6;
   const nf = Math.round(fingers * rng.range(0.7, 1.3) * (lo ? 0.6 : 1));
   for (let i = 0; i < nf; i++) {
     const a = rng.range(0, Math.PI * 2), rr = R * Math.sqrt(rng.random());
@@ -160,9 +165,10 @@ export function fingerCoral(rng, { R = 0.3, fingers = 22, detail = 1 } = {}) {
     const lean = (rr / R) * rng.range(0.25, 0.7);
     const d = new V(Math.cos(a) * lean, 1, Math.sin(a) * lean).normalize();
     const len = R * rng.range(0.5, 1.1) * (1.1 - 0.5 * rr / R);
-    const r = R * rng.range(0.09, 0.14);
-    B.c = [1, 1, 1];
-    const pts = growPath(rng, base, d, len, lo ? 2 : 3, { wander: 0.12, up: 0.05 });
+    const r = R * rng.range(0.065, 0.11) * (lo ? 1.3 : 1);
+    const v = rng.range(0.8, 1.05);
+    B.c = [v, v, v];
+    const pts = growPath(rng, base, d, len, lo ? 2 : 4, { wander: 0.12, up: 0.05 });
     tube(B, pts, (t) => r * (1 + 0.15 * Math.sin(t * 5 + i)), { radial, cap: 'round', attr: (t) => { B.a = 0.45 + 0.55 * t; B.t = t * t; B.s = 0; } });
   }
   return B.toGeometry();
@@ -240,9 +246,9 @@ export function tubeSponge(rng, { n = 5, detail = 1 } = {}) {
   const B = new GeoBuilder();
   const lo = detail < 0.3;
   const seg = lo ? 6 : Math.max(8, Math.round(14 * detail));
-  const count = rng.int(Math.max(2, n - 2), n + 2) - (lo ? 1 : 0);
+  const count = lo ? rng.int(Math.max(2, n - 2), n) : rng.int(n + 1, n * 2 + 1);
   for (let k = 0; k < count; k++) {
-    const r = rng.range(0.035, 0.075), h = rng.range(0.16, 0.6);
+    const r = rng.range(0.025, 0.06), h = rng.range(0.14, 0.55);
     const base = new V(rng.range(-0.12, 0.12), 0, rng.range(-0.12, 0.12));
     const lx = rng.range(-0.25, 0.25), lz = rng.range(-0.25, 0.25);
     const flare = rng.range(1.0, 1.35), wall = rng.range(0.012, 0.02);

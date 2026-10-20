@@ -103,17 +103,33 @@ function stairCut(x, z, h) {
   if (z < z0 - 4 || z > z1 + 2) return h;
   const ax = Math.abs(x - S.x);
   if (ax > hw + 6) return h;
-  const t = clamp((z - z0) / (z1 - z0), 0, 1);
+  // r2: the stair's top tread is the raised landing (STAIR_HEAD.landing): the line stays at from.y over it
+  const zl = L.STAIR_HEAD ? Math.max(z0, L.STAIR_HEAD.landing[1]) : z0;
+  const t = clamp((z - zl) / (z1 - zl), 0, 1);
   const line = lerp(S.from[1], S.to[1], t) - 0.4;
   const w = smoothstep(hw + 6, hw, ax) * smoothstep(z0 - 4, z0 + 2, z);
   return Math.min(h, lerp(h, line, w));
+}
+
+// r2 (director): raised stair head — ground under the landing (y 50, 5 m above the forecourt) and under the broad
+// north flight that descends from it into the court (refs 3 / 6: camera on the landing looking down the steps).
+// The ground sits 0.1 m under the tread line so the temple's stair builder keeps the landing tread flat.
+function stairHead(x, z, h) {
+  const S = L.STAIR_HEAD; if (!S) return h;
+  const hw = S.width / 2 + 2.0;
+  const zf = S.flight.to[2], zl0 = S.landing[0], zl1 = S.landing[1];
+  if (z < zf - 1 || z > zl1 + 1 || Math.abs(x - S.x) > hw + 2) return h;
+  const yl = S.y - 0.1;
+  const y = z >= zl0 ? yl : lerp(S.flight.to[1], yl, clamp((z - zf) / (zl0 - zf), 0, 1));
+  const w = smoothstep(hw + 2, hw, Math.abs(x - S.x)) * smoothstep(zf - 1, zf, z) * (1 - smoothstep(zl1, zl1 + 1, z));
+  return Math.max(h, lerp(h, y, w));
 }
 
 export function heightAt(x, z) {
   const r = Math.hypot(x, z);
   if (FAR && r > 2200) { const v = FAR.sample(x, z); if (v !== null) return v; }
   const b = L.bearingOf(x, z);
-  return canalCut(x, z, stairCut(x, z, ringsHeight(x, z, r, b)));
+  return canalCut(x, z, stairHead(x, z, stairCut(x, z, ringsHeight(x, z, r, b))));
 }
 export function normalAt(x, z, e = 1) {
   const hx = heightAt(x + e, z) - heightAt(x - e, z), hz = heightAt(x, z + e) - heightAt(x, z - e);

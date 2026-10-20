@@ -14,6 +14,8 @@
 //   R coverage, G band base (m), B band thickness (m), A terrain height (m)
 // Per-shot overrides: src/world/looks.js `clouds: { uBankAmount, uBankAlt: [base offset m, thickness ×], ... }`
 // (merged under explicit shot.clouds). Debug: ?vols=0 hides the banks, ?skyclouds=0 clears the sky layer.
+// r2 (look-golden): also applies looks.js `terrain: {...}` (far mountain shading, registry.terrain.uniforms) per shot, and in
+// the golden era decouples the terrain's far-shadow sun (uTSun) from the visible-sun ATMO.uSunDir (it follows SUN.dir).
 //
 // VISIBLE SUN: when a shot's sky sets uSunDiskMode = 1 (sun disk art-directed into the frame while the CSM light
 // comes from the side), this module's onShot hook points ATMO.uSunDir (aerial-perspective glow, sky cloud
@@ -23,6 +25,7 @@ import { heightAt } from '../world/heightfield.js';
 import * as L from '../world/layout.js';
 import { ATMO, ATMO_GLSL } from '../core/atmosphere.js';
 import { SKY, CLOUD_GLSL, SKY_GLSL } from '../core/sky.js';
+import { SUN } from '../core/lighting.js';
 import { NOISE_GLSL } from '../core/glsl.js';
 import { Simplex, smoothstep, clamp, lerp } from '../core/noise.js';
 import { SHOTS } from '../world/shots.js';
@@ -264,9 +267,11 @@ void main(){
   float t0 = tb.x, t1 = min(tb.y, tmax);
   if (t1 <= t0) discard;
   float steps = uVolSteps;
-  float dt = max((t1 - t0) / steps, 25.0);
+  // r2 (look-golden): steps bounded in metres and growing with distance (was (t1 - t0) / steps with 1/4 fine steps:
+  // 150-600 m slabs through σ 0.05 cloud → banks read as stacked horizontal slices / blocky cut-outs, shot 1)
+  float dt0 = max((t1 - t0) / steps, 20.0);
   float jit = cgFrameJitter();
-  float t = t0 + dt * jit;
+  float t = t0 + min(dt0, 40.0 + 0.02 * t0) * jit;
   float mu = dot(rd, uSunDir);
   vec3 ambTop = cgCloudAmbTop();
   vec3 ambBot = cgCloudAmbBot();
@@ -274,18 +279,20 @@ void main(){
   float T = 1.0, wsum = 0.0, dsum = 0.0, hf;
   bool fine = false;
   float zeros = 0.0;
-  float iters = steps * 3.0;
-  for (int i = 0; i < 256; i++) {
+  float iters = steps * 10.0;
+  for (int i = 0; i < 480; i++) {
     if (float(i) >= iters || t > t1 || T < 0.01) break;
+    float dtC = min(dt0, 40.0 + 0.02 * t);
+    float dtF = clamp(dtC * 0.3, 8.0, 14.0 + 0.004 * t);
     vec3 p = ro + rd * t;
     if (uDepthValid < 0.5 && p.y < mapAt(p.xz).a) break;
     float d = density(p, fine, hf);
     if (!fine) {
-      if (d > 0.0) { fine = true; zeros = 0.0; t = max(t0, t - dt * 0.75); continue; }
-      t += dt; continue;
+      if (d > 0.0) { fine = true; zeros = 0.0; t = max(t0, t - dtC * 0.85); continue; }
+      t += dtC; continue;
     }
-    float st = dt * 0.25;
-    if (d <= 0.002) { zeros += 1.0; if (zeros > 8.0) fine = false; t += st; continue; }
+    float st = dtF;
+    if (d <= 0.002) { zeros += 1.0; if (zeros > 10.0) fine = false; t += st; continue; }
     zeros = 0.0;
     {
       float sigma = d * uSigma;
@@ -410,8 +417,12 @@ function makeBanks(engine, map, region, depth) {
   return mesh;
 }
 
+const TERRAIN_LOOK_KEYS = ['uFarTint', 'uRockTint', 'uGroundTint', 'uSnowLine', 'uTBounce'];
+let terrainDefaults = null;
+const WATER_LOOK_KEYS = ['uSunSpec', 'uGlitterTint'];
+let waterDefaults = null;
 /** apply looks.js `clouds` (+ explicit shot.clouds) and the visible-sun convention for a shot */
-function makeShotHook(engine, defaults) {
+function makeShotHook(engine, defaults, terrainSun) {
   return (shot) => {
     for (const [k, v] of Object.entries(defaults)) if (k !== 'uTime' && k !== 'uVolSteps') {
       const u = CLOUDS[k];
@@ -433,6 +444,31 @@ function makeShotHook(engine, defaults) {
       ATMO.uSunDir.value.copy(SKY.uSunDiskDir.value).normalize();
       engine.lighting.buildEnvironment();
     }
+    if (terrainSun) terrainSun.value.copy(SUN.dir).normalize();
+    // r2 (look-golden): per-shot terrain look (looks.js `terrain: { uFarTint, uRockTint, uGroundTint, uSnowLine, uTBounce }`)
+    // → registry.terrain.uniforms (far mountain shading); defaults restored first
+    const tu = engine.registry.terrain?.uniforms;
+    if (tu) {
+      if (!terrainDefaults) terrainDefaults = Object.fromEntries(TERRAIN_LOOK_KEYS.filter((k) => tu[k]).map((k) => [k, tu[k].value?.clone ? tu[k].value.clone() : tu[k].value]));
+      for (const [k, v] of Object.entries(terrainDefaults)) { if (tu[k].value?.copy) tu[k].value.copy(v); else tu[k].value = v; }
+      for (const [k, v] of Object.entries({ ...(LOOKS[shot.id]?.terrain || {}), ...(shot.terrain || {}) })) {
+        if (!tu[k]) { console.warn('[clouds] unknown terrain look override', k); continue; }
+        if (Array.isArray(v)) { if (tu[k].value.isColor) tu[k].value.setRGB(...v); else tu[k].value.fromArray(v); } else tu[k].value = v;
+      }
+    }
+    // r2 (look-golden): per-shot sun-glitter look (looks.js `water: { uSunSpec, uGlitterTint }` → registry.water.uniforms);
+    // defaults restored first; an explicit shot.waterTune (water module) keeps priority
+    const wu = engine.registry.water?.uniforms;
+    if (wu) {
+      if (!waterDefaults) waterDefaults = Object.fromEntries(WATER_LOOK_KEYS.filter((k) => wu[k]).map((k) => [k, wu[k].value?.clone ? wu[k].value.clone() : wu[k].value]));
+      const explicit = shot.waterTune || {};
+      for (const [k, v] of Object.entries(waterDefaults)) if (!(k in explicit)) { if (wu[k].value?.copy) wu[k].value.copy(v); else wu[k].value = v; }
+      for (const [k, v] of Object.entries(LOOKS[shot.id]?.water || {})) {
+        if (!wu[k] || !WATER_LOOK_KEYS.includes(k)) { console.warn('[clouds] unknown water look override', k); continue; }
+        if (k in explicit) continue;
+        if (Array.isArray(v)) { if (wu[k].value.isColor) wu[k].value.setRGB(...v); else wu[k].value.fromArray(v); } else wu[k].value = v;
+      }
+    }
   };
 }
 
@@ -449,7 +485,17 @@ export async function build(engine) {
   if (P.get('skyclouds') === '0') SKY.uCloudCover.value = 0;
   engine.onUpdate((t) => { CLOUDS.uTime.value = t; });
   const defaults = Object.fromEntries(Object.entries(CLOUDS).map(([k, u]) => [k, Array.isArray(u.value) ? u.value.map((x) => x.clone()) : u.value?.clone ? u.value.clone() : u.value]));
-  engine.onShot(makeShotHook(engine, defaults));
+  // r2 (look-golden): the terrain's far-field heightfield shadow + sun bounce (registry.terrain.uniforms.uTSun) shared
+  // ATMO.uSunDir, i.e. the VISIBLE sun disk (1.5-5° above the horizon in shots 1-5) while the CSM light comes from
+  // 14-17° → the whole mountain range sat in a fake low-sun shadow (shot 1: dark grey silhouettes). Golden era: give
+  // the terrain its own uniform that follows the light direction (SUN.dir). Must run before the first compile.
+  let terrainSun = null;
+  const tu = engine.registry.terrain?.uniforms;
+  if (tu && engine.era === 'golden' && tu.uTSun === ATMO.uSunDir) {
+    terrainSun = { value: SUN.dir.clone() };
+    tu.uTSun = terrainSun;
+  }
+  engine.onShot(makeShotHook(engine, defaults, terrainSun));
   engine.registry.clouds = { U: CLOUDS, bankMap: bank, BANK_REGION };
   console.log(`[clouds] bank map ${bank.w}x${bank.h}, built in ${Math.round(performance.now() - t0)} ms`);
 }

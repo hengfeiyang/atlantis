@@ -11,8 +11,9 @@ export { goldMaterial, giltMaterial, bronzeMaterial, metalMaterial, whiteStone, 
 /** white marble with vertex-colour tint (red bands / blocks are painted per vertex) */
 export function bandedColumnMaterial(sunken) {
   return cached('sets:banded:' + sunken, () => {
-    const m = whiteStone({ vertexColors: true, weather: sunken ? 0.7 : 0.15, lichen: sunken ? 0.15 : 0.02, polish: sunken ? 0.1 : 0.55, rough: sunken ? 0.6 : 0.4, veins: 1.0, chips: 0.8, seed: 2.3 });
+    const m = whiteStone({ vertexColors: true, weather: sunken ? 0.35 : 0.15, lichen: sunken ? 0.05 : 0.02, polish: sunken ? 0.25 : 0.55, rough: sunken ? 0.5 : 0.4, veins: 1.0, chips: sunken ? 0.35 : 0.8, seed: 2.3 });
     m.name = 'sets-banded';
+    if (sunken) m.userData.sunkenAmount = 0.5;   // ref 8: the banded marble still reads clean (cracks, a little crust)
     return m;
   });
 }
@@ -35,13 +36,14 @@ export function headBronzeMaterial(sunken = true) {
       head: `${NOISE_TEX_HEAD}
         varying vec4 vCgAux;
         uniform float uSunk;
-        float hbPat; float hbBare;
+        float hbPat; float hbBare; float hbGold = 0.0;
         void hbEval(vec3 p, vec4 aux){
           float cav = clamp(aux.x, 0.0, 1.0), edge = clamp(aux.y, 0.0, 1.0), sky = clamp(aux.z, 0.0, 1.0);
           vec4 A = cgN4(p * 0.55) * 0.6 + cgN4(cgR1 * p * 1.7 + 3.0) * 0.4;
           vec4 B = cgN4(cgR2 * p * 6.0 + 7.0);
           // bare (rubbed) bronze: convex edges, high points; patina everywhere else, thickest in hollows
-          float bare = smoothstep(0.4, 0.62, 0.5 + 1.6 * edge - 1.3 * cav + 0.55 * (A.x - 0.5) + 0.35 * (B.y - 0.5) + 0.25 * (sky - 0.5));
+          float skin = 1.0 - step(0.5, aux.w);   // face skin: the raised forms are rubbed bright (ref 8)
+          float bare = smoothstep(0.42, 0.66, 0.5 + 0.12 * skin + 2.1 * edge - 1.3 * cav + 0.22 * (A.x - 0.5) + 0.3 * (B.y - 0.5) + 0.35 * (sky - 0.5));
           hbBare = mix(1.0, bare, uSunk);
           hbPat = mix(0.0, clamp(1.0 - bare + cav * 0.5, 0.0, 1.0), uSunk);
         }`,
@@ -53,17 +55,21 @@ export function headBronzeMaterial(sunken = true) {
         vec3 bronze = mix(vec3(0.50, 0.31, 0.11), vec3(0.72, 0.50, 0.18), C.x) * (0.85 + 0.3 * D.y);
         vec3 gold = vec3(0.78, 0.55, 0.20);
         bronze = mix(bronze, gold, smoothstep(0.55, 0.8, C.z) * 0.6);
-        vec3 verd = mix(vec3(0.055, 0.20, 0.17), vec3(0.14, 0.36, 0.30), smoothstep(0.3, 0.75, C.y));
-        verd = mix(verd, vec3(0.30, 0.48, 0.42), smoothstep(0.7, 0.9, D.x) * 0.5);
-        verd = mix(verd, vec3(0.02, 0.05, 0.045), cav * 0.8);
+        vec3 verd = mix(vec3(0.11, 0.27, 0.18), vec3(0.26, 0.47, 0.34), smoothstep(0.3, 0.75, C.y));
+        verd = mix(verd, vec3(0.42, 0.58, 0.45), smoothstep(0.7, 0.9, D.x) * 0.55);
+        verd = mix(verd, vec3(0.04, 0.09, 0.06), cav * 0.55);
         vec3 c = mix(bronze, verd, hbPat);
         // dark encrustations (tube-worm / barnacle specks) on the patina
         float sp = smoothstep(0.86, 0.92, cgN4(cgP * 31.0 + 5.0).w) * hbPat;
         c = mix(c, vec3(0.03, 0.035, 0.03), sp * 0.6);
         c = mix(c, c * 0.35, cav * (1.0 - hbPat) * 0.8);
+        // gold leaf traces surviving in the sheltered folds of hair / beard / crown band (ref 8)
+        float gt = smoothstep(0.62, 0.8, cgN4(cgR2 * cgP * 1.3 + 11.0).z) * smoothstep(0.15, 0.45, cav) * (1.0 - smoothstep(0.75, 1.0, cav)) * uSunk;
+        c = mix(c, gold * 0.95, gt * 0.75);
+        hbGold = gt;
         diffuseColor.rgb *= c;`,
-      metalness: `metalnessFactor = clamp(0.75 - hbPat * 0.75, 0.0, 1.0);`,
-      roughness: `roughnessFactor = mix(0.32 + 0.15 * cgN4(cgP * 3.0).x, 0.82, hbPat);`,
+      metalness: `metalnessFactor = clamp(mix(0.55 - hbPat * 0.55, 0.85, hbGold), 0.0, 1.0);`,
+      roughness: `roughnessFactor = mix(mix(0.36 + 0.15 * cgN4(cgP * 3.0).x, 0.8, hbPat), 0.3, hbGold);`,
       normal: `
         float dist = length(cameraPosition - cgP);
         float f = 1.0 - smoothstep(4.0, 60.0, dist);

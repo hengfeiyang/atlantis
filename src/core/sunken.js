@@ -30,7 +30,7 @@ import * as THREE from 'three';
 const c3 = (hex, s = 1) => { const c = new THREE.Color(hex); return new THREE.Vector3(c.r * s, c.g * s, c.b * s); };
 
 export const SK = {
-  uSkSand: { value: new THREE.Vector4(0.45, 0.55, 0.9, 0.35) },
+  uSkSand: { value: new THREE.Vector4(0.3, 0.55, 0.9, 0.35) },  // r2 (look-sunken): 0.45 → 0.3 (paving / mosaics readable, ref 6, 8)
   uSkSandColor: { value: c3('#d9d3c0') },
   uSkAlgae: { value: new THREE.Vector4(0.6, 0.45, 0.22, 0.66) },
   uSkAlgaeColor: { value: c3('#4d4a2a') },
@@ -40,8 +40,8 @@ export const SK = {
   uSkCrustColor2: { value: c3('#9a6a8a') },
   uSkVerdigris: { value: c3('#3f8c7a') },
   uSkVerdigris2: { value: c3('#6fb3a2') },
-  uSkMetal: { value: new THREE.Vector4(0.78, 0.5, 0.45, 0.82) },
-  uSkGold: { value: new THREE.Vector4(0.22, 0.45, 0.35, 0.82) },
+  uSkMetal: { value: new THREE.Vector4(0.62, 0.5, 0.6, 0.82) },  // r2 (look-sunken): less verdigris, brighter bronze showing through (refs 6, 8)
+  uSkGold: { value: new THREE.Vector4(0.12, 0.4, 0.3, 0.9) },  // r2 (look-sunken): less dulled — gold glints at 30-50 m (refs 6, 8)
   uSkStone: { value: new THREE.Vector4(0.3, 0.45, 0.08, 0.2) },
   uSkWood: { value: new THREE.Vector4(0.3, 0.4, 0.3, 0) },
 };
@@ -136,7 +136,7 @@ void skApply(inout vec3 alb, inout float rough, inout float metal, inout vec3 bu
   float drift = skF(P * uSkSand.w + 2.0);
   float s = upM * smoothstep(1.0 - uSkSand.x - 0.1, 1.0 - uSkSand.x + 0.1, drift + 0.06 * (n3 - 0.5));
   s *= amt * (kind == 3 ? 0.55 : 1.0);
-  float film = upM * 0.18 * amt;
+  float film = upM * 0.12 * amt;
   vec3 sandC = uSkSandColor * (0.88 + 0.22 * n3);
   alb = mix(alb, sandC, film);
   alb = mix(alb, sandC, s);

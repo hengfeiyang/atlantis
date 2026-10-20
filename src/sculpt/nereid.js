@@ -2,7 +2,7 @@
 // Nominal figure units (2.0 m standing figure, ground y = 0, the rider faces +Z, sits side-saddle on a
 // dolphin that dives toward -X with its tail curling up behind her toward +X).
 //   makeDolphin(o) → { sdf, bounds, mouth, back(x) }     makeNereid(variant) → { fig, dolphin, sdf, gold, regions, mouth }
-import { sd, clamp, lerp, sstep, smin, smax, add, sub, scale, norm, len, mix3, cone, ellipsoidR, mT, vnoise3, hash1, bezier, cross, dot, Group } from './sdf.js';
+import { sd, clamp, lerp, sstep, smin, smax, add, sub, scale, norm, len, mix3, cone, ellipsoidR, mT, vnoise3, hash1, bezier, cross, dot, Group, mv } from './sdf.js';
 import { makeFigure } from './figure.js';
 
 // ------------------------------------------------------------------ dolphin
@@ -20,8 +20,8 @@ export function makeDolphin(o = {}) {
   });
   // radius profile (height half-axis) along the body; width is 0.88 of it
   const rad = (t) => {
-    if (t < 0.06) return lerp(0.04, 0.065, t / 0.06);                // beak (rostrum)
-    if (t < 0.15) return lerp(0.065, 0.19, sstep(0.06, 0.15, t));     // melon / forehead
+    if (t < 0.045) return lerp(0.05, 0.08, t / 0.045);               // beak (rostrum) — r2: short, stout (sculpted dolphin, ref 3)
+    if (t < 0.15) return lerp(0.08, 0.2, sstep(0.04, 0.11, t));      // melon / forehead
     if (t < 0.4) return lerp(0.19, 0.25, sstep(0.15, 0.36, t));
     if (t < 0.72) return lerp(0.25, 0.14, sstep(0.4, 0.72, t));
     return lerp(0.14, 0.07, sstep(0.72, 1.0, t));                     // tail stock (peduncle)
@@ -146,7 +146,9 @@ export function makeNereid(v = 'a') {
     drape: { curtain: false, bodice: false, lapTop: 0.06, lapCut: hipY - 0.3, lapNoise: 0.35 }, breast: { s: 0.82, k: 0.06 },
     extraBounds: [[dol.bounds.min, dol.bounds.max]],
   };
+  spec.drape.lapCut = undefined;   // r2: the cloth reaches the ankles (no bare-shin "shorts")
   const fig = makeFigure(spec);
+  const drape = nereidDrape(fig, dol, V, spec);
   // a small wave knob under the dolphin's beak (support) with a curl
   const base = (x, y, z) => {
     const b = dol.mouth;
@@ -155,10 +157,88 @@ export function makeNereid(v = 'a') {
     return Math.max(d - 0.02 * vnoise3(x * 12, y * 12, z * 12), -y);
   };
   const dolSdf = (x, y, z) => Math.min(dol.sdf(x, y, z), base(x, y, z));
-  const bodySdf = (x, y, z) => Math.min(fig.bodySdf(x, y, z), dolSdf(x, y, z));
-  const sdf = (x, y, z) => Math.min(fig.sdf(x, y, z), dolSdf(x, y, z));
+  const bodySdf = (x, y, z) => Math.min(fig.bodySdf(x, y, z), dolSdf(x, y, z), drape.sdf(x, y, z));
+  const sdf = (x, y, z) => Math.min(fig.sdf(x, y, z), dolSdf(x, y, z), drape.sdf(x, y, z));
   const b0 = fig.bounds;
-  const bounds = { min: b0.min.map((v, i) => Math.min(v, dol.bounds.min[i])), max: b0.max.map((v, i) => Math.max(v, dol.bounds.max[i])) };
+  const bounds = { min: b0.min.map((v, i) => Math.min(v, dol.bounds.min[i], drape.bounds.min[i])), max: b0.max.map((v, i) => Math.max(v, dol.bounds.max[i], drape.bounds.max[i])) };
   bounds.min[1] = -0.02;
   return { fig, dolphin: dol, sdf, bodySdf, gold: () => 0.85, bounds, mouth: dol.mouth };
+}
+
+// ------------------------------------------------------------------ drapery (r2 arch-b)
+/**
+ * Richer Nereid drapery (ref 3 / classical Nereid statues): a skirt panel falling between the shins to the
+ * ankles, a cloth train laid over the dolphin's back and spilling down its flank, and a mantle falling
+ * down the back from the shoulders, flaring at the seat. Returns { sdf, bounds } in figure units.
+ */
+function nereidDrape(fig, dol, V, spec) {
+  const J = fig.joints, seed = V.seed;
+  const kR = J.lR.kn, kL = J.lL.kn, aR = J.lR.an, aL = J.lL.an;
+  // ---- skirt panel: a sheet hanging from the knees to just above the ankles, vertical tube folds
+  const x0 = Math.min(kR[0], kL[0], aR[0], aL[0]) - 0.05, x1 = Math.max(kR[0], kL[0], aR[0], aL[0]) + 0.05;
+  const yTop = Math.max(kR[1], kL[1]) + 0.04, yBot = Math.min(aR[1], aL[1]) + 0.07;
+  const zK = (kR[2] + kL[2]) / 2, zA = (aR[2] + aL[2]) / 2;
+  const skirt = (x, y, z) => {
+    if (y > yTop + 0.1 || y < yBot - 0.1 || x < x0 - 0.15 || x > x1 + 0.15) return 0.12;
+    const t = clamp((yTop - y) / Math.max(0.05, yTop - yBot), 0, 1);
+    const zc = lerp(zK, zA, t) + 0.035;
+    const flare = 0.03 + 0.07 * t;
+    const fold = 0.026 * Math.sin((x - x0) * 34 + seed + 2.5 * Math.sin(y * 6)) * (0.35 + 0.65 * t);
+    const dz = Math.abs(z - zc - fold) - 0.022;
+    const dx = Math.max(x0 - flare - x, x - x1 - flare);
+    const hem = yBot + 0.03 * Math.sin(x * 23 + seed) - y;
+    let d = Math.max(dz, dx, hem, y - yTop);
+    return d * 0.8;
+  };
+  // ---- cloth train over the dolphin's back, from the seat toward the tail and down both flanks
+  const F = dol.frames;
+  const seatX = dol.back(0.02)[0];
+  let iSeat = 0;
+  for (let i = 0; i < F.length; i++) if (Math.abs(F[i].p[0] - seatX) < Math.abs(F[iSeat].p[0] - seatX)) iSeat = i;
+  const tS = F[iSeat].t, t0 = tS - 0.07, t1 = tS + 0.17;
+  const near = (x, y, z) => {
+    let best = F[0], bd = 1e9;
+    for (let i = 0; i < F.length; i += 2) { const f = F[i]; const d = (x - f.p[0]) ** 2 + (y - f.p[1]) ** 2 + (z - f.p[2]) ** 2; if (d < bd) { bd = d; best = f; } }
+    return best;
+  };
+  const train = (x, y, z) => {
+    const dd = dol.sdf(x, y, z);
+    if (dd > 0.1) return dd - 0.04;
+    const f = near(x, y, z);
+    if (f.t < t0 - 0.02 || f.t > t1 + 0.04) return dd;
+    const q = [x - f.p[0], y - f.p[1], z - f.p[2]];
+    const up = q[0] * f.up[0] + q[1] * f.up[1] + q[2] * f.up[2];
+    const lat = q[0] * f.lat[0] + q[1] * f.lat[1] + q[2] * f.lat[2];
+    // cloth = a layer laid on the dolphin's skin: thicker where it hangs (folds stand off), a crisp hem ledge,
+    // tapering into the skin toward both ends along the spine (no cut slabs)
+    const hang = sstep(0.05, -0.2, up);
+    const fold = (0.006 + 0.018 * hang) * (0.5 + 0.5 * Math.sin(f.t * 52 + seed + 4 * Math.sin(lat * 7 + up * 5)));
+    const hemUp = 0.02 - 0.22 * sstep(-0.1, 0.15, lat) + 0.04 * Math.sin(f.t * 41 + seed) + 0.025 * Math.sin(lat * 17 + up * 9);
+    const taper = sstep(t0 - 0.02, t0 + 0.05, f.t) * sstep(t1 + 0.04, t1 - 0.06, f.t);
+    const Lc = (0.016 + 0.014 * hang + fold) * taper * sstep(hemUp - 0.008, hemUp + 0.008, up);
+    return dd - Lc;
+  };
+  // ---- mantle down the back: cloth hanging from the shoulders to the seat, flaring out at the sides (chest frame)
+  const Rc = J.Rc, C = J.C, sk = fig.bodySkin;
+  const yS = Math.max(J.shR[1], J.shL[1]), yH = J.P[1] - 0.12;
+  const mantle = (x, y, z) => {
+    if (y > yS + 0.08 || y < yH - 0.1) return 0.1;
+    const wx = x - C[0], wy = y - C[1], wz = z - C[2];
+    const lx = Rc[0] * wx + Rc[3] * wy + Rc[6] * wz, lz = Rc[2] * wx + Rc[5] * wy + Rc[8] * wz;
+    if (lz > 0.12) return 0.1;
+    const t = clamp((yS - y) / (yS - yH), 0, 1);                 // 0 shoulders → 1 seat
+    const off = 0.02 + 0.07 * t * t;                              // flares out toward the seat
+    const fold = (0.008 + 0.03 * t) * Math.sin(Math.atan2(lx, -lz) * 9 + seed + 3 * t);
+    const ds = sk(x, y, z);
+    if (ds > 0.3) return ds - 0.2;
+    let d = Math.abs(ds - off - fold) - 0.013;
+    d = smax(d, lz + 0.02 - 0.06 * t + 0.03 * Math.sin(y * 19 + seed), 0.015); // back half (wraps a little forward low down)
+    d = smax(d, y - yS - 0.02 + 0.08 * Math.abs(lx), 0.015);    // over the shoulder line
+    d = smax(d, yH + 0.03 * Math.sin(lx * 21 + seed) - y, 0.01); // uneven lower hem
+    return d * 0.85;
+  };
+  const sdf = (x, y, z) => Math.min(skirt(x, y, z), train(x, y, z), mantle(x, y, z));
+  const bounds = { min: [x0 - 0.5, -0.02, Math.min(zK, C[2]) - 0.5], max: [x1 + 0.5, yS + 0.2, Math.max(zA, zK) + 0.3] };
+  void spec;
+  return { sdf, bounds };
 }

@@ -14,7 +14,7 @@ export function chariotLayout() {
     return {
       i, x, z: 1.4 - 1.8 * a * a, y: 0.75 + 0.25 * (1 - a),
       yaw: Math.sign(x) * (4 + 12 * a) * Math.PI / 180,
-      variant: ['B', 'C', 'A', 'A', 'C', 'B'][i], mirror: x > 0, scale: horseScale * (1 - 0.02 * a),
+      variant: ['Bb', 'C', 'Ab', 'A', 'Cb', 'B'][i], mirror: x > 0, scale: horseScale * (1 - 0.02 * a),
     };
   });
   return {
@@ -139,7 +139,7 @@ export function waveBaseSdf(LAY) {
     const front = i < 12;
     const x = front ? -W + 1.0 + (i / 11) * (2 * W - 2.0) + 0.6 * (R(i, 1) - 0.5) : -W + 2.0 + ((i - 12) / 11) * (2 * W - 4) + 0.8 * (R(i, 1) - 0.5);
     const z = front ? D - 1.0 - 0.9 * R(i, 2) : -0.8 + 2.4 * R(i, 2);
-    const R0 = front ? 0.8 + 0.45 * R(i, 3) : 0.9 + 0.6 * R(i, 3);
+    const R0 = front ? 0.55 + 0.3 * R(i, 3) : 0.75 + 0.45 * R(i, 3);   // r2: lower, finer crests (ref 3: the horses rise from low sculpted waves)
     const y = height(x, z) + R0 * 0.25;
     // front row: scrolls facing the viewer (crest axis front-back, alternating hand); behind: random crests
     const ang = front ? Math.PI / 2 + (R(i, 4) - 0.5) * 0.6 : Math.PI / 2 + (R(i, 4) - 0.5) * 1.2;

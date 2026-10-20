@@ -180,7 +180,9 @@ export function coralMaterial(kind = 'polyp', { rough = 0.82, translucent = fals
     vertexHead: VHEAD,
     vertexPre: sway ? SWAY : 'vM = aM;',
     head: FHEAD + 'float bumpH = 0.0; float bumpF = 0.0; uniform vec3 uCoralGlow;\n',
-    emissive: 'totalEmissiveRadiance += diffuseColor.rgb * uCoralGlow.x * exp(-max(0.0, uCoralGlow.z - cgP.y) * uCoralGlow.y);',
+    // artistic lift grows with the camera distance (the medium eats the warm colours of far reefs; refs 6-8 keep
+    // orange / red coral readable at 30-60 m) — close-ups stay plain albedo
+    emissive: 'totalEmissiveRadiance += diffuseColor.rgb * uCoralGlow.x * (0.45 + 1.6 * smoothstep(12.0, 60.0, length(cameraPosition - cgP))) * exp(-max(0.0, uCoralGlow.z - cgP.y) * uCoralGlow.y);',
     color: /* glsl */ `
       vec3 col = diffuseColor.rgb;
       ${detail}
@@ -245,6 +247,9 @@ export function tissueMaterial(kind = 'kelp', o = {}) {
       cgTrans = col * vec3(1.25, 1.2, 0.7) * ${(o.trans ?? 1.0).toFixed(2)};
     `,
     ao: 'cgAO = vM.x;',
+    // kelp seen from below is back-lit by the bright surface: a little forward-scatter glow keeps the blades
+    // olive-gold instead of black silhouettes (ref 7)
+    emissive: kind === 'kelp' ? 'totalEmissiveRadiance += diffuseColor.rgb * vec3(1.1, 1.05, 0.7) * (0.22 + 0.35 * smoothstep(-0.2, 0.8, -cgV.y));' : '',
   });
   m.defines = { ...(m.defines || {}), USE_UV: '' };
   if (map) m.alphaToCoverage = true;
@@ -280,7 +285,7 @@ export function fanMaterial(atlas) {
     vertexHead: VHEAD,
     vertexPre: SWAY,
     head: FHEAD + 'uniform float uAtlasSize; uniform vec3 uCoralGlow;\n',
-    emissive: 'totalEmissiveRadiance += diffuseColor.rgb * uCoralGlow.x * exp(-max(0.0, uCoralGlow.z - cgP.y) * uCoralGlow.y);',
+    emissive: 'totalEmissiveRadiance += diffuseColor.rgb * uCoralGlow.x * (0.45 + 1.6 * smoothstep(12.0, 60.0, length(cameraPosition - cgP))) * exp(-max(0.0, uCoralGlow.z - cgP.y) * uCoralGlow.y);',
     color: /* glsl */ `
       #ifdef USE_MAP
         vec2 dx = dFdx(vMapUv * uAtlasSize), dy = dFdy(vMapUv * uAtlasSize);

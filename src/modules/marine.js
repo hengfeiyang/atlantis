@@ -15,6 +15,7 @@ import { ReefLibrary } from '../marine/library.js';
 import { surfaceMap, groundY, makeDensity, reefCluster, grassPatch, kelpAt, placeOne, noise01, edgeAt, faceGrowth } from '../marine/scatter.js';
 import { buildSchools, buildSwimmer } from '../marine/fauna.js';
 import { MARINE_U, FISH_GLINT, CORAL_GLOW } from '../marine/materials.js';
+import { makeKeepFilter } from '../marine/keep.js';
 
 const V = THREE.Vector3;
 const UP = new V(0, 1, 0);
@@ -76,6 +77,9 @@ function inViewCone(x, y, z, frames) {
   return false;
 }
 
+/** geometry tier by distance to the nearest sunken lens: hero < 18 m, 'mid' (≈ half detail) < 45 m, lo beyond */
+const lodOf = (d) => (d > 45 ? true : d > 18 ? 'mid' : false);
+
 function scatterHero(engine, lib, map, zone, dens, rng, stats, opts = {}) {
   const frames = opts.frames || [];
   const q = engine.quality;
@@ -96,7 +100,7 @@ function scatterHero(engine, lib, map, zone, dens, rng, stats, opts = {}) {
       const onSand = s.y <= g + 0.25;
       const r0 = rng.random();
       if (s.ny < 0.72) continue;
-      const lod = w > 0.45 ? 1 : 0.4, lo = dens.dist(x, s.y, z) > 20, grow = 1 + THREE.MathUtils.clamp((0.6 - w) * 1.6, 0, 0.9);
+      const lod = w > 0.45 ? 1 : 0.4, lo = lodOf(dens.dist(x, s.y, z)), grow = 1 + THREE.MathUtils.clamp((0.6 - w) * 1.6, 0, 0.9);
       if (onSand) {
         // sea grass meadows in patches; sparse coral heads, urchins
         const patch = noise01(x, z, 0.09, 1) * 0.7 + noise01(x, z, 0.35, 2) * 0.3;
@@ -153,6 +157,15 @@ function scatterHero(engine, lib, map, zone, dens, rng, stats, opts = {}) {
 function consumeSlots(engine, lib, rng, dens, maps, stats) {
   for (const s of engine.slots.coral || []) {
     const p = toV(s.pos);
+    lib.tag = s.tag || '';
+    if (s.species) { // curated dressing slot: {pos, normal, species, scale, yaw?, rgb?, variant?, lean?}
+      let n = s.normal ? toV(s.normal).normalize() : UP.clone();
+      if (s.lean !== undefined) n.lerp(UP, 1 - s.lean).normalize();
+      lib.w = 1;
+      if (s.species === 'kelp') { if (kelpAt(lib, rng, p.x, p.y, p.z, { maxH: s.height ?? null })) stats.kelpSlots++; }
+      else if (lib.place(s.species, p, n, s.scale ?? 1, s.yaw ?? rng.range(0, 6.28), s.rgb ?? null, s.variant ?? null, rng, false)) stats.dressed = (stats.dressed || 0) + 1;
+      continue;
+    }
     let n = s.normal ? toV(s.normal).normalize() : UP.clone();
     if (!Number.isFinite(n.x) || n.lengthSq() < 0.5) n = UP.clone();
     const w = dens(p.x, p.y, p.z);
@@ -163,20 +176,51 @@ function consumeSlots(engine, lib, rng, dens, maps, stats) {
     const map = maps.find((m) => m && m.sample(p.x, p.z));
     const mode = n.y > 0.7 ? 'stone' : 'wall';
     const lod = w > 0.4 ? 1 : w > 0.15 ? 0.35 : 0;
-    const lo = dens.dist(p.x, p.y, p.z) > 20, grow = 1 + THREE.MathUtils.clamp((0.6 - w) * 1.6, 0, 0.9);
-    const k = Math.max(1, Math.round(size / 1.2 * lod));
+    const dc = dens.dist(p.x, p.y, p.z);
+    const lo = lodOf(dc), grow = 1 + THREE.MathUtils.clamp((0.6 - w) * 1.6, 0, 0.9);
+    // hero structures at mid range (ref 6: the chariot group, fountains and podium smothered in coral): fuller patches
+    const boost = w > 0.5 && dc > 18 && dc < 110 ? 1.6 : 1;
+    const k = Math.max(1, Math.round(size / 1.2 * lod * boost));
     for (let i = 0; i < k; i++) {
-      const off = i === 0 ? new V() : new V(rng.range(-1, 1), 0, rng.range(-1, 1)).multiplyScalar(size * 0.6);
+      const off = i === 0 ? new V() : new V(rng.range(-1, 1), 0, rng.range(-1, 1)).multiplyScalar(size * 0.6 * Math.sqrt(boost));
       if (Math.abs(n.y) < 0.7) off.projectOnPlane(n);
-      reefCluster(lib, rng, p.clone().add(off), n, Math.min(1.2, size * 0.6), mode, mode === 'stone' ? map : null, lod, lo, grow);
+      reefCluster(lib, rng, p.clone().add(off), n, Math.min(1.2 * boost, size * 0.6 * boost), mode, mode === 'stone' ? map : null, lod, lo, grow);
     }
     stats.slots++;
   }
+  lib.tag = '';
   for (const s of engine.slots.kelp || []) {
     const p = toV(s.pos);
     lib.w = dens(p.x, p.y, p.z);
     if (kelpAt(lib, rng, p.x, p.y, p.z, { maxH: s.height ? s.height + 6 : null, lo: dens.dist(p.x, p.y, p.z) > 30 })) stats.kelpSlots++;
   }
+}
+
+/**
+ * ref 7: kelp columns frame the gate-bridge arch at the left / right frame edges (near) and behind the towers;
+ * curated slots (tag 'dress7') at NDC positions of the shot-7 camera, dropped to the canal floor (never onto
+ * the wreck / quay: the surface map must be at ground level there).
+ */
+function framingKelp(engine, maps) {
+  const s7 = shotById(7);
+  const zone = maps.find((m) => m.z.id === 'canal')?.map;
+  if (!s7 || !zone) return;
+  const F = frameOf(s7);
+  const spots = [[-0.97, 9], [-0.9, 15], [-1.02, 22], [-0.8, 34], [0.96, 8], [0.9, 13], [1.0, 20], [0.82, 31]];
+  let n = 0;
+  for (const [x, d] of spots) {
+    for (let k = 0; k < 6; k++) {
+      const p = F.at(x * (1 + k * 0.04), -0.55, d);
+      const s = zone.sample(p.x, p.z);
+      if (!s) break;
+      const g = groundY(engine, p.x, p.z);
+      if (s.y > g + 0.6 || s.ny < 0.8) continue; // something built here (wreck, quay): try further out
+      engine.slots.coral.push({ pos: [p.x, s.y, p.z], species: 'kelp', tag: 'dress7:kelp' });
+      n++;
+      break;
+    }
+  }
+  return n;
 }
 
 // ------------------------------------------------------------------ fauna (anchored to the shot frames)
@@ -268,6 +312,7 @@ export async function build(engine) {
   const root = new THREE.Group(); root.name = 'marine';
   root.userData.marineSkip = true;
   const lib = new ReefLibrary(engine);
+  lib.filter = makeKeepFilter(engine);
   const rng = new RNG('marine:scatter');
   const cams = sunkenCams();
   const dens = makeDensity(cams);
@@ -305,7 +350,7 @@ export async function build(engine) {
       const g = groundY(engine, x, z);
       const onFloor = s.y <= g + 0.4;
       const forest = noise01(x, z, 0.02, 8);
-      if (onFloor && (zone === 'w2' || zone === 'w3' || zone === 'sea' || (zone === 'l2' && Math.abs(x) < 45)) && forest > 0.56) {
+      if (onFloor && (zone === 'w2' || zone === 'w3' || zone === 'sea' || (zone === 'l2' && Math.abs(x) < 45)) && forest > 0.6) {
         const k = Math.min(2, Math.round((forest - 0.5) * 5));
         for (let i = 0; i < k; i++) { const ox = rng.range(-sp, sp) * 0.5, oz = rng.range(-sp, sp) * 0.5; const ss = city.sample(x + ox, z + oz); if (ss) if (kelpAt(lib, rng, x + ox, ss.y, z + oz, { lo: true })) stats.kelp++; }
       } else if (rng.random() < 0.12) {
@@ -314,6 +359,7 @@ export async function build(engine) {
       }
     }
   }
+  framingKelp(engine, maps);
   consumeSlots(engine, lib, rng, dens, maps.map((m) => m.map).concat([city]), stats);
 
   // fauna first (its triangles count against the module budget)
@@ -329,8 +375,8 @@ export async function build(engine) {
   const mt = ((res.tris + fauna.school.tris) / 1e6).toFixed(2);
   engine.registry.marine = { root, U: { MARINE_U, FISH_GLINT, CORAL_GLOW }, stats, instances: res.instances, mtris: +mt, bySpecies: res.bySpecies, fish: fauna.school.count };
   console.log(`[marine] built in ${ms} ms (surface maps ${mapMs} ms): ${res.instances} growth instances, ${fauna.school.count} fish, ${mt} M tris; ` +
-    `thinned lo ${res.thinned} hi ${res.thinnedHi}; clusters ${stats.clusters}, faces ${stats.faces}, grass ${stats.grass}, kelp ${stats.kelp}, columns ${stats.columns}, coral slots ${stats.slots}/${(engine.slots.coral || []).length}, kelp slots ${stats.kelpSlots}/${(engine.slots.kelp || []).length}`);
-  console.log('[marine] species ' + JSON.stringify(res.bySpecies));
+    `thinned lo ${res.thinned} hi ${res.thinnedHi}; clusters ${stats.clusters}, faces ${stats.faces}, grass ${stats.grass}, kelp ${stats.kelp}, columns ${stats.columns}, coral slots ${stats.slots}/${(engine.slots.coral || []).length} (dressed ${stats.dressed || 0}), kelp slots ${stats.kelpSlots}/${(engine.slots.kelp || []).length}`);
+  console.log('[marine] species ' + JSON.stringify(res.bySpecies) + ' keep ' + JSON.stringify(lib.filter.stats));
 }
 
 function closeTo(sw, d) {

@@ -21,6 +21,8 @@ import * as MT from '../materials/metal.js';
 
 const PI = Math.PI;
 const SUMMIT = L.CITADEL.summit;
+/** chariot pedestal (r2 arch-b): footprint w × d and top height above the plaza (L.CHARIOT gives the position) */
+export const PED = { w: 24, d: 15, h: 5.4 };
 
 function addCoral(engine, list) { for (const c of list) engine.slots.coral.push(c); }
 
@@ -58,7 +60,7 @@ function buildForecourt(engine, ctx) {
   const reg = engine.registry.temple ||= {};
   const R = L.CITADEL.plateau - 1.2;
   // ---- paving: one disc with the compass rose (ref 3, 6) + checker beyond
-  const rose = { center: [0, 94], radius: 8.8 };
+  const rose = L.FORECOURT?.rose ? { center: L.FORECOURT.rose.center, radius: L.FORECOURT.rose.radius } : { center: [0, 94], radius: 8.8 };   // r2: director's FORECOURT.rose
   const pav = S.mosaicFloor({ center: rose.center, radius: rose.radius, rotation: 0, cell: 1.8, pattern: 4, tessera: 0.075, weather: sunken ? 0.6 : 0.12, polish: sunken ? 0.1 : 0.75, rough: sunken ? 0.7 : 0.32 });
   const disc = new THREE.CircleGeometry(R, 180).rotateX(-PI / 2);
   disc.translate(0, SUMMIT + 0.04, 0);
@@ -109,20 +111,38 @@ function buildForecourt(engine, ctx) {
     }
     if (sunken && i % 4 === 0) coral.push({ pos: [x0, SUMMIT + 1.4, z0], normal: [0, 1, 0], size: 0.7, tag: 'plaza-rim' });
   }
-  // ---- chariot pedestal (black stone, gilt relief, steps) — statues module puts the group on top
+  // ---- chariot pedestal (black stone, gilt relief friezes, steps) — statues module puts the group on top.
+  // r2 (arch-b): lower and more compact (ref 3: a low black plinth on dark steps, the group rises above it and
+  // the temple columns stay visible behind): 24 × 15 m, top 5.4 m above the plaza (was 30 × 18 × 7).
   const C = L.CHARIOT;
-  const cw = 30, cd = 18, ch = C.pedestal;
+  const cw = PED.w, cd = PED.d, ch = PED.h;
   const bz = B.get('dome');
   mb.push(); mk.push(); mg.push(); gr.push(); bz.push();
   for (const m of [mb, mk, mg, gr, bz]) m.translate(C.pos[0], C.pos[1], C.pos[2]);
-  // steps around (white)
-  for (let k = 0; k < 3; k++) box(mb, [-cw / 2 - 2.4 + k * 0.7, 0, -cd / 2 - 2.4 + k * 0.7], [cw / 2 + 2.4 - k * 0.7, 0.3 * (k + 1), cd / 2 + 2.4 - k * 0.7], 0.02, [0.05, 1, 0.1, 5.12]);
+  // steps around: white marble lowest tread, then two dark ones (ref 3 dark steps under the plinth)
+  for (let k = 0; k < 3; k++) box(k === 0 ? mb : mk, [-cw / 2 - 2.1 + k * 0.7, 0, -cd / 2 - 2.1 + k * 0.7], [cw / 2 + 2.1 - k * 0.7, 0.3 * (k + 1), cd / 2 + 2.1 - k * 0.7], 0.02, [0.05, 1, 0.1, k === 0 ? 5.12 : 0]);
+  for (let k = 0; k < 3; k++) box(mg, [-cw / 2 - 2.1 + k * 0.7 - 0.01, 0.3 * (k + 1) - 0.06, -cd / 2 - 2.1 + k * 0.7 - 0.01], [cw / 2 + 2.1 - k * 0.7 + 0.01, 0.3 * (k + 1) - 0.03, cd / 2 + 2.1 - k * 0.7 + 0.01], 0, [0.1, 0.4, 0, 0]);
   const yb = 0.9;
-  box(mk, [-cw / 2 - 0.4, yb, -cd / 2 - 0.4], [cw / 2 + 0.4, yb + 0.6, cd / 2 + 0.4], 0.03, [0.1, 0.8, 0.2, 0]);
-  box(mk, [-cw / 2, yb + 0.6, -cd / 2], [cw / 2, ch - 0.9, cd / 2], 0.02, [0.1, 0.2, 0.3, 0]);
-  box(mk, [-cw / 2 - 0.45, ch - 0.9, -cd / 2 - 0.45], [cw / 2 + 0.45, ch, cd / 2 + 0.45], 0.03, [0.05, 0.8, 0.5, 0]);
-  box(mg, [-cw / 2 - 0.47, ch - 0.75, -cd / 2 - 0.47], [cw / 2 + 0.47, ch - 0.6, cd / 2 + 0.47], 0, [0.1, 0.4, 0, 0]);
-  box(mg, [-cw / 2 - 0.42, yb + 0.45, -cd / 2 - 0.42], [cw / 2 + 0.42, yb + 0.55, cd / 2 + 0.42], 0, [0.1, 0.4, 0, 0]);
+  box(mk, [-cw / 2 - 0.4, yb, -cd / 2 - 0.4], [cw / 2 + 0.4, yb + 0.5, cd / 2 + 0.4], 0.03, [0.1, 0.8, 0.2, 0]);
+  box(mk, [-cw / 2, yb + 0.5, -cd / 2], [cw / 2, ch - 0.8, cd / 2], 0.02, [0.1, 0.2, 0.3, 0]);
+  box(mk, [-cw / 2 - 0.45, ch - 0.8, -cd / 2 - 0.45], [cw / 2 + 0.45, ch, cd / 2 + 0.45], 0.03, [0.05, 0.8, 0.5, 0]);
+  box(mg, [-cw / 2 - 0.47, ch - 0.62, -cd / 2 - 0.47], [cw / 2 + 0.47, ch - 0.5, cd / 2 + 0.47], 0, [0.1, 0.4, 0, 0]);
+  box(mg, [-cw / 2 - 0.42, yb + 0.38, -cd / 2 - 0.42], [cw / 2 + 0.42, yb + 0.46, cd / 2 + 0.42], 0, [0.1, 0.4, 0, 0]);
+  // gold relief frieze under the cornice: a running band of leaping dolphins on all four faces
+  {
+    const fy = ch - 1.32, fh = 0.46;
+    for (const [len, axis, sgn] of [[cw, 'z', 1], [cw, 'z', -1], [cd, 'x', 1], [cd, 'x', -1]]) {
+      const n = Math.floor(len / 1.25);
+      const FM = new THREE.Matrix4();
+      if (axis === 'z') { FM.makeTranslation(0, fy, sgn * cd / 2); if (sgn < 0) FM.multiply(new THREE.Matrix4().makeRotationY(PI)); }
+      else { FM.makeTranslation(sgn * cw / 2, fy, 0); FM.multiply(new THREE.Matrix4().makeRotationY(sgn * PI / 2)); }
+      mg.push(); mg.apply(FM); gr.push(); gr.apply(FM);
+      box(gr, [-len / 2, -0.06, 0], [len / 2, 0.0, 0.06], 0, [0.2, 0.6, 0, 0]);
+      box(gr, [-len / 2, fh, 0], [len / 2, fh + 0.06, 0.06], 0, [0.2, 0.6, 0, 0]);
+      for (let i = 0; i < n; i++) { const fl = i % 2 === 1; mg.push(); mg.translate(-len / 2 + (i + 0.5) * (len / n) + (fl ? 0.45 : -0.45), -0.15, 0.0); silhouette(mg, 'dolphin', 0.9, 0.07, fl); mg.pop(); }
+      mg.pop(); gr.pop();
+    }
+  }
   // pilasters with gold capitals + relief panels on all four faces
   const panel = (len, axis, sgn) => {
     const n = Math.max(1, Math.round(len / 7.5));
@@ -130,13 +150,14 @@ function buildForecourt(engine, ctx) {
       const s = -len / 2 + (len * i) / n;
       const p0 = axis === 'z' ? [s - 0.45, sgn * (cd / 2) - (sgn > 0 ? 0 : 0.35)] : [sgn * (cw / 2) - (sgn > 0 ? 0 : 0.35), s - 0.45];
       const p1 = axis === 'z' ? [s + 0.45, sgn * (cd / 2) + (sgn > 0 ? 0.35 : 0)] : [sgn * (cw / 2) + (sgn > 0 ? 0.35 : 0), s + 0.45];
-      box(mk, [p0[0], yb + 0.6, p0[1]], [p1[0], ch - 0.9, p1[1]], 0.02, [0.05, 0.8, 0.3, 0]);
-      box(mg, [p0[0] - 0.05, ch - 1.3, p0[1] - 0.05], [p1[0] + 0.05, ch - 0.9, p1[1] + 0.05], 0.01, [0.1, 0.6, 0, 0]);
+      box(mk, [p0[0], yb + 0.5, p0[1]], [p1[0], ch - 1.4, p1[1]], 0.02, [0.05, 0.8, 0.3, 0]);
+      box(mg, [p0[0] - 0.05, ch - 1.75, p0[1] - 0.05], [p1[0] + 0.05, ch - 1.4, p1[1] + 0.05], 0.01, [0.1, 0.6, 0, 0]);
+      box(mg, [p0[0] - 0.05, yb + 0.5, p0[1] - 0.05], [p1[0] + 0.05, yb + 0.68, p1[1] + 0.05], 0.01, [0.1, 0.6, 0, 0]);
       if (i < n) {
-        const sm = s + len / n / 2, pw = len / n - 1.8, ph = ch - yb - 2.4;
+        const sm = s + len / n / 2, pw = len / n - 1.6, ph = ch - yb - 2.55;
         const PM = new THREE.Matrix4();
-        if (axis === 'z') { PM.makeTranslation(sm, yb + 1.1, sgn * cd / 2); if (sgn < 0) PM.multiply(new THREE.Matrix4().makeRotationY(PI)); }
-        else { PM.makeTranslation(sgn * cw / 2, yb + 1.1, sm); PM.multiply(new THREE.Matrix4().makeRotationY(sgn * PI / 2)); }
+        if (axis === 'z') { PM.makeTranslation(sm, yb + 0.95, sgn * cd / 2); if (sgn < 0) PM.multiply(new THREE.Matrix4().makeRotationY(PI)); }
+        else { PM.makeTranslation(sgn * cw / 2, yb + 0.95, sm); PM.multiply(new THREE.Matrix4().makeRotationY(sgn * PI / 2)); }
         for (const m of [gr, bz, mg]) { m.push(); m.apply(PM); }
         // gilt frame, dark bronze field, gold figures (ref 3 pedestal panels)
         const fw = 0.22;
@@ -144,7 +165,7 @@ function buildForecourt(engine, ctx) {
         box(gr, [-pw / 2, ph - fw, 0], [pw / 2, ph, 0.12], 0.02, [0.2, 0.7, 0, 0]);
         box(gr, [-pw / 2, fw, 0], [-pw / 2 + fw, ph - fw, 0.12], 0.02, [0.2, 0.7, 0, 0]);
         box(gr, [pw / 2 - fw, fw, 0], [pw / 2, ph - fw, 0.12], 0.02, [0.2, 0.7, 0, 0]);
-        box(bz, [-pw / 2 + fw, fw, 0], [pw / 2 - fw, ph - fw, 0.03], 0, [0.5, 0, 0, 0]);
+        box(mk, [-pw / 2 + fw, fw, -0.02], [pw / 2 - fw, ph - fw, 0.02], 0, [0.5, 0, 0, 0]);   // r2: dark field, gold figures read (ref 3)
         const fh = ph - 2 * fw - 0.2;
         // relief: two hippocamps rearing toward a central trident, dolphins below
         mg.push(); mg.translate(-0.25 - fh * 1.0, fw + 0.1, 0.03); silhouette(mg, 'hippocamp', fh, 0.16, false); mg.pop();
@@ -156,12 +177,12 @@ function buildForecourt(engine, ctx) {
   };
   panel(cw, 'z', 1); panel(cw, 'z', -1); panel(cd, 'x', 1); panel(cd, 'x', -1);
   for (const m of [mb, mk, mg, gr, bz]) m.pop();
-  B.occBox([C.pos[0] - cw / 2 - 2.4, C.pos[1], C.pos[2] - cd / 2 - 2.4], [C.pos[0] + cw / 2 + 2.4, C.pos[1] + ch, C.pos[2] + cd / 2 + 2.4]);
+  B.occBox([C.pos[0] - cw / 2 - 2.1, C.pos[1], C.pos[2] - cd / 2 - 2.1], [C.pos[0] + cw / 2 + 2.1, C.pos[1] + ch, C.pos[2] + cd / 2 + 2.1]);
   reg.chariot = { pos: C.pos, top: C.pos[1] + ch, w: cw, d: cd };
   engine.footprints.addRect(C.pos[0], C.pos[2], cw / 2 + 3, cd / 2 + 3, 0, 'chariot');
   if (sunken) for (let i = 0; i < 18; i++) coral.push({ pos: [C.pos[0] + (hash3(i, 1, 1) - 0.5) * cw, C.pos[1] + ch, C.pos[2] + (hash3(i, 2, 2) - 0.5) * cd], normal: [0, 1, 0], size: 1.2, tag: 'chariot-pedestal' });
   // braziers at the pedestal corners
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) engine.slots.brazier.push({ pos: [C.pos[0] + sx * (cw / 2 + 1.6), C.pos[1] + 0.9, C.pos[2] + sz * (cd / 2 + 1.6)], facing: 180, size: 1.0, tag: 'chariot' });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) engine.slots.brazier.push({ pos: [C.pos[0] + sx * (cw / 2 + 1.5), C.pos[1] + 0.9, C.pos[2] + sz * (cd / 2 + 1.5)], facing: 180, size: 1.0, tag: 'chariot' });
   // ---- Nereid basins (ring around the chariot; skip those under the temple stair)
   const N = L.NEREIDS;
   const nb = [];
@@ -315,6 +336,46 @@ function buildStair(engine, ctx) {
     engine.slots.flowers.push({ pos: [p[0], p[1] - 1.5, p[2] + 2], facing: slot.facing, size: 2.2, tag: 'stair-bougainvillea' });
     if (sunken) coral.push({ pos: p, normal: [0, 1, 0], size: 0.8, tag: 'stair-pedestal' });
   });
+  // ---- r2 (director L.STAIR_HEAD): the north flight from the raised landing down into the court (refs 3 / 6:
+  // the camera stands on the landing and looks down a short, broad flight into the forecourt)
+  const SH = L.STAIR_HEAD;
+  if (SH) {
+    const fz0 = SH.flight.from[2], fz1 = SH.flight.to[2], fy0 = SH.flight.from[1], fy1 = SH.flight.to[1];
+    const fhw = SH.width / 2;
+    const N = Math.max(4, Math.round((fy0 - fy1) / 0.17) - 1);
+    const r = (fy0 - fy1) / (N + 1), t = (fz0 - fz1) / N;
+    const segs = Math.round(SH.width / 2.4);
+    for (let i = 0; i < N; i++) {
+      const y = fy0 - (i + 1) * r, za = fz0 - (i + 1) * t, zb = fz0 - i * t;
+      for (let k = 0; k < segs; k++) {
+        const x0 = -fhw + (SH.width / segs) * k, x1 = x0 + SH.width / segs;
+        const sag = sunken ? (ruinRand('nflight:' + i + ':' + k) - 0.5) * 0.06 - (ruined('nflight:c:' + i + ':' + k, 0.05) ? 0.1 : 0) : (hash3(i, k, 5) - 0.5) * 0.006;
+        box(mb, [x0 + 0.004, fy1 - 0.3, za - 0.02], [x1 - 0.004, y + sag, zb + 0.03], 0.02, [0.05, 1, 0.05, 0]);
+      }
+      if (sunken && i % 4 === 1) coral.push({ pos: [lerp(-fhw, fhw, ruinRand('nfc' + i)), y, (za + zb) / 2], normal: [0, 1, 0], size: 0.7, tag: 'stair' });
+    }
+    // cheek walls with a stepped coping; pedestals at the top (braziers) and bottom (urns / statues) corners
+    for (const sgn of [-1, 1]) {
+      const xc = sgn * (fhw + 0.9);
+      for (let i = 0; i <= N; i++) {
+        const y = i === 0 ? fy0 : fy0 - i * r, za = i === 0 ? fz0 - 0.02 : fz0 - (i + 1) * t, zb = i === 0 ? fz0 + 0.6 : fz0 - i * t;
+        if (i === N) continue;
+        box(mb, [xc - 0.9, fy1 - 0.3, za - 0.02], [xc + 0.9, y + 1.0, zb + 0.02], 0.02, [0.05, 0.6, 0.4, 3.05]);
+        box(mb, [xc - 1.0, y + 1.0, za - 0.03], [xc + 1.0, y + 1.18, zb + 0.03], 0.02, [0.05, 0.9, 0.3, 0]);
+      }
+      const top = [xc, fy0 + 1.18, fz0 - 0.4], bot = [xc, fy1 + r + 1.18, fz1 + 0.8];
+      for (const [p, kind] of [[top, 'brazier'], [bot, 'urn']]) {
+        mb.push(); mb.translate(p[0], p[1], p[2]); pedestal(mb, { w: 1.6, d: 1.6, h: 1.5, wreath: false, panel: true, detail: 0.5 }); mb.pop();
+        box(mg, [p[0] - 0.95, p[1] + 1.28, p[2] - 0.95], [p[0] + 0.95, p[1] + 1.34, p[2] + 0.95], 0, [0.1, 0.5, 0, 0]);
+        const slot = { pos: [p[0], p[1] + 1.5, p[2]], facing: 0, size: kind === 'brazier' ? 1.1 : 1.0, tag: 'stair-head' };
+        if (kind === 'brazier') engine.slots.brazier.push(slot); else engine.slots.urn.push(slot);
+        engine.slots.flowers.push({ pos: [p[0] + sgn * 1.6, fy1 + 0.1, p[2]], facing: sgn > 0 ? 90 : 270, size: 2.2, tag: 'stair-bougainvillea' });
+        if (sunken) coral.push({ pos: [p[0], p[1] + 1.5, p[2]], normal: [0, 1, 0], size: 0.8, tag: 'stair-pedestal' });
+      }
+    }
+    engine.footprints.addPath([[0, fz1], [0, fz0]], fhw + 2.5, 'citadel-stair');
+    (engine.registry.temple ||= {}).flight = { from: SH.flight.from, to: SH.flight.to, riser: r, tread: t, n: N, x0: -fhw, x1: fhw };
+  }
   const g = B.finalize({ ao: false });
   engine.add(g);
   addCoral(engine, coral);
@@ -376,6 +437,71 @@ function buildPlateauBuildings(engine, ctx) {
     ctx.tris += B.triangles;
     if (sunken) engine.slots.coral.push({ pos: [x, SUMMIT + 9, z], normal: [0, 1, 0], size: 1.5, tag: 'tholos' });
   });
+}
+
+// ------------------------------------------------------------------------------------------- honorific columns
+/**
+ * r2 (arch-b): four tall honorific columns around the temple's rear corners, each crowned by a gold statue
+ * ('pinnacle' slots, refs 1 and 5: white pillars with gold figures rising beside the temple). Sunken: one has
+ * snapped at mid-shaft (its drums lie on the paving), the statues module topples / removes some figures.
+ */
+export const HONOR_COLUMNS = [[-40, -46], [40, -46], [-39, 6], [39, 6]];   // clear of the r2 54 m temple (x ±29 incl. steps)
+function buildHonorColumns(engine, ctx) {
+  const sunken = isSunken(engine);
+  const B = new Building('honorColumns', { detail: 1, seed: 91, variant: sunken ? 'ruined' : 'polished', weather: sunken ? 0.85 : 0.18 });
+  const mb = B.marble, mk = B.get('black'), mg = B.gold, gr = B.get('giltRelief');
+  const coral = [];
+  const shaftH = 16.5, Dm = 1.75;
+  HONOR_COLUMNS.forEach(([x, z], i) => {
+    const broken = sunken && i === 1;
+    for (const m of [mb, mk, mg, gr]) { m.push(); m.translate(x, SUMMIT, z); }
+    // stepped black base, marble die with a gilt trident panel on each face, cornice
+    for (let k = 0; k < 3; k++) { const h = 2.9 - k * 0.45; box(mk, [-h, k * 0.35 - 0.6, -h], [h, (k + 1) * 0.35, h], 0.03, [0.1, 0.9, 0.2, 0]); }
+    const y0 = 1.05, yd = y0 + 3.2;
+    box(mb, [-1.8, y0, -1.8], [1.8, y0 + 0.4, 1.8], 0.03, [0.1, 0.8, 0.3, 0]);
+    box(mb, [-1.55, y0 + 0.4, -1.55], [1.55, yd, 1.55], 0.02, [0.05, 0.3, 0.5, 0]);
+    box(mb, [-1.85, yd, -1.85], [1.85, yd + 0.45, 1.85], 0.03, [0.05, 0.9, 0.5, 0]);
+    box(mg, [-1.87, yd + 0.12, -1.87], [1.87, yd + 0.2, 1.87], 0, [0.1, 0.4, 0, 0]);
+    for (let f = 0; f < 4; f++) {
+      gr.push(); gr.rotateY((f * PI) / 2); gr.translate(0, y0 + 0.75, 1.55);
+      box(gr, [-1.05, 0, 0], [1.05, 2.1, 0.05], 0.01, [0.2, 0.6, 0, 0]);
+      gr.translate(0, 0.12, 0.05); trident(gr, 1.85, { detail: 0.4 });
+      gr.pop();
+    }
+    // shaft with entasis (white marble), gold astragal + bell capital, abacus
+    const ys = yd + 0.45, top = broken ? ys + shaftH * 0.42 : ys + shaftH;
+    const R = Dm / 2;
+    const prof = [[R * 1.18, ys, 0, 0.5, true], [R * 1.18, ys + 0.3, 0, 0.6, true], [R * 1.05, ys + 0.45, 0.2, 0]];
+    for (let k = 1; k <= 8; k++) { const t = k / 8; prof.push([R * (1 - 0.13 * t + 0.04 * Math.sin(PI * t)), ys + 0.45 + (top - ys - 0.45) * t, 0.6, 0]); }
+    lathe(mb, prof, 24, { capTop: broken });
+    if (!broken) {
+      lathe(mg, [[R * 0.9, top, 0, 0], [R * 0.98, top + 0.12, 0, 0.6, true], [R * 0.96, top + 0.2, 0, 0], [R * 1.25, top + 1.3, 0.2, 0], [R * 1.45, top + 1.45, 0, 0.6, true]], 24, { capTop: true });
+      box(mb, [-R * 1.7, top + 1.45, -R * 1.7], [R * 1.7, top + 1.95, R * 1.7], 0.03, [0.05, 0.9, 0.4, 0]);
+      box(mg, [-R * 1.72, top + 1.55, -R * 1.72], [R * 1.72, top + 1.62, R * 1.72], 0, [0.1, 0.4, 0, 0]);
+      const fac = L.bearingOf(x, z + 30);
+      engine.slots.statue.push({ pos: [x, SUMMIT + top + 1.95, z], facing: fac, size: 4.6, tag: 'pinnacle', type: i % 2 ? 'nymph' : 'kingSpear' });
+      if (sunken) coral.push({ pos: [x, SUMMIT + top + 1.95, z], normal: [0, 1, 0], size: 0.9, tag: 'honor-column' });
+    }
+    for (const m of [mb, mk, mg, gr]) m.pop();
+    if (broken) {
+      // fallen drums toward the south-east
+      const drum = drumGeometry({ order: 'ionic', diameter: Dm * 0.95, height: 2.2, chips: 0.7, seed: 17, detail: 0.5 });
+      const m4 = new THREE.Matrix4();
+      for (let k = 0; k < 4; k++) {
+        const d = 4 + k * 2.4, a = 0.7 + 0.15 * ruinRand('hc' + k);
+        m4.compose(new THREE.Vector3(x + Math.sin(a) * d, SUMMIT + Dm * 0.47, z + Math.cos(a) * d), new THREE.Quaternion().setFromEuler(new THREE.Euler(PI / 2, a + 0.3 * ruinRand('hcr' + k), 0, 'YXZ')), new THREE.Vector3(1, 1, 1));
+        B.addInstance('honorDrums', drum, m4);
+        coral.push({ pos: [x + Math.sin(a) * d, SUMMIT + Dm, z + Math.cos(a) * d], normal: [0, 1, 0], size: 0.8, tag: 'honor-drum' });
+      }
+    }
+    engine.footprints.addRect(x, z, 3.2, 3.2, 0, 'honor-column');
+    if (!sunken) for (const [dx, dz] of [[-2.4, 2.4], [2.4, 2.4]]) engine.slots.urn.push({ pos: [x + dx, SUMMIT + 1.05, z + dz], facing: 180, size: 0.9, tag: 'honor-column' });
+  });
+  for (const [x, z] of HONOR_COLUMNS) B.occBox([x - 1.55, SUMMIT + 1.4, z - 1.55], [x + 1.55, SUMMIT + 4.2, z + 1.55]);
+  const g = B.finalize({ aoCell: 0.8, aoRays: 12 });
+  engine.add(g);
+  addCoral(engine, coral);
+  ctx.tris += B.triangles;
 }
 
 // ------------------------------------------------------------------------------------------- cascade corridors
@@ -506,7 +632,7 @@ export function fountainPlan() {
     const a = (i / N.count) * PI * 2;
     const x = N.center[0] + Math.sin(a) * N.radius, z = N.center[2] - Math.cos(a) * N.radius;
     if (z < frontZ + 5) continue;
-    if (Math.abs(x) < 30 / 2 + 4 && Math.abs(z - C.pos[2]) < 18 / 2 + 4) continue;
+    if (Math.abs(x) < PED.w / 2 + 4 && Math.abs(z - C.pos[2]) < PED.d / 2 + 4) continue;
     const Rb = 3.6, hb = 0.95;
     out.push({ id: 'nereid' + k++, kind: 'nereid', pos: [x, SUMMIT + hb - 0.15, z], radius: Rb - 0.35 - 0.02, rimY: SUMMIT + hb, jets: nereidJets(x, z, SUMMIT + 1.55) });
   }
@@ -518,7 +644,7 @@ export async function build(engine) {
   const t0 = performance.now();
   const ctx = { tris: 0 };
   try { const C = await import('../water/cascades.js'); ctx.casc = C.planCascades(); } catch (e) { ctx.casc = []; console.warn('[temple] no cascade plan', e.message); }
-  const parts = (engine.params.get('templeParts') || 'temple,forecourt,colossus,stair,plateau,palaces').split(',');
+  const parts = (engine.params.get('templeParts') || 'temple,forecourt,colossus,stair,plateau,palaces,honor').split(',');
   const time = {};
   const run = (name, fn) => { if (!parts.includes(name)) return; const t = performance.now(); const tr0 = ctx.tris; try { fn(engine, ctx); time[name + 'Tris'] = +((ctx.tris - tr0) / 1e6).toFixed(2); } catch (e) { console.error('[temple] ' + name + ' failed', e.stack || e); } time[name] = Math.round(performance.now() - t); };
   run('temple', buildTemple);
@@ -527,6 +653,7 @@ export async function build(engine) {
   run('stair', buildStair);
   run('plateau', buildPlateauBuildings);
   run('palaces', buildPalaces);
+  run('honor', buildHonorColumns);
   console.log(`[temple] built in ${Math.round(performance.now() - t0)} ms, ${(ctx.tris / 1e6).toFixed(2)} M tris`, JSON.stringify(time));
 }
 
@@ -535,7 +662,7 @@ export async function test(engine) {
   const view = Number(engine.params.get('view') || 0);
   if (view === 0) {
     const mats = [S.whiteStone(), S.redStone(), S.blackStone(), S.limestone(), S.bandedStone({ band: 0.8 }), S.whiteStone({ courses: 0.6 }),
-      MT.orichalcumMaterial({ panels: { w: 1.2, h: 0.9, rivets: true } }), MT.goldMaterial(), MT.giltMaterial(), MT.bronzeMaterial(), MT.tinMaterial({ panels: { w: 1.0, h: 0.8 } }), MT.silverMaterial({ panels: { w: 1.4, h: 1.0, rivets: true } })];
+      MT.orichalcumMaterial({ panels: { w: 1.2, h: 0.9, rivets: true } }), MT.goldMaterial(), MT.giltMaterial(), MT.bronzeMaterial(), MT.tinMaterial({ panels: { w: 1.0, h: 0.8 } }), MT.silverMaterial({ panels: { w: 1.4, h: 1.0, rivets: true } }), MT.goldMaterial({ crust: 0.35 }), MT.goldMaterial({ crust: 0.65 }), MT.bronzeMaterial({ crust: 0.5 })];
     mats.forEach((m, i) => {
       const x = (i % 6) * 3.2 - 8, z = Math.floor(i / 6) * 4 - 2;
       const c = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 4, 48), m); c.position.set(x, 2, z); engine.add(c);

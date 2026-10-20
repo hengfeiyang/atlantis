@@ -191,10 +191,16 @@ export function curtainBay(ctx, e, b0, b1, opts) {
   const G = S.get('gilt', mid[0], mid[2]);
   sweep(G, F, 0, len, P_FILLET.map(([d, y]) => [d, y + yC - 0.13]), [1, 1, 1], false);
   // cladding panel between the pilasters (+ white backing where a sunken panel has fallen)
-  const pw = 0.65, cy0 = yC + 0.13, cy1 = yK - 0.15;
+  const pw = 0.65, cy0 = yC + 0.13, cy1 = yK - (style === 'ori' ? 1.05 : 0.15);
   const Mt = S.get(metal, mid[0], mid[2]);
   const lost = ctx.sunken && ruined(label + ':panel', 0.3);
-  if (!lost) Mt.quadToward(F.p(pw, cy0, 0.015), F.p(len - pw, cy0, 0.015), F.p(len - pw, cy1, 0.015), F.p(pw, cy1, 0.015), [1, 1, 1], F.az);
+  // r2 (refs 1, 4, 5): the citadel SHORE wall reads white marble with gilt frames + banners; the red orichalcum
+  // is a frieze band under the cornice here (the red tiers are the terrace ramparts higher up the hill)
+  const marblePanel = style === 'ori';
+  const Pn = marblePanel ? W : Mt;
+  if (marblePanel) W.aux = [0, 0, 0.1, 0];
+  if (!lost) Pn.quadToward(F.p(pw, cy0, 0.015), F.p(len - pw, cy0, 0.015), F.p(len - pw, cy1, 0.015), F.p(pw, cy1, 0.015), marblePanel ? [1, 0.99, 0.97] : [1, 1, 1], F.az);
+  if (marblePanel) box(Mt, F, 0, len, cy1 + 0.2, yK - 0.12, -0.02, 0.05, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);
   else { W.aux = [0.3, 0, 0, AUX_ASHLAR(0.62)]; W.quadToward(F.p(0, cy0, -0.02), F.p(len, cy0, -0.02), F.p(len, cy1, -0.02), F.p(0, cy1, -0.02), [0.8, 0.78, 0.74], F.az); W.aux = [0, 0, 0, 0]; }
   W.aux = [0, 0, 0, AUX_ASHLAR(0.62)];
   W.quadToward(F.p(0, cy1, 0), F.p(len, cy1, 0), F.p(len, yK, 0), F.p(0, yK, 0), tone(rng, 0.03), F.az);
@@ -270,9 +276,23 @@ export function curtainBay(ctx, e, b0, b1, opts) {
       else box(G, F, sc - 0.06, sc + 0.06, yW + 0.3, yW + 1.1, -0.36, -0.24, [1, 1, 1], FACES.pz | FACES.px | FACES.nx | FACES.nz);
     }
     if (!ctx.sunken) box(G, F, 0, len, yW + 1.1, yW + 1.24, -0.42, -0.18, [1, 1, 1], FACES.pz | FACES.py | FACES.nz | FACES.ny);
-  } else for (const [a, b] of segs) box(W, F, a, b, yW, yW + 0.95, -0.6, 0.02, tone(rng, 0.03), FACES.pz | FACES.py | FACES.nz | FACES.px | FACES.nx);
+  } else {
+    // r2: white marble balustrade (plinth, balusters, rail) instead of crenellations (refs 1, 2, 4)
+    for (const [a, b] of segs) box(W, F, a, b, yW, yW + 0.3, -0.6, 0.02, tone(rng, 0.03), FACES.pz | FACES.py | FACES.nz | FACES.px | FACES.nx);
+    if (lod <= 1) {
+      const nP = Math.max(3, Math.round(len / (lod === 0 ? 0.55 : 0.9)));
+      for (let i = 0; i < nP; i++) {
+        const sc = (i + 0.5) * (len / nP);
+        if (notches.some(([n0, n1]) => sc > n0 && sc < n1)) continue;
+        if (ctx.sunken && ruined(`${label}:p${i}`, 0.5)) continue;
+        if (lod === 0) lathe(W, F, sc, yW + 0.3, -0.3, [[0, 0], [0.13, 0], [0.14, 0.08], [0.08, 0.2], [0.13, 0.45], [0.07, 0.72], [0.1, 0.8], [0, 0.82]], 6, [0.96, 0.95, 0.93]);
+        else box(W, F, sc - 0.09, sc + 0.09, yW + 0.3, yW + 1.12, -0.39, -0.21, [0.95, 0.94, 0.92], FACES.pz | FACES.px | FACES.nx | FACES.nz);
+      }
+    } else for (const [a, b] of segs) W.quadToward(F.p(a, yW + 0.3, -0.3), F.p(b, yW + 0.3, -0.3), F.p(b, yW + 1.12, -0.3), F.p(a, yW + 1.12, -0.3), [0.8, 0.79, 0.76], F.az);
+    if (!ctx.sunken || !ruined(label + ':rail', 0.5)) for (const [a, b] of segs) box(W, F, a, b, yW + 1.12, yW + 1.32, -0.48, -0.12, tone(rng, 0.03), FACES.pz | FACES.py | FACES.nz | FACES.ny | FACES.px | FACES.nx);
+  }
   box(W, F, 0, len, yW - 0.1, yW + 0.9, -T, -T + 0.5, tone(rng, 0.03), FACES.pz | FACES.py);
-  const nM = style === 'tin' ? 0 : Math.max(2, Math.floor(len / 1.8));
+  const nM = 0;   // r2: merlons removed (balustrade above)
   const mw = 1.0, step = len / Math.max(1, nM);
   for (let i = 0; i < nM; i++) {
     const sc = (i + 0.5) * step;
@@ -468,6 +488,44 @@ export function bastionBlock(ctx, e, bs) {
   Mt.quadToward(F.p(0.8, yK - 3.4, 0.14), F.p(len - 0.8, yK - 3.4, 0.14), F.p(len - 0.8, yK - 0.4, 0.14), F.p(0.8, yK - 0.4, 0.14), [1, 1, 1], F.az);
   box(G, F, 0.6, len - 0.6, yK - 0.4, yK - 0.25, 0.12, 0.2, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);
   box(G, F, 0.6, len - 0.6, yK - 3.55, yK - 3.4, 0.12, 0.2, [1, 1, 1], FACES.pz | FACES.py | FACES.ny);
+  // r2: articulated front — paired pilasters with gilt capitals, blind arched niches (red backs, gilt
+  // keystones) between them, gilt modillion course under the cornice, corner piers with urn finials
+  {
+    const nb = Math.max(3, Math.round(len / 5.5)), bw = len / nb;
+    const yA0 = e.landY + 3.9, yA1 = yK - 4.6;
+    for (let k = 0; k <= nb; k++) {
+      const sx = k * bw;
+      W.aux = [0, 0.4, 0, AUX_ASHLAR(0.62)];
+      chamferBox(W, F, sx - 0.45, sx + 0.45, e.landY + 1.1, yK - 0.35, 0.1, 0.42, 0.04, tone(rng, 0.04), FACES.pz | FACES.px | FACES.nx);
+      chamferBox(G, F, sx - 0.58, sx + 0.58, yK - 0.6, yK - 0.25, 0.1, 0.52, 0.03, [1, 1, 1], FACES.pz | FACES.px | FACES.nx | FACES.ny);
+      if (k === nb) break;
+      const sc = sx + bw / 2, ar = Math.min(1.5, bw * 0.28), ysA = yA1 - ar;
+      if (ysA - yA0 < 1.5) continue;
+      const Rb = S.get('red', mid[0], mid[2]);
+      Rb.aux = [0.35, 0, 0, AUX_ASHLAR(0.5)];
+      Rb.quadToward(F.p(sc - ar, yA0, 0.125), F.p(sc + ar, yA0, 0.125), F.p(sc + ar, ysA, 0.125), F.p(sc - ar, ysA, 0.125), [0.85, 0.85, 0.85], F.az);
+      for (let i = 0; i < 8; i++) {
+        const a0 = (Math.PI * i) / 8, a1 = (Math.PI * (i + 1)) / 8;
+        Rb.polyToward([F.p(sc, ysA, 0.125), F.p(sc + Math.cos(a0) * ar, ysA + Math.sin(a0) * ar, 0.125), F.p(sc + Math.cos(a1) * ar, ysA + Math.sin(a1) * ar, 0.125)], [0.85, 0.85, 0.85], F.az);
+      }
+      Rb.aux = [0, 0, 0, 0];
+      W.aux = [0, 0.4, 0, 0];
+      box(W, F, sc - ar - 0.3, sc - ar, yA0 - 0.25, ysA, 0.12, 0.3, tone(rng, 0.04), FACES.pz | FACES.px | FACES.nx | FACES.py);
+      box(W, F, sc + ar, sc + ar + 0.3, yA0 - 0.25, ysA, 0.12, 0.3, tone(rng, 0.04), FACES.pz | FACES.px | FACES.nx | FACES.py);
+      box(W, F, sc - ar - 0.45, sc + ar + 0.45, yA0 - 0.45, yA0 - 0.2, 0.12, 0.36, tone(rng, 0.04), FACES.pz | FACES.py | FACES.px | FACES.nx);
+      for (let i = 0; i < 9; i++) {
+        const a0 = Math.PI - (Math.PI * i) / 9, a1 = Math.PI - (Math.PI * (i + 1)) / 9, key = i === 4;
+        const B = key ? G : W, R1 = ar + (key ? 0.5 : 0.32);
+        const P = (a, rr, d) => F.p(sc + Math.cos(a) * rr, ysA + Math.sin(a) * rr, d);
+        const ctr = F.p(sc, ysA, -0.5);
+        B.quadOut(P(a0, ar, 0.3), P(a1, ar, 0.3), P(a1, R1, 0.3), P(a0, R1, 0.3), key ? [1, 1, 1] : tone(rng, 0.04), ctr);
+        B.quadOut(P(a0, ar, 0.12), P(a1, ar, 0.12), P(a1, ar, 0.3), P(a0, ar, 0.3), [0.8, 0.78, 0.75], F.p(sc, ysA, 0.5));
+      }
+      // gilt modillions (small brackets) under the cornice
+      for (let m = 0; m < 4; m++) { const mx = sx + (m + 0.5) * (bw / 4); box(G, F, mx - 0.12, mx + 0.12, yK - 0.22, yK, 0.12, 0.5, [1, 1, 1], FACES.pz | FACES.px | FACES.nx | FACES.ny); }
+    }
+    W.aux = [0, 0, 0, 0];
+  }
   // cornice on three sides + deck slab
   W.aux = [0, 0.25, 0, 0];
   sweep(W, F, -0.4, len + 0.4, [[0.12, yK], [0.3, yK + 0.2], [0.45, yK + 0.5], [0.6, yK + 0.75], [0.6, yD]], tone(rng, 0.03), true);

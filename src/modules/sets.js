@@ -37,6 +37,13 @@ export async function build(engine) {
     engine.add(group);
     engine.footprints?.addCircle?.(P[0], P[2], 18, 'sets:fallenHead');
     console.log(`[sets] fallen head set: ${Math.round(performance.now() - t0)} ms, ${(tris(group) / 1e6).toFixed(2)} M tris, ${coral} coral slots`);
+    const tb = performance.now();
+    try {
+      const { buildBackdrop8 } = await import('../sets/backdrop8.js');
+      const bg = buildBackdrop8(engine, F, G, q);
+      engine.add(bg);
+      console.log(`[sets] shot-8 backdrop (arcade + towers): ${Math.round(performance.now() - tb)} ms, ${(tris(bg) / 1e6).toFixed(2)} M tris`);
+    } catch (e) { console.error('[sets] backdrop8 failed', e.stack || e); }
   }
   const t1 = performance.now();
   try {

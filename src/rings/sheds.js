@@ -6,18 +6,44 @@ import { Frame, chamferBox, box, FACES, AUX_ASHLAR, mul3 } from './geo.js';
 import { polarXZ, SHED } from './plan.js';
 import { noiseA, noiseB } from '../core/noise.js';
 import { ruined, ruinRand } from '../world/era.js';
+import * as TF from '../terrain/field.js';
 
 const D2R = Math.PI / 180;
 
-/** radial rock displacement (m, toward the water) at a world point */
+/** radial rock displacement (m, toward the water) at a world point + crevice depth → [d, cav].
+ *  r2 (ref 4): rounded limestone crag masses (vertical karst lumps ≈ 3 × 4.5 m) with deep dark crevices
+ *  between them, a broad bulge field, a little of the terrain face field (src/terrain/field.js) for joints. */
+function hash2(i, j) { let h = (i * 374761393 + j * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function crag(su, y) {
+  // 2D cellular in (along-face metres, height); jittered cells, F1 / F2 + cell id
+  const cx = su / 3.3, cy = y / 4.6 + 0.35 * noiseB.noise2(su * 0.05, 1.7);
+  const ix = Math.floor(cx), iy = Math.floor(cy);
+  let f1 = 9, f2 = 9, id = 0;
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const gx = ix + i, gy = iy + j;
+    const ox = gx + 0.15 + 0.7 * hash2(gx, gy), oy = gy + 0.15 + 0.7 * hash2(gx + 71, gy - 13);
+    const dx = (ox - cx), dy = (oy - cy) * 1.0;
+    const dd = Math.hypot(dx, dy);
+    if (dd < f1) { f2 = f1; f1 = dd; id = hash2(gx - 5, gy + 9); } else if (dd < f2) f2 = dd;
+  }
+  return [f1, f2, id];
+}
 function rockDisp(x, y, z) {
-  // big rounded rock masses (karst limestone), vertical joints, strata ledges, fine roughness
-  const big = noiseA.fbm3(x * 0.055, y * 0.09, z * 0.055, 3);
-  const mass = Math.max(0, big + 0.15) * 2.2;
-  const joint = Math.abs(noiseB.noise2((x + z) * 0.11, y * 0.02)) < 0.08 ? -0.5 : 0;
-  const n = noiseA.fbm3(x * 0.22, y * 0.3, z * 0.22, 3) * 0.45 + noiseB.noise3(x * 0.9, y * 0.9, z * 0.9) * 0.1;
-  const ledge = Math.max(0, Math.sin(y * 0.75 + noiseB.noise2(x * 0.04, z * 0.04) * 3)) * 0.3;
-  return mass + n + ledge + joint;
+  const su = Math.atan2(x, -z) * 300;             // ≈ metres along the face (continuous across bays)
+  const [f1, f2, id] = crag(su, y);
+  const gap = f2 - f1;
+  const crev = 1 - Math.min(1, gap / 0.3);
+  const lump = 1.9 * (0.62 - f1) * (0.7 + 0.6 * id) - 1.3 * crev * crev;
+  const t = TF.rockDisp(x, y, z, 0.12);
+  const mass = Math.max(0, noiseA.fbm3(x * 0.04, y * 0.05, z * 0.04, 2) + 0.15) * 1.4;
+  const fine = 0.12 * noiseB.noise3(x * 0.9, y * 0.9, z * 0.9);
+  const cav = Math.min(1, Math.max(0, crev * 0.9 + TF.CAV * 0.3));
+  return [Math.max(-1.4, Math.min(3.6, 0.7 + lump + t + mass + fine)), cav];
+}
+/** rock top above the land level (m): lumpy crest rising toward the curtain foot (the wall sits ON the rock) */
+function crest(x, z) {
+  const n = noiseA.fbm3(x * 0.06, 3.7, z * 0.06, 3), m = noiseB.noise2(x * 0.21, z * 0.21);
+  return 0.9 + 1.6 * Math.max(0, n + 0.25) + 0.35 * m;
 }
 
 /**
@@ -50,47 +76,76 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
     const dx = sv, dy = y - ys, l = Math.hypot(dx, dy) || 1;
     return [(dx / l) * (ra + m), ys + (dy / l) * (ra + m), true];
   };
-  const vert = [];
-  const sE = Rf * Math.sin(halfDeg * D2R);
+  const vert = [], cavs = [];
   for (let j = 0; j <= ny; j++) {
-    const row = [];
+    const row = [], crow = [];
     const y = yB + ((yT - yB) * j) / ny;
     for (let i = 0; i <= nu; i++) {
       const u = -halfDeg + (2 * halfDeg * i) / nu;
-      let sv = Rf * Math.sin(u * D2R), yy = y, snapped = false;
-      if (i > 0 && i < nu) [sv, yy, snapped] = snap(sv, y);
+      let sv = Rf * Math.sin(u * D2R), yy = y;
+      if (i > 0 && i < nu) [sv, yy] = snap(sv, y);
       const uu = Math.asin(Math.max(-1, Math.min(1, sv / Rf))) / D2R;
       const p0 = W(uu, yy, Rf);
-      let d = rockDisp(p0[0], yy, p0[2]);
-      if (j === ny) d = Math.min(d, 0.15);       // top edge: meets the ledge
-      if (yy < 0.4) d *= 0.6;
+      // the top row climbs to the lumpy crest (the cliff continues up to the wall foot)
+      if (j === ny) yy = yT + crest(p0[0], p0[2]);
+      else if (j === ny - 1) yy += 0.45 * crest(p0[0], p0[2]);
+      let [d, cav] = rockDisp(p0[0], yy, p0[2]);
+      if (j === ny) d = 0.4 * d - 0.3;
+      if (yy < 0.4) d = 0.6 * d - 0.2;
       if (j === 0) d = Math.min(d, 0.3);
       // near the dressed arch the rock stays behind the archivolt
       if (!opts.solid) {
         const dOpen = yy <= ys ? Math.abs(Math.abs(sv) - ra) : Math.abs(Math.hypot(sv, yy - ys) - ra);
-        if (dOpen < 3.0) d = Math.min(d, -0.2 + 0.45 * dOpen);
+        if (dOpen < 3.5) { d = Math.min(d, -0.2 + 0.55 * dOpen); cav = Math.max(cav, 0.55 * (1 - dOpen / 3.5)); }
       }
       row.push(W(uu, yy, Rf + side * d));
-      void sE; void snapped;
+      crow.push(cav);
     }
-    vert.push(row);
+    vert.push(row); cavs.push(crow);
+  }
+  // smooth vertex normals from the grid (central differences), oriented toward the water
+  const out = Fb.az;
+  const sub = (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+  const nrm = [];
+  for (let j = 0; j <= ny; j++) {
+    const row = [];
+    for (let i = 0; i <= nu; i++) {
+      const du = sub(vert[j][Math.min(nu, i + 1)], vert[j][Math.max(0, i - 1)]), dv = sub(vert[Math.min(ny, j + 1)][i], vert[Math.max(0, j - 1)][i]);
+      let n = [du[1] * dv[2] - du[2] * dv[1], du[2] * dv[0] - du[0] * dv[2], du[0] * dv[1] - du[1] * dv[0]];
+      const l = Math.hypot(n[0], n[1], n[2]) || 1;
+      n = [n[0] / l, n[1] / l, n[2] / l];
+      if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] < 0) n = [-n[0], -n[1], -n[2]];
+      row.push(n);
+    }
+    nrm.push(row);
   }
   for (let j = 0; j < ny; j++) for (let i = 0; i < nu; i++) {
     const uc = -halfDeg + (2 * halfDeg * (i + 0.5)) / nu, yc = yB + ((yT - yB) * (j + 0.5)) / ny;
     if (inOpen(Rf * Math.sin(uc * D2R), yc)) continue;
-    Rk.aux = [0, 0, 0, 0];
-    Rk.quadToward(vert[j][i], vert[j][i + 1], vert[j + 1][i + 1], vert[j + 1][i], [1, 1, 1], Fb.az);
+    const ids = [[j, i], [j, i + 1], [j + 1, i + 1], [j + 1, i]];
+    Rk.quadSmooth(ids.map(([a2, b2]) => vert[a2][b2]), ids.map(([a2, b2]) => nrm[a2][b2]), [1, 1, 1], ids.map(([a2, b2]) => [cavs[a2][b2], 0, 0, 0]), out);
   }
-  // ---- top ledge (soil + rock) from the front edge back to the curtain wall
+  // ---- top ledge: lumpy rock crest from the front edge up / back to the curtain foot (covers its plinth)
   const back = R0 - side * (Math.abs(e.faceR - e.wallR) + 0.2);
-  const nl = 4;
-  for (let k = 0; k < nl; k++) {
-    const r0 = Rf + (back - Rf) * (k / nl), r1 = Rf + (back - Rf) * ((k + 1) / nl);
-    const yy0 = yT + (k === 0 ? 0.0 : 0.12 + 0.18 * noiseA.noise2(r0 * 0.3, b)), yy1 = yT + 0.12 + 0.18 * noiseA.noise2(r1 * 0.3, b);
-    for (let i = 0; i < 3; i++) {
-      const u0 = -halfDeg + (2 * halfDeg * i) / 3, u1 = -halfDeg + (2 * halfDeg * (i + 1)) / 3;
-      Rk.quadToward(W(u0, yy0, r0), W(u1, yy0, r0), W(u1, yy1, r1), W(u0, yy1, r1), [1, 1, 1], [0, 1, 0]);
+  const nl = lod === 0 ? 6 : 4;
+  const ledge = [];
+  for (let k = 0; k <= nl; k++) {
+    const row = [];
+    const t = k / nl;
+    for (let i = 0; i <= nu; i++) {
+      if (k === 0) { row.push(vert[ny][i]); continue; }
+      const u = -halfDeg + (2 * halfDeg * i) / nu;
+      const rr = Rf + (back - Rf) * t;
+      const pw = W(u, 0, rr);
+      const cr = crest(pw[0], pw[2]);
+      const yy = yT + cr * (1 - t) + (0.8 + 0.5 * Math.max(0, cr - 1.2)) * t + 0.25 * noiseB.noise2(pw[0] * 0.5, pw[2] * 0.5) * (1 - t);
+      row.push(W(u, yy, rr));
     }
+    ledge.push(row);
+  }
+  Rk.aux = [0, 0, 0, 0];
+  for (let k = 0; k < nl; k++) for (let i = 0; i < nu; i++) {
+    Rk.quadToward(ledge[k][i], ledge[k][i + 1], ledge[k + 1][i + 1], ledge[k + 1][i], [1, 1, 1], [0, 1, 0]);
   }
   // group ends: radial side faces
   for (const [flag, u] of [[opts.endA, -halfDeg], [opts.endB, halfDeg]]) {
@@ -98,9 +153,10 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
     const dir = u < 0 ? mul3(Fb.ax, -1) : Fb.ax;
     const nr = 6, nyy = 6;
     for (let j = 0; j < nyy; j++) for (let k = 0; k < nr; k++) {
+      const yTop = (r) => { const pw = W(u, 0, r); return yT + crest(pw[0], pw[2]) * 0.8; };
       const y0 = yB + ((yT - yB) * j) / nyy, y1 = yB + ((yT - yB) * (j + 1)) / nyy;
       const r0 = R0 + (Rf - R0) * (k / nr), r1 = R0 + (Rf - R0) * ((k + 1) / nr);
-      const dp = (r, y) => { const p = W(u, y, r); const dd = rockDisp(p[0], y, p[2]) * 0.8; return W(u + (u < 0 ? -1 : 1) * (dd / r) / D2R, y, r); };
+      const dp = (r, y) => { if (y >= yT - 1e-3) y = yTop(r); const p = W(u, y, r); const dd = rockDisp(p[0], y, p[2])[0] * 0.8; return W(u + (u < 0 ? -1 : 1) * (dd / r) / D2R, y, r); };
       Rk.quadToward(dp(r0, y0), dp(r1, y0), dp(r1, y1), dp(r0, y1), [1, 1, 1], dir);
     }
   }
@@ -194,8 +250,16 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
   sh.slotPos = Fb.p(0, 0, SHED.depth - 0.5);
   if (!ctx.sunken) {
     // banners between the arches (on the rock, hung from iron rods)
-    if (sh.index % 2 === 0) ctx.slots.banner.push({ pos: W(halfDeg, sh.crown + 0.6, Rf + side * 0.45), facing: sh.facing, size: [1.6, 4.4], tag: 'rings-shed' });
-    if (sh.index % 3 === 0) ctx.slots.ivy.push({ pos: W(halfDeg * 0.6, yT - 0.2, Rf + side * 0.3), facing: sh.facing, size: 4 + 3 * rng.random(), tag: 'rings-shed-rock' });
+    if (sh.index % 2 === 0) {
+      const pb = W(halfDeg, sh.crown + 0.6, Rf);
+      const dB = Math.max(0, rockDisp(pb[0], sh.crown + 0.6, pb[2])[0]);
+      ctx.slots.banner.push({ pos: W(halfDeg, sh.crown + 0.6, Rf + side * (dB + 0.45)), facing: sh.facing, size: [1.6, 4.4], tag: 'rings-shed' });
+    }
+    if (sh.index % 3 === 0) {
+      const pv = W(halfDeg * 0.6, yT, Rf);
+      const dI = Math.max(0, rockDisp(pv[0], yT, pv[2])[0] * 0.55);
+      ctx.slots.ivy.push({ pos: W(halfDeg * 0.6, yT + crest(pv[0], pv[2]) - 0.3, Rf + side * (dI + 0.3)), facing: sh.facing, size: 4 + 3 * rng.random(), tag: 'rings-shed-rock' });
+    }
   } else {
     ctx.slots.coral.push({ pos: W(halfDeg * 0.9, ys + 1, Rf + side * 0.4), normal: Fb.az, size: 1.5, tag: 'rings-shed' });
     ctx.slots.coral.push({ pos: W(0, yT + 0.2, (Rf + R0) / 2), normal: [0, 1, 0], size: 2.5, tag: 'rings-shed-top' });
