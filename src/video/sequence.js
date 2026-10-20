@@ -10,17 +10,19 @@ export const FPS = 30;
 export const XFADE = 0.8;      // seconds of cross-dissolve between consecutive segments
 export const SHUTTER = 0.5;    // 180° shutter: motion blur over half the frame interval
 
+// ATLANTIS (r3 draft — director tunes moves against the final cameras): the golden city from the air down to
+// the temple, then the SAME temple camera underwater (3 → 6 dissolve = the city sinks across the cut), the
+// sunken city, and the film ends at the surface (split level, ref 9) as the sun sets.
 export const SEQUENCE = [
-  { shot: 1, dur: 8.0, time: 10, move: { dolly: 6, pan: 1.6, crane: 1.0 }, ease: 'inout' },
-  { shot: 4, dur: 7.0, time: 40, move: { dolly: 16, crane: -3, tilt: -0.5 }, ease: 'linear' }, // B's helmet sits at the top-left edge: no pan right
-  { shot: 2, dur: 7.5, time: 70, move: { dolly: 3, crane: 0.3 }, ease: 'linear' }, // small: hero branches are anchored to the reference camera
-  { shot: 7, dur: 7.0, time: 100, move: { dolly: 4.5, crane: 2.5, tilt: 0.8 }, ease: 'linear' },
-  { shot: 6, dur: 7.5, time: 130, move: { dolly: 4, crane: 2.2, tilt: 0.6 }, ease: 'linear' },
-  { shot: 5, dur: 7.5, time: 160, move: { dolly: 6, tilt: 1.2, zoom: -0.03 }, ease: 'linear' },
-  // shot 3 dropped from the cut: from ~2.8 s into its move every frame hung the GPU in the video path
-  // (it shares the ruins-terrace viewpoint with shots 8 and 9, which close the film)
-  { shot: 8, dur: 7.0, time: 30, move: { truck: 0.9, pan: -0.6 }, ease: 'linear' },
-  { shot: 9, dur: 8.4, time: 75, move: { dolly: 2.6, crane: 0.3 }, ease: 'out' },
+  { shot: 1, dur: 7.5, time: 10, move: { dolly: 40, crane: -8, pan: 1.2 }, ease: 'inout' },
+  { shot: 2, dur: 7.0, time: 40, move: { dolly: 8, crane: 0.6 }, ease: 'linear' },
+  { shot: 4, dur: 6.5, time: 70, move: { dolly: 10, truck: -2 }, ease: 'linear' },
+  { shot: 5, dur: 6.5, time: 100, move: { dolly: 2.5, pan: -1.5 }, ease: 'linear' },
+  { shot: 3, dur: 7.0, time: 130, move: { dolly: 5, crane: 0.8, tilt: 0.6 }, ease: 'linear' },
+  { shot: 6, dur: 7.0, time: 30, move: { dolly: 5, crane: 0.8, tilt: 0.6 }, ease: 'linear' }, // same move as 3: era dissolve
+  { shot: 7, dur: 6.5, time: 60, move: { dolly: 6, crane: 1.5, tilt: 1.0 }, ease: 'linear' },
+  { shot: 8, dur: 6.5, time: 90, move: { truck: 1.6, pan: -1.0 }, ease: 'linear' },
+  { shot: 9, dur: 8.0, time: 120, move: { dolly: 4, crane: 0.0 }, ease: 'out' },
 ];
 
 export function totalDuration() {

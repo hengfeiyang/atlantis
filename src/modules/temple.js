@@ -282,7 +282,10 @@ function buildStair(engine, ctx) {
   for (let i = nz - 1; i >= 0; i--) env[i] = Math.max(env[i], env[i + 1]);
   const envAt = (z) => env[Math.max(0, Math.min(nz, Math.round((z - z0) / dz)))];
   // steps: riser 0.24, tread ≥ 0.48; a step drops when the envelope allows it
-  const riser = 0.24, minTread = 0.5;
+  // r3 (director): the riser adapts to the stair's mean slope (summit 62 / landing 75 → 72 m over 122 m ≈ 30°; a fixed
+  // 0.24 / 0.5 step tops out at 25.6° and the flight ended ≈ 10 m above the quay)
+  const minTread = 0.5, zLand = L.STAIR_HEAD ? Math.max(z0, L.STAIR_HEAD.landing[1]) : z0;
+  const riser = Math.min(0.34, Math.max(0.24, ((St.from[1] - St.to[1]) / Math.max(1, z1 - zLand)) * minTread * 1.12));
   const steps = [];
   let y = St.from[1], z = z0;
   steps.push([z, y]);
@@ -677,7 +680,8 @@ export async function test(engine) {
   // views ≥ 1: the citadel top on a stand-in hill (plateau disc + ledges) in either era
   const hill = new THREE.Group();
   const hm = S.limestone({ weather: 0.4 });
-  const prof = [[0.01, SUMMIT], [L.CITADEL.plateau, SUMMIT], [150, 32], [172, 32], [192, 18], [208, 18], [214, 3], [230, 3], [231, 0]];
+  const [T1, T2] = L.CITADEL.terraces, Qy = L.CITADEL.quayY;   // r3 (director): stand-in hill follows the layout (was hard-coded 32 / 18)
+  const prof = [[0.01, SUMMIT], [L.CITADEL.plateau, SUMMIT], [T1.r0, T1.y], [T1.r1, T1.y], [T2.r0, T2.y], [T2.r1, T2.y], [214, Qy], [230, Qy], [231, 0]];
   hill.add(new THREE.Mesh(new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 128), hm));
   engine.add(hill);
   await build(engine);

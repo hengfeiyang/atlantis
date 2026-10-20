@@ -13,6 +13,7 @@ import { Kit, finalizeKit } from '../bridges/kit.js';
 import { bridgePlan, GATE } from '../bridges/plan.js';
 import { buildGateBridge } from '../bridges/gate.js';
 import { buildRingBridge } from '../bridges/ring.js';
+import { buildCitadelTowers } from '../bridges/pinnacles.js';
 
 let MATS = null;
 export function bridgeMaterials() {
@@ -52,12 +53,13 @@ export async function build(engine) {
   const kitR = new Kit(engine, { detail: Math.max(0.4, q.detail * 0.7), sunken, label: 'ring' });
   const plan = bridgePlan();
   const ring = plan.map((P) => buildRingBridge(kitR, P));
+  const citadelTowers = buildCitadelTowers(kitR);   // r3 (director): L.CITADEL_TOWERS, refs 4 / 5 / 9
   tris += finalizeKit(kitR, mats, group, 'ring-bridges');
   engine.add(group);
   publish(engine, [kitG, kitR]);
-  engine.registry.bridges = { gate: { ...GATE, towers: gate.towers }, ring, plan };
+  engine.registry.bridges = { gate: { ...GATE, towers: gate.towers }, ring, plan, citadelTowers };
   const ms = Math.round(performance.now() - t0);
-  console.log(`[bridges] ${sunken ? 'sunken' : 'golden'}: gate + ${plan.length} ring bridges, ${(tris / 1e6).toFixed(2)} M tris, ${group.children.length} meshes, gate tower tips ${gate.towers.map((t) => t.tip.toFixed(1)).join('/')} m, coral ${kitG.coral.length + kitR.coral.length}, kelp ${kitG.kelp.length + kitR.kelp.length}, ${ms} ms`);
+  console.log(`[bridges] ${sunken ? 'sunken' : 'golden'}: gate + ${plan.length} ring bridges, ${(tris / 1e6).toFixed(2)} M tris, ${group.children.length} meshes, gate tower tips ${gate.towers.map((t) => t.tip.toFixed(1)).join('/')} m, citadel towers ${citadelTowers.map((t) => t.tip.toFixed(1)).join('/')} m, coral ${kitG.coral.length + kitR.coral.length}, kelp ${kitG.kelp.length + kitR.kelp.length}, ${ms} ms`);
   engine.stats.bridges = { tris, ms };
 }
 

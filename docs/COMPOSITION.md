@@ -1,4 +1,4 @@
-# ATLANTIS — Composition (director, round 2)
+# ATLANTIS — Composition (director, rounds 2-3)
 
 Owner: director. Cameras live in `src/world/shots.js`, the master plan in `src/world/layout.js`, the near-field
 terrain in `src/world/heightfield.js`. Pixels are reference pixels (1672 × 941); "rms" = root-mean-square
@@ -45,47 +45,90 @@ fit of pos, yaw, pitch, fov with pinned params and penalties such as "sea horizo
    trireme at [-12, 0, 806] (moved 11 m closer after the first check), wreck, moles at 930 all land as planned
    (final `--shot all --quality high --spp 12`: no errors).
 
-## Cameras (final, round 2)
+### Round 3a (director, structural layout pass) — fit scripts in out/director/r3/ (fit1/2/3f/5b/9, aim4*), renders out/director/r3/
+
+11. **Citadel raised** (refs 1, 2, 4, 5): `CITADEL.summit 45 → 62`, terraces `{114-160 @ 42}, {178-198 @ 22}` (was 150-172 @ 32,
+   192-208 @ 18): the plateau rim now drops 20 m over 4 m (r 110 → 114, a sheer retaining wall = the red rampart band of
+   ref 5), then 48° / 50° rock slopes to the ledge 2 and the quay (3). Plateau radius 110 kept (temple, forecourt,
+   tholoi, honour columns, towers all need it). Everything on the citadel reads the layout; verified in renders
+   (palaces on both ledges, ramparts, 40 cascades traced from the new heights, honour columns, stair, plaza, statues,
+   fountains/jets, vegetation, props, the w1 bridge approaches to ledge 2, terrain mesh bake key = layout hash).
+   **Code fixes outside layout**: `src/modules/temple.js` buildStair riser now adapts to the stair slope (0.24 → ≤ 0.34;
+   the fixed 0.24/0.5 step capped at 25.6° and would have ended ≈ 10 m above the quay); temple test stand-in hill
+   reads `CITADEL.terraces` (was hard-coded 32/18).
+12. **Sunken surface 87 → 104** (same 42 m over the plateau: the ref-9 depth relation is kept).
+13. **Stair head / forecourt (refs 3, 6 horizon)**: landing `STAIR_HEAD.y = summit + 13 = 75`, eye 79 → sea horizon row 314
+   (ref ≈ 310, r2 ≈ 400-470). Back-projecting ref 3 from that eye puts the flight foot at z ≈ 64 and the rose at z ≈ 60,
+   so: north flight z 97 → 68 (13 m, ≈ 24°), `FORECOURT.rose [0, 60] r 5.5`, `NEREIDS.radius 24 → 20` (basins (±11.8, 63.2),
+   (±19, 40.8)), `FOUNTAINS (±31, 57)`. `CITADEL_STAIR.from = [0, 75, 97]` (72 m drop to the quay, ≈ 30°).
+14. **Colossus pedestal 22 → 30** (feet at the temple ridge ≈ 94, refs 1, 4, 5). Trident (2.75 fig units × 15 = 41 m) tip ≈ 133.
+15. **Ref 9 surface breakers**: (a) sunken colossus = the figure is gone (head = ref-8 set) but its gold trident still stands
+   in its socket on the pedestal (slight lean, rubble of the feet), tip 132.6 = 29 m above the water — **statues.js
+   `buildSunkenTrident()`** (new, `L.SUNKEN_TRIDENT`); (b) two citadel towers `L.CITADEL_TOWERS` (±54, -84), 9 m, white
+   podium stage + slender upper stage, roof 110, tholos + trident tip ≈ 121 (golden: refs 4/5 white towers beside the
+   temple; sunken: broken trident, missing tholos columns, ≈ 6-17 m above the water) — **new `src/bridges/pinnacles.js`**
+   (gate-tower kit), called from `src/modules/bridges.js` (registry.bridges.citadelTowers; coral slots above surface-1.5 dropped).
+16. **Water ring 1 widened**: `w1 230-300 → 230-350`, `l1 300-440 → 350-440` (outer rings unchanged), `SEA_CANAL.z0` /
+   `CANAL_TUNNEL.z0 300 → 350`. Ref 5 puts the citadel shore 135-200 m from the terrace (r2: 78 m). w2 and beyond, the gate
+   bridge, moles, ships, fallen head (r 392, still mid-l1) and shot 8 untouched; ring bridges w1 span 120 m (bridges plan
+   follows), sheds/walls/city/terrain/water follow the radii. Cost: shot 4's "narrow channel" is gone (see 18).
+17. **Garden terrace bearing 100 → 198, r 352** (ref 5): the ref sees the temple FRONT with the colossus straight behind it,
+   only possible from the south (fit 33 px vs ≥ 110 px from bearing 100). Bearing 190 fits 22 px but the grand stair +
+   stair head then hide the temple. City clearance circle, vegetation, rings bastion and the terrace set all follow.
+18. **Shot 4** re-composed (still no pinhole solution, the ref's temple/bridge separation of 15° is ≥ 45° from anywhere in
+   w1): bearing 163, r 336, eye 2.5, heading 5, fov 54 — the raised hill with tiers / cascades / grand stair fills the
+   left half, w1-90 bridge right of centre, l1 face at the right edge. From water level the temple colonnade is hidden
+   by the plateau rim (mesa top; only visible beyond ≈ 1.6 km) — accepted. Sun `sunRel(4, -60, 18)` → az ≈ 305: clears
+   the citadel (ray ≥ 78 m over the rim) and lights the l1 inner face frontally.
+19. Golden + sunken full world builds: no errors / warnings (sessions 9481 / 9482).
+
+## Cameras (final, round 3a)
 
 | shot | pos | target | fov | rms px | landmarks / notes |
 |---|---|---|---|---|---|
-| 1 | (7.09, 224.31, 1353.97) | (5.77, 195.85, 1258.11) | 40 | 36 | lighthouses, gate towers, temple apex/stylobate, colossus + horizon (ours row 87, ref 128) |
-| 2 | (0, 5, 846) | (-10.7, 13.2, 746.8) | 41.4 | 23 | gate-bridge springs/crown/deck/tower axes, eye 5 m |
-| 3 | (9, 54, 98.5) | (-18.27, 48.77, 2.43) | 46.5 | 19 | temple corners; pitch -3 to show the north flight at the bottom |
-| 4 | (134, 2.5, 232.09) | (176.16, 9.48, 141.68) | 44 | — | composed (see 9) |
-| 5 | (297.5, 30.2, 52) | (211.74, 16.28, 2.49) | 56 | — | composed (w1 too narrow, see below) |
-| 6 | (9, 54, 98.5) | (-18.27, 48.77, 2.43) | 46.5 | 20 | = shot 3 (era dissolve); 28 incl. the broken right cornice |
-| 7 | (-10.74, -6, 820) | (-10.31, 15.32, 722.3) | 43.1 | 30 | towers/deck/tips, excl. the arch crown |
-| 8 | (147.9, 15.83, 374.6) | (137, 16.18, 357.84) | 44 | 22 | unchanged (sets r1 fit on the head) |
-| 9 | (3.54, 87.15, 88.64) | (-2.86, 58.98, -7.09) | 62 | 21 | eye at surface 87, horizon row 205 |
+| 1 | (7.35, 222.72, 1383.72) | (6.05, 196.16, 1287.32) | 38 | 29 | lighthouses, gate towers, apex/stylobate, colossus head + horizon w 1 (ours row 94, ref 128). r2: 36 |
+| 2 | (0, 5, 846) | (-10.7, 13.2, 746.8) | 41.4 | 23 | unchanged; the raised temple now shows in the arch (row ≈ 438, ref's arch temple ≈ 440) |
+| 3 | (12, 79, 98.5) | (-17.68, 65.3, 3.99) | 45.1 | 16 | temple corners, horizon row 314 (ref 310); flight + rose + Nereid basins as in ref |
+| 4 | (98.24, 2.5, 321.32) | (106.9, 12.95, 222.25) | 54 | — | composed (item 18); sun az 305 / el 18 |
+| 5 | (-108.77, 30.2, 334.77) | (-97.98, 13.08, 236.84) | 56 | 33 | apex, cornice, colossus head + horizon 295; terrace set follows (shotForward) |
+| 6 | (12, 79, 98.5) | (-17.68, 65.3, 3.99) | 45.1 | 29 | = shot 3 (ref 6 temple drawn ≈ 8 % narrower) |
+| 7 | (-10.74, -6, 820) | (-10.31, 15.32, 722.3) | 43.1 | 30 | unchanged (gate bridge unchanged); now 110 m deep |
+| 8 | (147.9, 15.83, 374.6) | (137, 16.18, 357.84) | 44 | 22 | unchanged (head stays in l1, r 392) |
+| 9 | (3.54, 104.15, 88.64) | (-2.86, 75.98, -7.09) | 62 | 21 | r2 solve + 17 m; trident at px ≈ 900 (ref 1055), towers ≈ 640 / 1120 (ref 655 / 1235) |
 
 ## What still differs (and why)
 
-* **Citadel too low / not steep (refs 1, 2, 4, 5).** Every golden reference shows the temple standing ≈ 2-3× higher
-  above the rings than ours (ref 1 apex residual 52 px, ref 2 temple hidden behind the bridge, ref 4 temple hidden
-  behind the quay palaces from water level, ref 5 red wall band sits at the horizon). Fixing it needs summit
-  45 → ≈ 65-70 with a concave, steep profile — but the sunken refs pin the ridge ≈ the gate-tower tips (ref 7) and
-  11 m under the surface (ref 9), so raising the hill pushes the whole sunken city 20-25 m deeper. Not done in r2:
-  **decision for round 3** (proposal: summit 62, plateau r 85, terraces 50/34, SUNKEN.surface 104, gate towers +15).
-* **Ring widths (refs 1, 5).** Ref 1/5 rings are proportionally narrower outside and w1 is ≈ 3× wider than ours
-  (70 m); l2 (260 m of houses) dominates shot 1. Round-3 candidate: w1 230-330, l2 narrower.
-* Ref 3/6: horizon row ≈ 400 vs 310 (eye kept at person height on the landing); chariot group still covers most of
-  the colonnade (horses' wings reach the architrave; ref horses top ≈ mid-column).
-* Ref 2: arch springs ≈ 6 m above water in ref vs 3 m; ref 7 arch crown ≈ 9 m below the deck vs ≈ 1 m.
-* Ref 4: no tunnel portal at the w1-90 bridge; citadel quay palaces hide the hill; the l1 face reads as grey lumps.
+* Ref 1: our temple is ≈ 1.8x smaller at 1.4 km than the ref's (ref 3/6/9 fix its size); l2 houses still dominate.
+* Ref 2: the ref's hill stands ≈ 265 m above the canal (impossible) — ours shows through the arch only.
+* Ref 4: no pinhole fit; the sheds are far (120 m w1); temple colonnade hidden from water level by the plateau rim.
+* Ref 5: bridge citadel end appears right of the temple (any radial bridge does from the left side); the w1-180 bridge is
+  just off the right edge; the grand stair is a huge plain slope in frame.
+* Ref 9: trident ≈ 150 px left of the ref's; tower tops read as plain boxes above the water.
+* Sunken: shots 7/8 are now 110 / 88 m deep (surface 104) — auto levels hold, look-sunken should re-check.
 
 ## Requests per module (round 3)
 
-* **look-golden**: shot 4 sun — the light from az 292 leaves the l1 face in the citadel's shadow; use a shot-4 sun
-  from ≈ az 200-230, el 12 (light on the l1 inner face at bearing 100-150) and place the visible disk top-left; shot 5
-  sun disk top-left (camera heading 300).
-* **look-sunken / marine**: surface now 87 — shot 6/3 camera (9, 54, 98.5) is 33 m deep, temple front 79 m away;
-  shot 7 bridge front 119 m away (needs legible silhouettes); shot 9 temple front ≈ 69 m below/ahead.
-* **arch-b (temple/statues)**: chariot horses ≈ 0.7× height or the group lower (wing tips below the capitals, ref 3);
-  the citadel quay palaces facing w1 at bearings 100-180 lower (≤ 8 m above the quay) so the hill and terraces read
-  from shots 4/5; red wall band around the plateau rim (ref 5: 20 m tall, x ±80 m).
-* **arch-a (rings/bridges)**: tunnel portal through l1 under the l1 end of the w1-90 bridge (shot 4, ref 4); gate arch
-  springs at ≈ 9 m (ref 2) and a deeper spandrel (crown ≈ deck - 8, ref 7); l1 inner rock face at bearings 30-90.
-* **ships**: hero (-12, 0, 806) heading 200 — bow wave/foam bigger (ref 2); keep moored triremes inside the sheds at
-  bearings 140-160 (they stick out into w1 in front of the shot-4 camera).
-* **sets**: terrace frame5() still assumes fov 44 / pitch -4; shot 5 is now fov 56 / pitch -8 at the balustrade.
+* **arch-b (temple / statues)** — shots 1, 3, 4, 5, 6: (1) the t1 rampart at r 115.4 must be the ref-5 red orichalcum band:
+  height 11 → ≈ 21 (y 42 → 63, i.e. it IS the plateau retaining wall), red with gilt panels and towers; ledge-2 rampart
+  (r 179.2) h ≈ 12; (2) the grand stair (x ±17, z 104 → 226, 75 → 3, ≈ 30°) reads as a plain grey slab in shots 1/4/5:
+  break it into flights with landings (every ≈ 12 m), planted cheek terraces, statues/braziers on the landings;
+  (3) north flight z 97 → 68 (75 steps, riser 0.17): check risers read in shot 3/6 foreground (bottom 110 px);
+  (4) quay palaces facing w1 at bearings 130-180 ≤ 8 m above the quay (shot 4 hill visibility); (5) statues: sunken
+  trident (`buildSunkenTrident`, tip 132.6) should use the crusted gold (`goldMaterial({crust})`) and a broken-feet stump
+  rising toward the surface (ref 9 shows rubble at the waterline).
+* **arch-a (bridges / rings)** — `src/bridges/pinnacles.js` is now yours: give the citadel towers (±54, -84) ref-4/5 detail
+  (gold lantern, statues at the parapet corners) and a ruined, legible top in ref 9 (px ≈ 640 / 1120, 6-17 m above
+  water); w1 ring bridges now span 120 m — more arches + an intermediate tower pair (ref 5); w1-180 bridge (deck 28) and
+  the canal tunnel portal at z 350 seen in shot 5's right edge / shot 4; l1 shed sector 100-160 is now 110-240 m from the
+  shot-4 camera.
+* **terrain** — the steeper hill (48-78° slopes) renders as black/white blotches (shots 4, 5, aerials): rock + maquis
+  colour, less contrast; the 4 m plateau cliff (r 110-114) should be built masonry-like (red wall from arch-b sits on it).
+* **water** — cascades now drop 20 m off the plateau cliff + 20 m + 19 m: check ribbons/mist scale (shots 1, 4).
+* **vegetation** — no tall trees on the plateau rim r 100-110 at bearings 120-200 (they hide the temple in shots 4/5).
+* **ships** — no moored hull/sail within 25 m of the shot-4 camera (98, 2.5, 321); w1 is now 120 m wide (more traffic room).
+* **sets** — terrace at bearing 198 / r 352: frame5() fov 44 / pitch -4 vs shot 5 fov 56 / pitch -10; the red pillars are
+  cut at the left edge, balustrade should run bottom-left → right like ref 5.
+* **look-golden** — shot 4 sun now `sunRel(4, -60, 18)` (az ≈ 305); shot 5 heading 6 (was 300): re-place the disk
+  (diskRel 5) and side light; shot 3 heading 343.
+* **look-sunken / marine** — surface 104: shot 6/3 camera 25 m deep, shot 7 110 m, shot 8 88 m, shot 9 temple ridge ≈ 10 m
+  under; keep coral off the trident / tower tops above the water.

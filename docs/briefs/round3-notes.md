@@ -36,3 +36,9 @@
 - colourfulness/sat now near refs (1: 57/46 vs 60/44; 2: 63/47 vs 67/45; 3: 63/49 vs 64/46; 4: 65/45 vs 62/41; 5: 62/51 vs 64/51).
 - still off: shot 4 too cool (ring water lacks gold reflections); shot 1 mountains flat/grey.
 - requests: water → stronger reflections of lit buildings in rings/canal; terrain → warmer, more detailed far rock.
+
+## director-in-chief notes (after r2 renders out/r2/cmp_*.jpg)
+- video pipeline: render-video.mjs is era-aware (one page per era), REST_MS 0, output atlantis_WxH.mp4; draft sequence 1,2,4,5,3→6 (era dissolve, same camera),7,8,9 = 56 s. Test out/video_test (segments 5-6, 480p 1 spp) works; 0.1 s/frame at preview.
+- at --quality preview the clouds still look blocky (cloudSteps 16) → look-golden: make preview/video quality clouds acceptable too, or the video must use high.
+- shot 9: nothing breaks the surface after the director's surface 87 (ref 9: trident + two tower tips above water) → director r3a.
+- shot 7: the bridge is barely visible behind the fish school; shot 4 citadel missing; shots 1/5 citadel too low (r3a raise).

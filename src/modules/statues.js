@@ -169,7 +169,7 @@ async function buildNereids(engine, reg, stats) {
 
 // ------------------------------------------------------------------ the colossus
 async function buildColossus(engine, reg, stats) {
-  if (isSunken(engine)) { reg.colossus = null; return; } // gone: its head lies on the sand (sets module, ref 8)
+  if (isSunken(engine)) return buildSunkenTrident(engine, reg, stats); // the figure is gone (its head lies on the sand: sets module, ref 8)
   const Cl = L.COLOSSUS;
   const slot = engine.slots.statue.find((s) => s.tag === 'colossus');
   const top = slot ? slot.pos[1] : (engine.registry.temple?.colossus?.top ?? Cl.pos[1] + Cl.pedestal);
@@ -188,6 +188,52 @@ async function buildColossus(engine, reg, stats) {
   stats.tris += tris(g) + tris(tg);
   grp.updateMatrixWorld(true);
   reg.colossus = { pos: grp.position.toArray(), height: H, tridentTop: new THREE.Vector3(T.base[0] * s, T.top[1] * s, T.base[2] * s).applyMatrix4(grp.matrixWorld).toArray() };
+}
+
+// r3 (director, ref 9): in the sunken era the colossus has fallen but its gold trident still stands upright in its socket
+// on the pedestal top (same place as the golden figure's trident: L.COLOSSUS + poseidonSpec('colossus').trident), its tines
+// breaking the surface (tip ≈ 29 m above L.SUNKEN.surface); a heap of broken marble (the statue's feet) around the butt.
+async function buildSunkenTrident(engine, reg, stats) {
+  const Cl = L.COLOSSUS;
+  if (L.SUNKEN_TRIDENT && L.SUNKEN_TRIDENT.standing === false) { reg.colossus = null; return; }
+  const top = engine.registry.temple?.colossus?.top ?? Cl.pos[1] + Cl.pedestal;
+  const s = Cl.height / 2.0;
+  const grp = new THREE.Group();
+  grp.name = 'colossus-trident-sunken';
+  grp.position.set(Cl.pos[0], top, Cl.pos[2]);
+  grp.rotation.y = L.headingToRotY(Cl.heading);
+  const T = poseidonSpec('colossus').trident;
+  const tg = await statueGeometry('stat-trident-colossus');
+  // a slight lean (it stood alone for millennia), pivoting on the butt
+  const lean = new THREE.Group();
+  lean.position.set(T.base[0] * s, 0, T.base[2] * s);
+  lean.rotation.set(0.035, 0, -0.05);
+  lean.add(mesh(tg, statueMat(engine, 'gold'), { pos: [0, T.base[1] * s - 0.6, 0], s, name: 'colossus-trident' }));
+  grp.add(lean);
+  // rubble of the feet around the butt
+  try {
+    const { roughBlockGeometry } = await import('../arch/ruins.js');
+    const { whiteStone } = await import('../materials/stone.js');
+    const mat = whiteStone({ weather: 0.85, seed: 6.1 });
+    mat.userData.sunken = 'stone';
+    const n = Math.max(3, Math.round((L.SUNKEN_TRIDENT?.rubble ?? 2.5) * 2.4));
+    for (let i = 0; i < n; i++) {
+      const a = ruinRand('colossus-rubble:' + i) * Math.PI * 2, d = 1.2 + 3.2 * ruinRand('colossus-rubble:' + i, 1);
+      const sz = [1.6 + 2.2 * ruinRand('colossus-rubble:' + i, 2), 0.9 + 1.4 * ruinRand('colossus-rubble:' + i, 3), 1.4 + 1.8 * ruinRand('colossus-rubble:' + i, 4)];
+      const g = roughBlockGeometry({ size: sz, seed: 40 + i, chip: 0.12, broken: { py: 0.35, nz: 0.3 }, detail: 0.6 });
+      const m = new THREE.Mesh(g, mat);
+      m.position.set(T.base[0] * s + Math.sin(a) * d, -0.2 + (i % 3 === 2 ? 0.8 : 0), T.base[2] * s + Math.cos(a) * d);
+      m.rotation.set((ruinRand('colossus-rubble:' + i, 5) - 0.5) * 0.5, a, (ruinRand('colossus-rubble:' + i, 6) - 0.5) * 0.5);
+      grp.add(m);
+      stats.tris += tris(g);
+    }
+  } catch (e) { console.warn('[statues] colossus rubble skipped', e.message); }
+  engine.add(grp);
+  stats.tris += tris(tg);
+  grp.updateMatrixWorld(true);
+  const tip = new THREE.Vector3(0, T.L * s - 0.6, 0).applyMatrix4(lean.matrixWorld);
+  reg.colossus = { pos: grp.position.toArray(), height: 0, sunkenTrident: true, tridentTop: tip.toArray() };
+  console.log(`[statues] sunken colossus trident: tip y ${tip.y.toFixed(1)} (surface ${L.SUNKEN.surface})`);
 }
 
 // ------------------------------------------------------------------ small statues on slots

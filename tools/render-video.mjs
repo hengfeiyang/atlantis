@@ -24,7 +24,7 @@ for (let i = 2; i < process.argv.length; i++) {
 }
 const W = Number(args.w || 1920), H = Number(args.h || 1080), SPP = Number(args.spp || 12);
 const QUALITY = args.quality || 'high';
-const REST_MS = Number(args.rest ?? 1500);
+const REST_MS = Number(args.rest ?? 0); // athenaion rested 1.5 s per frame for its integrated GPU; not needed on the M3 Ultra
 const FRAME_TIMEOUT_MS = Number(args['frame-timeout'] ?? 240) * 1000;
 const FRAME_FAILS = new Map();   // "seg:frame" → number of GPU hangs/crashes while rendering it
 // --prefail "7:83,7:84" marks frames (1-based segment) that already hung once in an earlier run
@@ -33,6 +33,10 @@ let CURRENT_FRAME = null;
 const OUT = path.resolve(ROOT, args.out || 'out/video');
 fs.mkdirSync(OUT, { recursive: true });
 const { FPS, XFADE, SEQUENCE } = await import(pathToFileURL(path.join(ROOT, 'src/video/sequence.js')).href);
+const { SHOTS } = await import(pathToFileURL(path.join(ROOT, 'src/world/shots.js')).href);
+// the world is built for ONE era per page load: segments are rendered era by era
+const eraOfSeg = (i) => SHOTS.find((x) => String(x.id) === String(SEQUENCE[i].shot))?.era || 'golden';
+const ERAS = [...new Set(SEQUENCE.map((_, i) => eraOfSeg(i)))];
 const segFilter = args.segments ? String(args.segments).split(',').map(Number) : null; // 1-based
 
 
@@ -72,8 +76,11 @@ async function renderFrames() {
   process.on('exit', () => { const pid = browser?.process()?.pid; if (pid) { killTree(pid); } });
   for (let attempt = 1; ; attempt++) {
     try {
-      const left = await renderAttempt(server, (b) => { browser = b; });
-      await killBrowser();
+      let left = 0;
+      for (const era of ERAS) {
+        left += await renderAttempt(server, (b) => { browser = b; }, era);
+        await killBrowser();
+      }
       if (left === 0) break;
     } catch (e) {
       if (CURRENT_FRAME) FRAME_FAILS.set(CURRENT_FRAME, (FRAME_FAILS.get(CURRENT_FRAME) || 0) + 1);
@@ -88,7 +95,7 @@ async function renderFrames() {
   release();
 }
 
-async function renderAttempt(server, setBrowser) {
+async function renderAttempt(server, setBrowser, era) {
   const browser = await puppeteer.launch({
     executablePath: CHROME, headless: true, protocolTimeout: 24 * 3600 * 1000,
     args: ['--use-angle=' + (ANGLE), '--enable-gpu', '--ignore-gpu-blocklist', '--disable-gpu-watchdog',
@@ -100,16 +107,19 @@ async function renderAttempt(server, setBrowser) {
   const page = await browser.newPage();
   page.on('console', (m) => { const t = m.text(); if (m.type() === 'error' && !t.includes('Failed to load resource')) console.log('[page:error]', t); });
   page.on('pageerror', (e) => console.log('[page:error]', e.message));
-  const qs = new URLSearchParams({ quality: QUALITY, w: String(W), h: String(H), mode: 'still', shot: '1' });
+  const segsOfEra = SEQUENCE.map((_, i) => i).filter((i) => eraOfSeg(i) === era && (!segFilter || segFilter.includes(i + 1)));
+  const pending = segsOfEra.some((i) => !fs.existsSync(framePath(i, Math.round(SEQUENCE[i].dur * FPS) - 1)));
+  if (!pending) return 0;
+  const qs = new URLSearchParams({ quality: QUALITY, w: String(W), h: String(H), mode: 'still', era, shot: String(SEQUENCE[segsOfEra[0]].shot) });
   const t0 = Date.now();
   await page.goto(`http://127.0.0.1:${server.port}/index.html?${qs}`, { waitUntil: 'load', timeout: 3600 * 1000 });
   await page.waitForFunction('window.__READY === true || !!window.__RENDER_ERROR', { timeout: 3600 * 1000, polling: 500 });
   const err = await page.evaluate(() => window.__RENDER_ERROR || null);
   if (err) throw new Error(err);
   const info = await page.evaluate(() => window.__videoInfo());
-  console.log(`[video] world ready in ${((Date.now() - t0) / 1000).toFixed(0)} s — ${info.segments.length} segments, ${W}x${H}, ${SPP} spp`);
+  console.log(`[video] ${era} world ready in ${((Date.now() - t0) / 1000).toFixed(0)} s — ${segsOfEra.length}/${info.segments.length} segments, ${W}x${H}, ${SPP} spp`);
   const jobs = [];
-  info.segments.forEach((s, i) => { if (segFilter && !segFilter.includes(i + 1)) return; for (let f = 0; f < s.frames; f++) jobs.push([i, f]); });
+  info.segments.forEach((s, i) => { if (!segsOfEra.includes(i)) return; for (let f = 0; f < s.frames; f++) jobs.push([i, f]); });
   const todo = jobs.filter(([i, f]) => !fs.existsSync(framePath(i, f)));
   console.log(`[video] ${jobs.length} frames, ${jobs.length - todo.length} already done, ${todo.length} to render`);
   let n = 0; const tStart = Date.now();
@@ -191,7 +201,7 @@ function encode() {
   const pad = PRE || POST ? `tpad=start_duration=${PRE}:stop_duration=${POST}:start_mode=add:stop_mode=add:color=black,` : '';
   // without a title card the picture opens almost immediately (the first frames are the hook)
   filter += `${last}${pad}fade=t=in:st=${PRE.toFixed(3)}:d=${PRE ? 1.2 : 0.35},fade=t=out:st=${(PRE + pictureDur - 1.6).toFixed(3)}:d=1.6${text},format=yuv420p[vout]`;
-  const outFile = path.join(OUT, args.name || `athenaion_${W}x${H}.mp4`);
+  const outFile = path.join(OUT, args.name || `atlantis_${W}x${H}.mp4`);
   const a = [...inputs];
   if (music) a.push('-i', music);
   // music: --music-start <s> picks the excerpt (0 = the track's own intro, which needs only a tiny fade-in);

@@ -105,7 +105,10 @@ export const LOOKS = {
     grade: { ...SUN_LENS, ...GOLD_GRADE, ...LV(14, 41, 112, 197, 229) }, atmo: GOLD_ATMO, clouds: { uBankAmount: 0.8 }, water: GOLD_WATER },
   // 4 — inner ring, ship-sheds: sun behind the citadel hill at the left (ref px 110,215), right wall lit,
   //     banks in the mountain valley right of centre.
-  4: { sun: sunRel(4, -80, 14, { color: GOLD_SUN }), sky: { ...GOLD_SKY2, ...diskRel(4, 110, 16) },
+  // r3 (director): camera re-composed (bearing 163 near the l1 face, heading 5); light from az ≈ 305 / el 18 (dAz -60): it
+  //     clears the raised citadel (summit 62, ray ≥ 78 m over the plateau rim) and lights the l1 inner face + sheds frontally
+  //     (r2: az 292 / el 14 left the l1 face in the citadel's shadow)
+  4: { sun: sunRel(4, -60, 18, { color: GOLD_SUN }), sky: { ...GOLD_SKY2, ...diskRel(4, 110, 16) },
     grade: { ...SUN_LENS, ...GOLD_GRADE, uSaturation: 0.82, uVibrance: 0.04, ...LV(18, 47, 111, 189, 232),
       uHueShift: [0, 3, -3, -3, 0, 0, -6, -8], uHueSat: [0.95, 1.05, 1.0, 0.85, 0.92, 0.85, 0.85, 0.75], uHueLum: [0, 0, -0.02, -0.06, -0.08, -0.05, -0.04, 0] }, // r2: ring water ref ≈ rgb 46,105,126 (teal, deeper)
     atmo: GOLD_ATMO, clouds: { uBankAmount: 1.1 }, water: GOLD_WATER },
