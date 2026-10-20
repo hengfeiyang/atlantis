@@ -62,7 +62,7 @@ export function pedestalGeometry(o = {}) {
 
 // --------------------------------------------------------------------------- balustrade
 const _balCache = new Map();
-function balusterTemplate(h, detail) {
+export function balusterTemplate(h, detail) {
   const k = `${h.toFixed(3)}:${detail > 0.5}`;
   if (_balCache.has(k)) return _balCache.get(k);
   const mb = new MeshBuilder();

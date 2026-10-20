@@ -162,7 +162,7 @@ class Builder {
         this.petal(c.clone().addScaledVector(radial, R * 0.08).addScaledVector(n, ri * 0.01 * R), dir, nrm, L * 0.56, L, [tint, tint * (0.97 + 0.03 * r()), tint * 0.98], 0.18);
       }
     });
-    this.pad(c.clone().addScaledVector(n, R * 0.06), n, R * 0.2, 0, CELL.boss, [1, 1, 1], 0.0);
+    if (open > 0) this.pad(c.clone().addScaledVector(n, R * 0.06), n, R * 0.2, 0, CELL.boss, [1, 1, 1], 0.0);   // buds: no stamen boss
   }
   geometry() {
     const g = new THREE.BufferGeometry();
@@ -213,28 +213,41 @@ export class LotusSet {
     const r = rng(seed ?? hashString('lt' + pos.map((v) => v.toFixed(2)).join(',')));
     const P = new V(...pos);
     const stemC = [0.16, 0.3, 0.08];
-    const nPads = Math.round(9 + radius * 10);
+    // r3 (ref 5): a lush dome of big round leaves filling the pot and bowing over the rim, white lotus flowers
+    // held above the leaves on long stems, a few closed buds. Leaf / flower sizes have absolute minima so small
+    // pots on a balustrade still read as lotus, not as a few sticks.
+    const Rl = Math.max(radius, 0.32);
+    const nPads = Math.round(14 + Rl * 26);
     for (let i = 0; i < nPads; i++) {
-      const a = (i / nPads) * 6.28 + r() * 0.5;
+      const a = (i / nPads) * 6.28 * 2.618 + r() * 0.6;      // golden-angle spiral: even coverage
+      const k = Math.sqrt((i + 0.5) / nPads);                 // 0 centre → 1 rim
       const out = new V(Math.cos(a), 0, Math.sin(a));
-      const lift = radius * (0.15 + 0.7 * r());
-      const reach = radius * (0.5 + 0.75 * r());
+      const reach = Rl * (0.15 + 1.05 * k) * (0.9 + 0.25 * r());
+      const lift = Rl * ((1 - k) * 0.55 + 0.1 + 0.22 * r()) - (k > 0.85 ? Rl * 0.18 * r() : 0);
       const c = P.clone().addScaledVector(out, reach).addScaledVector(UP, lift);
-      // pads tilt outward (big leaves bowing over the rim)
-      const tilt = 0.4 + 0.7 * r();
-      const n = UP.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(out, Math.sin(tilt)).normalize();
-      const R = radius * (0.26 + 0.18 * r());
-      this.B.stem(P.clone().addScaledVector(out, reach * 0.2), c.clone().addScaledVector(out, -R * 0.6), 0.008 + 0.006 * radius, stemC);
-      const g = 0.8 + 0.3 * r();
-      this.B.pad(c, n, R, r() * 6.28, CELL.pad[r() < 0.6 ? 0 : 1], [g, g, g * 0.95], 0.05, 0.08);
+      // inner pads face up-ish, outer ones bow outward over the rim (ref 5)
+      const tilt = 0.25 + 1.05 * k * k + 0.3 * r();
+      const n = UP.clone().multiplyScalar(Math.cos(tilt)).addScaledVector(out, Math.sin(tilt)).add(new V((r() - 0.5) * 0.3, 0, (r() - 0.5) * 0.3)).normalize();
+      const R = Math.max(0.085, Rl * (0.24 + 0.16 * r()));
+      this.B.stem(P.clone().addScaledVector(out, reach * 0.15), c.clone().addScaledVector(out, -R * 0.5), 0.006 + 0.005 * Rl, stemC);
+      const g = 0.75 + 0.35 * r();
+      this.B.pad(c, n, R, r() * 6.28, CELL.pad[r() < 0.65 ? 0 : 1], [g, g, g * 0.95], 0.07, 0.1);
     }
-    const nf = flowers ?? Math.round(4 + radius * 5);
+    const nf = flowers ?? Math.round(4 + Rl * 7);
+    const fR = Math.min(0.15, Math.max(0.08, Rl * 0.22));
     for (let i = 0; i < nf; i++) {
-      const a = r() * 6.28, d = radius * 0.55 * Math.sqrt(r());
-      const c = P.clone().add(new V(Math.cos(a) * d, radius * (1.0 + 0.6 * r()), Math.sin(a) * d));
-      this.B.stem(P.clone().add(new V(Math.cos(a) * d * 0.3, 0, Math.sin(a) * d * 0.3)), c, 0.006 + 0.004 * radius, stemC);
-      const n = new V(Math.cos(a) * 0.35 * r(), 1, Math.sin(a) * 0.35 * r()).normalize();
-      this.B.flower(c, n, radius * (0.34 + 0.12 * r()), 0.6 + 0.35 * r(), r);
+      const a = (i / nf) * 6.28 + r() * 0.9, d = Rl * (0.15 + 0.65 * Math.sqrt(r()));
+      const c = P.clone().add(new V(Math.cos(a) * d, Rl * (0.75 + 0.4 * r()) + fR * 0.6, Math.sin(a) * d));
+      this.B.stem(P.clone().add(new V(Math.cos(a) * d * 0.3, 0, Math.sin(a) * d * 0.3)), c, 0.006 + 0.004 * Rl, stemC);
+      const n = new V(Math.cos(a) * (0.25 + 0.35 * r()), 1, Math.sin(a) * (0.25 + 0.35 * r())).normalize();
+      this.B.flower(c, n, fR * (0.85 + 0.3 * r()), 0.55 + 0.4 * r(), r);
+    }
+    // closed buds
+    for (let i = 0; i < Math.round(1 + Rl * 3); i++) {
+      const a = r() * 6.28, d = Rl * 0.5 * Math.sqrt(r());
+      const c = P.clone().add(new V(Math.cos(a) * d, Rl * (0.9 + 0.45 * r()) + fR, Math.sin(a) * d));
+      this.B.stem(P.clone().add(new V(Math.cos(a) * d * 0.3, 0, Math.sin(a) * d * 0.3)), c, 0.005 + 0.003 * Rl, stemC);
+      this.B.flower(c, new V(Math.cos(a) * 0.2, 1, Math.sin(a) * 0.2).normalize(), fR * 0.55, -0.45, r);
     }
     this.count++;
     return this;

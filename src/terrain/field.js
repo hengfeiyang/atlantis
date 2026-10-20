@@ -167,6 +167,8 @@ const LAND = L.RINGS.filter((g) => g.kind === 'land');
 const K = L.SEA_CANAL, KHW = K.width / 2;
 const SHEDS = L.SHIP_SHEDS || [];
 
+const ST = L.CITADEL_STAIR;
+function inStair(x, z, hw) { return !!ST && z > ST.from[2] - 6 && z < ST.to[2] + 4 && Math.abs(x - ST.x) < hw; }
 function inCanal(x, z, pad) { return z > K.z0 - pad && z < 830 + pad && Math.abs(x - K.x) < KHW + EDGE + pad; }
 
 /** true where flat ground must keep heightAt() exactly (buildings / paving / quays / camera platforms) */
@@ -186,10 +188,17 @@ export function protectFlat(x, z) {
 
 /** rock displacement amplitude by location: 0 on built quay walls, gentler where architecture abuts */
 export function faceAmp(x, z) {
+  // r3: grand stair + cheek beds (|x| ≲ 23): no rock bulges, fading back in beyond the corridor
+  if (inStair(x, z, 38)) { const t = Math.min(1, Math.max(0, (Math.abs(x - ST.x) - 31) / 7)); return t * t * (3 - 2 * t) * faceAmp0(x, z); }
+  return faceAmp0(x, z);
+}
+function faceAmp0(x, z) {
   const r = Math.hypot(x, z);
   if (r > C.radius - 6 && r < C.radius + 6) return 0;                   // citadel shore quay wall
+  if (r > C.plateau - 2 && r < T1.r0 + 1.5) return 0;                   // r3: plateau retaining wall (masonry)
   if (inCanal(x, z, 6)) return 0;                                       // canal quays / tunnel / gate bridge
   if (r > 214 - 2 && r < C.radius) return 0.4;
+  if (r < C.radius) return 0.8;                                          // r3: citadel hillside crags a bit calmer
   const O = L.OUTER_CITY;
   if (r > O.r0 - 6 && r < O.r0 + 8) return 0.25;                        // outer-city quays
   // ship-shed sectors (rings agent cuts arched openings into these faces): calmer rock
@@ -208,7 +217,7 @@ export function faceAmp(x, z) {
 export function outcrop(x, z) {
   const r = Math.hypot(x, z);
   let k0 = 0;
-  if (onCitadelSlope(r)) k0 = 0.8;
+  if (onCitadelSlope(r) && r > T1.r0 && !inStair(x, z, 31)) k0 = 0.8;   // r3: none on the plateau retaining wall
   else if (r > 900 && islandScale(x, z) < 1) k0 = 1;
   if (k0 <= 0) return 0;
   const n = nD.fbm2(x / 38, z / 38, 3) + 0.35 * nC.noise2(x / 11, z / 11);

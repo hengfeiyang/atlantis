@@ -66,6 +66,7 @@ export const GRADE = {
   uLensGlare: { value: 0.55 },
   uLensRays: { value: 0.2 },
   uLensGhost: { value: 0.0 },     // r5: off (ghosts read as green / violet CG dots)
+  uLensTint: { value: new THREE.Vector3(1, 1, 1) }, // r3 (look-golden): glare / starburst tint × the sun colour (sunset: orange halo, not a white veil)
   // r2: highlight expansion above ~0.7 (perceptual) — AgX compresses the top end; refs p98 ≈ 227-242
   uHighlights: { value: 0.0 },    // r5: 0.14 → 0 (pushed large walls / water into clipping; the shoulder handles the top end)
   // r4: saturation boost in the shadows (refs: deep, saturated warm-brown / green shadows, not grey)
@@ -625,6 +626,7 @@ export const LENS = {
   uRayLen: { value: 0.85 },    // fraction of the distance to the sun that rays are integrated over
   uGlare: GRADE.uLensGlare,    // sun glow + starburst strength (scaled by sun visibility)
   uGhost: GRADE.uLensGhost,    // lens ghost strength
+  uGlareTint: GRADE.uLensTint, // glare tint (per shot, like the strengths)
 };
 
 const LENS_MASK = /* glsl */ `
@@ -657,7 +659,7 @@ void main(){
 const LENS_COMPOSE = /* glsl */ `
 uniform sampler2D tRays; uniform sampler2D tMask; uniform sampler2D tHDR;
 uniform vec2 uSunPos; uniform float uAspect; uniform vec3 uSunTint; uniform float uSunRadius;
-uniform float uRays; uniform float uGlare; uniform float uGhost; uniform float uSunFacing;
+uniform float uRays; uniform float uGlare; uniform float uGhost; uniform float uSunFacing; uniform vec3 uGlareTint;
 varying vec2 vUv;
 float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 void main(){
@@ -679,7 +681,7 @@ void main(){
   // starburst (6 blades, diffraction of a hexagonal aperture) + soft veiling glare
   float sp = pow(abs(cos(ang * 3.0 + 0.35)), 160.0) + 0.5 * pow(abs(cos(ang * 3.0 + 0.35 + 0.5236)), 320.0);
   float glare = 0.55 * exp(-r * 11.0) + 0.12 * exp(-r * 4.0) + 0.015 * exp(-r * 1.2) + sp * exp(-r * 6.5) * 0.9;
-  col += uSunTint * glare * vis * uGlare;
+  col += uSunTint * uGlareTint * glare * vis * uGlare;
   // ghosts along the line through the frame centre, chromatic tints
   vec2 gv = vec2(0.5) - uSunPos;
   vec3 tints[4];

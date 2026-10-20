@@ -122,8 +122,9 @@ export function gateTower(kit, o) {
     }
     if (!kit.sunken && o.bannerFaces && o.bannerFaces.includes(F.id)) {
       const [bx, bz] = F.map(0, -ins + 0.06);
-      const bw = Math.min(3.4, (cB - cA) * 0.62);
-      const bh = Math.min((yF - 0.6) - (P && isGate ? yDeck + P.h + 0.8 : yS0 + 1.0), bw * 3.4);
+      // r3: o.bannerBig (gate bridge, ref 2: the banners are wide and long on the tower faces)
+      const bw = o.bannerBig ? Math.min(4.8, (cB - cA) * 0.82) : Math.min(3.4, (cB - cA) * 0.62);
+      const bh = Math.min((yF - 0.6) - (P && isGate ? yDeck + P.h + 0.8 : yS0 + 1.0), bw * (o.bannerBig ? 4.2 : 3.4));
       if (bh > 2) kit.slots.banner.push({ pos: kit.W(bx, yF - 0.55, bz), facing: kit.compass(F.nrm[0], F.nrm[1]), size: [bw, bh], tag: 'wall', style: bh > 7.6 ? 'L' : 'V', source: 'bridges-' + (o.tag || 'tower') });
     }
     // plinth moulding at the shaft base (all faces)

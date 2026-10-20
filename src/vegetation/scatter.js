@@ -12,6 +12,7 @@ import { heightAt, slopeAt } from '../world/heightfield.js';
 import { noiseA, noiseB, noiseC, smoothstep, clamp } from '../core/noise.js';
 import { RNG } from '../core/rng.js';
 import { SHOTS } from '../world/shots.js';
+import { surfaceMap } from './surface.js';
 
 class Occ {
   constructor(cell = 8) { this.c = cell; this.m = new Map(); }
@@ -50,7 +51,13 @@ export function scatterWorld(engine, sys, lib) {
   const rej = { low: 0, slope: 0, occ: 0, fp: 0, edge: 0 };
   const TS = {}; let tLast = performance.now(), sLast = 'setup';
   let nLast = 0; const tot = () => Object.values(st).reduce((a, b) => a + b, 0);
-  const stage = (n) => { const t = performance.now(), c = tot(); TS[sLast] = `${Math.round(t - tLast)}ms/${c - nLast}`; nLast = c; tLast = t; sLast = n; };
+  let rLast = {};
+  const stage = (n) => {
+    const t = performance.now(), c = tot();
+    const dr = Object.entries(rej).map(([k, v]) => [k, v - (rLast[k] || 0)]).filter(([, v]) => v > 0).map(([k, v]) => `${k}${v}`).join(' ');
+    TS[sLast] = `${Math.round(t - tLast)}ms/${c - nLast}` + (dr ? ` [${dr}]` : '');
+    rLast = { ...rej }; nLast = c; tLast = t; sLast = n;
+  };
 
   const byStyle = (style) => lib.palm.filter((v) => v.style === style);
   const PSTYLE = { tall: byStyle('tall'), medium: byStyle('medium'), young: byStyle('young'), leaning: byStyle('leaning'), garden: byStyle('garden') };
@@ -87,9 +94,17 @@ export function scatterWorld(engine, sys, lib) {
    * try to place one plant. o: { rng, style (palm), s (scale), y (fixed height: slot), noFp, minH, maxSlope,
    *   edge (min distance to ring edges), occK (occupancy multiplier), fpK }
    */
+  const T1 = L.CITADEL.terraces[0];
+  const heightCap = (kind, x, z) => {
+    const r = Math.hypot(x, z);
+    if (r < T1.r0 - 2 || r > T1.r1 + 2) return 0;
+    const b = L.bearingOf(x, z);
+    if (b < 150 || b > 230) return 0;
+    return kind === 'cypress' ? 8 : kind === 'palm' || kind === 'pine' ? 10 : 0;
+  };
   const place = (kind, x, z, o = {}) => {
     const rng = o.rng;
-    const s = o.s ?? rng.range(...SCALE[kind]);
+    let s = o.s ?? rng.range(...SCALE[kind]);
     let y = o.y;
     if (!o.hero && protectedAt(x, z)) { rej.cam = (rej.cam || 0) + 1; return false; }
     if (y === undefined) {
@@ -100,10 +115,14 @@ export function scatterWorld(engine, sys, lib) {
     }
     const rOcc = OCC[kind] * s * (o.occK ?? 1);
     if (!occ.free(x, z, rOcc)) { rej.occ++; return false; }
-    if (!o.noFp && fp && !fp.isFree(x, z, FPR[kind] * Math.max(0.7, s) * (o.fpK ?? 1))) { rej.fp++; return false; }
+    if (!o.noFp && fp && !fp.isFree(x, z, FPR[kind] * Math.max(0.7, s) * (o.fpK ?? 1), o.fpIgnore || null)) { rej.fp++; return false; }
     const v = o.variant || pickVar(kind, rng, o.style);
+    // height caps (citadel request r3): south face of ledge 1 (bearings 150-230) — cypress ≤ 8 m, palms / pines ≤ 10 m,
+    // so they do not hide the red rampart tiers in shots 1 / 3 / 5
+    const cap = heightCap(kind, x, z);
+    if (cap && v.H * s > cap) s = cap / v.H;
     const tint = kind === 'palm' ? [rng.range(0.92, 1.08), rng.range(0.95, 1.06), rng.range(0.88, 1.02)] : [rng.range(0.9, 1.08), rng.range(0.92, 1.05), rng.range(0.88, 1.0)];
-    sys.add(v, x, y, z, rng.random() * Math.PI * 2, s, { tint, width: rng.range(0.92, 1.08) });
+    sys.add(v, x, y, z, o.yaw ?? rng.random() * Math.PI * 2, s, { tint, width: rng.range(0.92, 1.08), up: o.up });
     occ.add(x, z, rOcc);
     st[kind]++;
     return true;
@@ -129,11 +148,14 @@ export function scatterWorld(engine, sys, lib) {
       const rt = [-f[1], f[0]];
       // crown ≈ 3.5 m above the lens, trunk just outside the right edge of the frame
       const v = PSTYLE.garden[0] || lib.palm[0];
-      const x = px + rt[0] * 5.4 + f[0] * 5.2, z = pz + rt[1] * 5.4 + f[1] * 5.2;
-      place('palm', x, z, { rng, variant: v, s: 1.0, y: py + 5.0 - v.Ht, noFp: true, occK: 0.3, hero: true });
+      // r3: closer + lower + fuller so the fronds hang into the top-right corner (ref 5: x > 1150, y < 260)
+      const x = px + rt[0] * 4.7 + f[0] * 4.3, z = pz + rt[1] * 4.7 + f[1] * 4.3;
+      place('palm', x, z, { rng, variant: v, s: 1.15, y: py + 4.3 - v.Ht * 1.15, yaw: 2.6, noFp: true, occK: 0.3, hero: true });
     }
     // shot 3 (ref 3): palms flanking the plaza between the fountains and the stair balustrades
-    for (const sx of [-1, 1]) for (const [x, z] of [[46, 92], [56, 70], [40, 104]]) place('palm', sx * x, z, { rng, style: ['tall', 'medium'], edge: 0, maxSlope: 0.6, fpK: 0.6, hero: true });
+    // (r3: the stair-top palms / cypress of ref 3 now come from the sets module's slots.palm ('date set3', 'cypress set3'))
+    if (!(engine.slots?.palm || []).some((sl) => /set3/.test(String(sl.tag || ''))))
+      for (const sx of [-1, 1]) for (const [x, z] of [[46, 92], [56, 70], [40, 104]]) place('palm', sx * x, z, { rng, style: ['tall', 'medium'], edge: 0, maxSlope: 0.6, fpK: 0.6, hero: true });
   }
 
   // ------------------------------------------------------------ 2. slots / rows from other modules
@@ -141,8 +163,17 @@ export function scatterWorld(engine, sys, lib) {
   {
     const rng = new RNG('veg-slots');
     for (const sl of engine.slots?.palm || []) {
-      const s = sl.size ? clamp(sl.size / 9, 0.5, 1.6) : rng.range(0.9, 1.1);
-      place('palm', sl.pos[0], sl.pos[2], { rng, s, y: sl.pos[1], noFp: true, occK: 0.4, hero: true, style: sl.tag && PSTYLE[sl.tag] ? sl.tag : sl.pos[1] > 20 ? 'garden' : PALMY });
+      const tag = String(sl.tag || '');
+      // r3: sets tag their slots 'cypress set3', 'date set5', 'date hero set5' (kind + style words)
+      if (/cypress/.test(tag)) {
+        place('cypress', sl.pos[0], sl.pos[2], { rng, s: sl.size ? clamp(sl.size / 17, 0.35, 1.2) : 0.7, y: sl.pos[1], noFp: true, occK: 0.4, hero: true });
+        continue;
+      }
+      const style = PSTYLE[tag] ? tag : /date/.test(tag) ? ((sl.size || 10) > 11.5 ? 'tall' : 'medium') : sl.pos[1] > 20 ? 'garden' : PALMY;
+      const variant = pickVar('palm', rng, style);
+      // size = overall height (m) for the sets' 'date' slots; older slots: size / 9 (≈ the r1 convention)
+      const s = sl.size ? clamp(/date/.test(tag) ? sl.size / variant.H : sl.size / 9, 0.5, 1.6) : rng.range(0.9, 1.1);
+      place('palm', sl.pos[0], sl.pos[2], { rng, s, y: sl.pos[1], noFp: true, occK: /hero/.test(tag) ? 0.2 : 0.4, hero: true, variant });
     }
     for (const sl of engine.slots?.tree || []) {
       const kind = lib[sl.tag] ? sl.tag : 'shrub';
@@ -186,42 +217,123 @@ export function scatterWorld(engine, sys, lib) {
   {
     const rng = new RNG('veg-citadel');
     const C = L.CITADEL, [t1, t2] = C.terraces;
-    // plateau rim: cypress groups and palms (ref 3 / ref 1: dark spires around the temple hill)
-    for (let b = 0; b < 360; b += 3.1) {
-      const r = C.plateau - rng.range(3, 8);
-      const [x, z] = L.polar(r, b + rng.range(-1, 1));
-      const k = noiseA.noise2(b * 0.05, 3.1) > 0.1 ? 'palm' : 'cypress';
-      place(k, x, z, { rng, style: PALMY, edge: 0, maxSlope: 0.5 });
+    // r3: real meshed ground (3D rock displacement on the 48-50° slopes) + what the architecture modules built
+    // (palaces, ramparts, stairs, basins: often without footprints), from two top-down float renders
+    const troot = engine.registry?.terrain?.root;
+    const RES = q.detail >= 1 ? 1800 : 1300, SZ = 2 * (C.radius + 4);
+    const gm = troot && !P?.get?.('vegNoMap') ? surfaceMap(engine, { cx: 0, cz: 0, size: SZ, res: RES, top: 200, bottom: -15, only: troot }) : null;
+    const tm = gm ? surfaceMap(engine, { cx: 0, cz: 0, size: SZ, res: RES, top: 200, bottom: -15 }) : null;
+    /** ground site for a plant of trunk radius rad: { y, grad } or null (built over / no ground / too steep) */
+    const site = (x, z, rad, maxGrad) => {
+      if (!tm) {
+        const y = heightAt(x, z), g = Math.tan(Math.acos(clamp(1 - slopeAt(x, z, 1.2), 0.05, 1)));
+        return g > maxGrad ? null : { y, grad: g };
+      }
+      const g0 = gm.y(x, z);
+      if (Number.isNaN(g0)) return null;
+      const [glo, ghi] = gm.range(x, z, rad), [, thi] = tm.range(x, z, rad);
+      if (thi - Math.max(ghi, g0) > 0.4) { rej.built = (rej.built || 0) + 1; return null; }   // something built stands here
+      const grad = (ghi - glo) / (2 * rad);
+      if (grad > maxGrad) { rej.slope++; return null; }
+      return { y: g0, grad };
+    };
+    const SPEC = { palm: [0.5, 0.8], cypress: [0.5, 1.3], olive: [0.7, 1.4], broad: [0.7, 2.6], pine: [0.8, 1.1], shrub: [0.45, 4.0], thicket: [0.7, 3.4] };   // [trunk probe radius, max gradient]
+    const plant = (kind, x, z, o = {}) => {
+      const [pr, mg] = SPEC[kind];
+      const st0 = site(x, z, pr * (o.sc ?? 1), o.maxGrad ?? mg);
+      if (!st0) return false;
+      const s = o.s ?? rng.range(...SCALE[kind]) * (o.k ?? 1);
+      // on slopes the downhill side of the base would float: sink the plant into the rock a little
+      const H = { palm: 12, cypress: 17, olive: 5, broad: 8, pine: 13, shrub: 1.6, thicket: 3 }[kind] * s;
+      const sink = Math.min(0.4 * H, 1.6, st0.grad * pr * s * 0.6) + (kind === 'shrub' || kind === 'thicket' ? 0.12 : 0.05);
+      // cliff plants (crevices of the steep rock): lean out of the face, toward the light / away from the hill
+      let up;
+      if (st0.grad > 1.1 && kind !== 'cypress' && kind !== 'palm') {
+        const r = Math.hypot(x, z) || 1, k = Math.min(0.55, (st0.grad - 1.1) * 0.3) * rng.range(0.6, 1.2);
+        up = [(x / r) * k, 1, (z / r) * k];
+      }
+      return place(kind, x, z, { rng, s, y: st0.y - sink, up, style: o.style || PALMY, occK: o.occK ?? 1, fpK: o.fpK ?? 1, noFp: o.noFp, variant: o.variant, fpIgnore: FP_IGNORE });
+    };
+    const mixPick = (mix) => choose(mix, rng);
+    // planting reservations of the citadel module (its own garden slots are placed above): fill between them
+    const FP_IGNORE = ['citadel-ledge-garden'];
+    // no tall trees on the near (south) plateau rim: from the water-level cameras (shots 4 / 5) they hide the temple
+    const southRim = (b) => b > 112 && b < 245;
+    const stairSector = (b, r) => Math.abs(r * Math.sin((b - 180) * D2R)) < L.CITADEL_STAIR.width / 2 + 5 && b > 90 && b < 270;
+
+    // (a) plateau interior: garden groves (clusters), not a lattice — the precinct paving stays open (ref 3)
+    for (let gx = -C.plateau; gx < C.plateau; gx += 24) for (let gz = -C.plateau; gz < C.plateau; gz += 24) {
+      const cx = gx + rng.range(2, 22), cz = gz + rng.range(2, 22);
+      const rc = Math.hypot(cx, cz);
+      if (rc > 92 || !rng.chance(0.75 * Math.sqrt(D))) continue;
+      const n = rng.int(4, 8);
+      for (let i = 0; i < n; i++) {
+        const a = rng.random() * 6.283, d = Math.sqrt(rng.random()) * 9;
+        const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+        plant(mixPick({ palm: 2.6, cypress: 2.4, shrub: 3, olive: 0.8, broad: 0.6 }), x, z, { maxGrad: 0.15 });
+      }
     }
-    // plateau interior (temple footprints keep the precinct clear)
-    for (let x = -C.plateau; x < C.plateau; x += 9) for (let z = -C.plateau; z < C.plateau; z += 9) {
-      const xx = x + rng.range(-3.5, 3.5), zz = z + rng.range(-3.5, 3.5);
-      if (Math.hypot(xx, zz) > C.plateau - 6 || !rng.chance(0.55 * D)) continue;
-      place(choose({ palm: 3, cypress: 2, shrub: 2.5, olive: 0.6 }, rng), xx, zz, { rng, style: PALMY, edge: 0, maxSlope: 0.4 });
+    // (b) plateau rim belt (r 92-108.5): cypress groups + palms around the temple hill (ref 1 / 3 / 4); shrubs / small
+    //     olives only on the south rim seen by shots 4 / 5
+    for (let r = 93.5; r < 108.5; r += 3.6) {
+      const step = 3.6 / r / D2R;
+      for (let b = rng.random() * step; b < 360; b += step * rng.range(0.85, 1.2)) {
+        const [x, z] = L.polar(r + rng.range(-1.2, 1.2), b);
+        const m = noiseA.noise2(b * 0.06, r * 0.05 + 3.1);
+        if (m < -0.35 || !rng.chance(0.7 * D)) continue;
+        if (southRim(b)) { plant(rng.chance(0.25) ? 'olive' : 'shrub', x, z, { k: 0.8, maxGrad: 0.2 }); continue; }
+        plant(mixPick(m > 0.2 ? { cypress: 4, palm: 1.5, shrub: 2 } : { palm: 3, cypress: 2, broad: 1, shrub: 2.5 }), x, z, { maxGrad: 0.2 });
+      }
     }
-    // ledges and slopes
-    for (let r = C.plateau + 1; r < 221; r += 3.8) {
-      const onLedge = (r > t1.r0 + 1.5 && r < t1.r1 - 1.5) || (r > t2.r0 + 1.5 && r < t2.r1 - 1.5);
-      const quay = r > 213;
-      const step = (onLedge ? 4.6 : quay ? 13 : 4.4) / r / D2R;
-      for (let b = rng.random() * step; b < 360; b += step * rng.range(0.8, 1.25)) {
-        const rr = r + rng.range(-2, 2);
-        const [x, z] = L.polar(rr, b);
-        const mask = noiseB.fbm2(x * 0.02, z * 0.02, 3);
-        if (onLedge) {
-          if (mask < -0.3 || !rng.chance(0.95 * Math.sqrt(D))) continue;
-          place(choose({ palm: 3.5, cypress: 2.5, olive: 1, broad: 1, shrub: 3 }, rng), x, z, { rng, style: PALMY, edge: 0, maxSlope: 0.4 });
-        } else if (quay) {
-          if (rr > 220) continue;
-          place('palm', x, z, { rng, style: ['tall', 'medium'], edge: 0, maxSlope: 0.3, minH: 1.5 });
-        } else {
-          // rocky hillside: maquis masses, cypress clumps, a few pines and palms in soil pockets
-          if (mask < -0.25 || !rng.chance(0.9 * Math.sqrt(D))) continue;
-          const k = choose({ shrub: 4, thicket: 1.5, cypress: 2, pine: 0.7, palm: 0.9, broad: 0.6 }, rng);
-          place(k, x, z, { rng, style: ['leaning', 'medium', 'young'], edge: 0, maxSlope: k === 'shrub' || k === 'thicket' ? 0.8 : 0.6, minH: 2 });
+    // (b2) ref 3: palm + cypress groves behind the spring fountains and beside the temple front (the plaza flanks)
+    for (const [k, x, z, sc] of [
+      ['palm', -44, 40, 1.05], ['palm', -53, 57, 0.95], ['cypress', -40, 49, 0.75], ['cypress', -47, 30, 0.85], ['cypress', -57, 44, 0.7],
+      ['palm', -61, 30, 1.1], ['cypress', -52, 20, 0.8], ['shrub', -42, 56, 1.2], ['shrub', -49, 45, 1.3], ['shrub', -38, 38, 1.0],
+      ['palm', 37, 25, 1.0], ['cypress', 35, 10, 0.8], ['palm', 44, 10, 1.1], ['cypress', 43, 30, 0.7], ['shrub', 38, 18, 1.2], ['shrub', 40, 33, 1.1],
+    ]) plant(k, x + rng.range(-1, 1), z + rng.range(-1, 1), { s: sc * rng.range(0.92, 1.08), style: ['tall', 'medium'], maxGrad: 0.2, occK: 0.5 });
+    // (c) ledges: a cypress row along the outer edge (ref 4: dark spires lining every tier) + lush garden fill
+    //     (rounded broadleaf crowns, palms, cypress, shrubs: ref 5's hanging gardens)
+    for (const T of [t1, t2]) {
+      const rRow = T.r1 - 2.6;
+      const step = 7.5 / rRow / D2R;
+      for (let b = rng.random() * step; b < 360; b += step * rng.range(0.85, 1.15)) {
+        if (noiseC.noise2(b * 0.09, T.y) < -0.3 || stairSector(b, rRow)) continue;
+        const [x, z] = L.polar(rRow + rng.range(-0.6, 0.6), b);
+        plant('cypress', x, z, { k: 1.1, occK: 0.55, maxGrad: 0.5 });
+      }
+      for (let r = T.r0 + 2.5; r < T.r1 - 4; r += 3.0) {
+        const step = 3.0 / r / D2R;
+        for (let b = rng.random() * step; b < 360; b += step * rng.range(0.85, 1.2)) {
+          const [x, z] = L.polar(r + rng.range(-1.5, 1.5), b);
+          const m = noiseB.fbm2(x * 0.03, z * 0.03, 3);
+          if (m < -0.55 || !rng.chance(0.95 * Math.sqrt(D) * smoothstep(-0.55, -0.05, m))) continue;
+          plant(mixPick({ broad: 4.2, palm: 2.0, cypress: 0.9, olive: 1.5, shrub: 3.5, thicket: 0.8 }), x, z, { maxGrad: 0.35 });
         }
       }
     }
+    // (d) rock slopes (r 160-178 and 198-214, 48-50°): maquis masses, rounded trees and cypress in soil pockets — the
+    //     ref-4 / ref-5 hill reads green with rock between, not bare rock
+    for (const [ra, rb] of [[t1.r1 - 1, t2.r0 + 0.5], [t2.r1 - 1, 214]]) {
+      for (let r = ra; r < rb; r += 1.7) {
+        const step = 2.0 / r / D2R;
+        for (let b = rng.random() * step; b < 360; b += step * rng.range(0.8, 1.25)) {
+          const [x, z] = L.polar(r + rng.range(-1.0, 1.0), b);
+          const m = noiseB.fbm2(x * 0.025 + 11, z * 0.025, 3) + 0.25 * noiseC.noise2(x * 0.11, z * 0.11);
+          if (m < -0.5 || !rng.chance(0.95 * Math.sqrt(D) * smoothstep(-0.5, 0.0, m))) continue;
+          const k = mixPick({ shrub: 3.2, thicket: 2.8, broad: 3.0, cypress: 1.1, olive: 0.6, palm: 0.4, pine: 0.3 });
+          plant(k, x, z, { style: ['leaning', 'medium'], occK: 0.75, noFp: false, k: k === 'shrub' ? 1.45 : k === 'thicket' ? 1.3 : 1 });
+        }
+      }
+    }
+    // (e) the shore quay band: a palm promenade
+    for (let r = 216.5; r < 221; r += 4) {
+      const step = 13 / r / D2R;
+      for (let b = rng.random() * step; b < 360; b += step * rng.range(0.85, 1.15)) {
+        const [x, z] = L.polar(r + rng.range(-1, 1), b);
+        plant('palm', x, z, { style: ['tall', 'medium'], maxGrad: 0.15 });
+      }
+    }
+    console.log(`[vegetation] citadel maps ${gm ? `${RES}² (${(SZ / RES).toFixed(2)} m)` : 'n/a (heightAt)'}`);
   }
 
   // ------------------------------------------------------------ 4. land rings: promenades + fill
@@ -254,14 +366,17 @@ export function scatterWorld(engine, sys, lib) {
         }
       }
       // fill: everything the city / architecture left free (gardens, squares, leftover corners)
-      const sp = 7.5;
-      for (let r = g.r0 + 14; r < g.r1 - 14; r += sp) {
+      // r3: denser (ref 1: the land rings read green between the buildings from the air) — every free corner
+      const sp = g.id === 'l1' ? 4.6 : 5.4;
+      for (let r = g.r0 + 12; r < g.r1 - 12; r += sp) {
         const step = sp / r / D2R;
         for (let b = rng.random() * step; b < 360; b += step) {
-          const [x, z] = L.polar(r + rng.range(-3, 3), b + rng.range(-0.3, 0.3) * step);
+          const [x, z] = L.polar(r + rng.range(-2.2, 2.2), b + rng.range(-0.35, 0.35) * step);
           const mask = noiseA.fbm2(x * 0.012 + 7, z * 0.012, 3);
-          if (mask < -0.15 || !rng.chance(0.5 * D * smoothstep(-0.15, 0.4, mask))) continue;
-          place(choose({ palm: 3, cypress: 2.5, olive: 1.2, broad: 1, shrub: 2.5, pine: 0.3 }, rng), x, z, { rng, style: PALMY, edge: 8, fpK: 1.3 });
+          if (mask < -0.6 || !rng.chance((g.id === 'l1' ? 1.0 : 0.85) * Math.sqrt(D) * smoothstep(-0.6, 0.1, mask))) continue;
+          const k = choose({ palm: 3, cypress: 2.4, olive: 1.6, broad: 2.8, shrub: 1.6, pine: 0.4 }, rng);
+          // larger crowns: at 1-1.4 km (shot 1) the ring gardens must read as green masses, not dots
+          place(k, x, z, { rng, s: rng.range(...SCALE[k]) * (k === 'broad' || k === 'olive' || k === 'pine' ? 1.25 : 1), style: PALMY, edge: 7, fpK: 0.7 });
         }
       }
     }

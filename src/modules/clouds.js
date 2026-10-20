@@ -36,21 +36,34 @@ export const BANK_REGION = { x0: -21000, x1: 21000, z0: -21000, z1: 2500, y0: 25
 
 // tunables (shared uniform objects: tweak live / per shot via looks.js `clouds`)
 export const CLOUDS = {
-  uBankSigma: { value: 0.05 },      // extinction (1/m) at density 1
-  uBankBright: { value: 3.4 },      // sun-lit brightness (multiple scattering compensation)
+  // r3 (look-golden): denser, opaque, smaller heaps (r2: σ 0.05 × gain 0.5 → translucent sheets showing the faceted far
+  // terrain through them = the "blocky" banks), whiter (sun tint compensated toward neutral), less detail erosion
+  // (the 250-450 m erosion read as vertical combing in the level shot-1 view)
+  uBankSigma: { value: 0.06 },      // extinction (1/m) at density 1
+  uBankBright: { value: 5.5 },      // sun-lit brightness (multiple scattering compensation)
   uBankAmount: { value: 1.0 },      // global coverage multiplier
   uVolSteps: { value: 32 },
   uTime: { value: 0 },
-  uBankScale: { value: new THREE.Vector3(6000, 2200, 450) }, // clump field / shape / detail tile sizes (m)
+  uBankScale: { value: new THREE.Vector3(3000, 1200, 250) }, // clump field / shape / detail tile sizes (m)
   uBankAlt: { value: new THREE.Vector2(0, 1.0) },            // base offset (m), thickness multiplier
-  uBankErode: { value: 0.85 },
-  uBankShape: { value: new THREE.Vector4(0.35, 0.35, 0.65, 0.5) }, // x clumps…strip, y min dome top, z dome range, w density gain
+  uBankErode: { value: 0.35 },
+  uBankShape: { value: new THREE.Vector4(0.35, 0.35, 0.65, 1.0) }, // x clumps…strip, y min dome top, z dome range, w density gain
   uBankHug: { value: new THREE.Vector2(600, 0.0) },
-  uBankStyle: { value: new THREE.Vector4(1.7, 0.45, 2.0, 0.75) },  // x vertical squash, y billow weight, z detail squash, w edge softness
-  uBankLight: { value: new THREE.Vector4(1.0, 0.97, 0.95, 1.0) },  // rgb sun-lit tint, a ambient multiplier
+  uBankStyle: { value: new THREE.Vector4(1.2, 0.6, 1.0, 0.6) },  // x vertical squash, y billow weight, z detail squash, w edge softness
+  uBankLight: { value: new THREE.Vector4(0.85, 0.97, 1.2, 1.3) },  // rgb sun-lit tint, a ambient multiplier
   uBankLobeBase: { value: 1.0 },
   uBankLobes: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, 0, 0, 0)) }, // (az from camera, half-width, gain, 0)
   uBankOff: { value: 0 },           // 1 = hidden (camera under the sunken surface)
+  // r3 (look-golden): the banks are lit by the SCENE light (SUN.dir, the one lighting the mountain faces behind them),
+  // optionally re-aimed in elevation (uBankSunEl deg, 999 = SUN.dir as is). r2 used the visible-sun ATMO.uSunDir: at
+  // 1.5-5° (shots 1-5) every light ray grazed through the ridges → mottled brown banks.
+  uBankSunEl: { value: 999 },
+  uBankNoDepth: { value: 0 },       // debug: 1 = ignore the scene depth (terrain height-map fallback)
+  uBankSun: { value: new THREE.Vector3(0, 1, 0) },   // derived per shot (do not override)
+  uBankRidge: { value: 0.35 },      // optical depth (× 1/σ) added per light tap below the terrain (soft ridge shadows)
+  // r3: march steps: x fine step as a fraction of the coarse one, y fine-step growth per m (≤ 10 m + y·t), z/w coarse step
+  // (z m + w·t; r2 40 m + 0.02·t = 240 m at 10 km skipped thin parts → hit-or-miss dither that 6-12 spp did not average)
+  uBankStep: { value: new THREE.Vector4(0.3, 0.003, 12, 0.004) }, // 12 m + 0.004·t: clean at 1 spp (preview / video)
 };
 
 // ------------------------------------------------------------------------------------ maps
@@ -141,6 +154,15 @@ function buildBankMap(res) {
     data[k * 4 + 2] = thick;
     data[k * 4 + 3] = hh;
   }
+  // r3 (look-golden): smooth the coverage and the terrain-height channels. Every screen column of a level view shares one
+  // xz direction, so any sharp xz feature of this map (a peak cutting the band, a coverage edge) became a vertical streak
+  // through the banks (shot 1 "combed" clouds). The real terrain still cuts them via the scene depth.
+  {
+    const cov = new Float32Array(w * h), ter = new Float32Array(w * h);
+    for (let k = 0; k < w * h; k++) { cov[k] = data[k * 4]; ter[k] = data[k * 4 + 3]; }
+    const cs = blur(cov, w, h, 2), ts = blur(maxFilter(ter, w, h, 2), w, h, 4);
+    for (let k = 0; k < w * h; k++) { data[k * 4] = cs[k]; data[k * 4 + 3] = ts[k]; }
+  }
   return { tex: dataTex(w, h, data), w, h };
 }
 
@@ -176,6 +198,9 @@ uniform vec4 uBankShape;
 uniform vec2 uBankHug;
 uniform vec4 uBankLight;
 uniform vec4 uBankStyle;
+uniform vec3 uBankSun;
+uniform float uBankRidge;
+uniform vec4 uBankStep;
 ${ATMO_GLSL}
 ${NOISE_GLSL}
 ${CLOUD_GLSL}
@@ -226,10 +251,10 @@ float density(vec3 p, bool detail, out float hf){
   float hug = mix(1.0, smoothstep(uBankHug.x, uBankHug.x * 0.25, hag), uBankHug.y);
   float d = cgRemapU(shape * grad * hug, 1.0 - c * 0.85, 1.0, 0.0, 1.0) * c;
   d = pow(max(d, 0.0), uBankStyle.w);
-  d *= smoothstep(0.0, 70.0, hag); // the ground cuts the clouds softly (they wrap the slopes)
+  d *= smoothstep(0.0, 160.0, hag); // the ground cuts the clouds softly (they wrap the slopes; r3: 70 → 160 m, smooth map)
   if (d <= 0.0) return 0.0;
   if (detail) {
-    vec3 dn = texture(tCloudDetail, vec3(q.x, p.y * uBankStyle.z, q.y) * (1.0 / uBankScale.z) + vec3(uTime * 0.004, 0.0, 0.0)).rgb;
+    vec3 dn = texture(tCloudDetail, vec3(q.x, q.y, p.y * uBankStyle.z) * (1.0 / uBankScale.z) + vec3(uTime * 0.004, 0.0, 0.0)).rgb;
     float df = clamp((dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125 - 0.6) / 0.3, 0.0, 1.0);
     d = cgRemapU(d, mix(df, 1.0 - df, clamp(hf * 3.0, 0.0, 1.0)) * uBankErode, 1.0, 0.0, 1.0);
   }
@@ -240,9 +265,10 @@ float lightOD(vec3 p){
   float od = 0.0, ds = 40.0, t = 0.0, hf;
   for (int j = 0; j < 5; j++) {
     float tt = t + ds * 0.5;
-    vec3 q = p + uSunDir * tt;
+    vec3 q = p + uBankSun * tt;
     od += density(q, false, hf) * ds;
-    if (q.y < mapAt(q.xz).a) od += 1.5 / uSigma; // ridges shadow the banks
+    // ridges shadow the banks (soft: the coarse 220 m terrain map made hard, mottled shadow patches)
+    od += uBankRidge / uSigma * smoothstep(0.0, 160.0, mapAt(q.xz).a - q.y);
     t += ds; ds *= 2.0;
   }
   return od * uSigma;
@@ -271,19 +297,21 @@ void main(){
   // 150-600 m slabs through σ 0.05 cloud → banks read as stacked horizontal slices / blocky cut-outs, shot 1)
   float dt0 = max((t1 - t0) / steps, 20.0);
   float jit = cgFrameJitter();
-  float t = t0 + min(dt0, 40.0 + 0.02 * t0) * jit;
-  float mu = dot(rd, uSunDir);
+  float t = t0 + min(dt0, uBankStep.z + uBankStep.w * t0) * jit;
+  float mu = dot(rd, uBankSun);
   vec3 ambTop = cgCloudAmbTop();
   vec3 ambBot = cgCloudAmbBot();
   vec3 scat = vec3(0.0);
   float T = 1.0, wsum = 0.0, dsum = 0.0, hf;
   bool fine = false;
   float zeros = 0.0;
-  float iters = steps * 10.0;
+  // r3: iteration budget independent of the quality preset (preview's 16 → 240 iterations ran out inside the banks:
+  // truncated, striped clouds at --quality preview / video)
+  float iters = max(steps * 10.0, 480.0);
   for (int i = 0; i < 480; i++) {
     if (float(i) >= iters || t > t1 || T < 0.01) break;
-    float dtC = min(dt0, 40.0 + 0.02 * t);
-    float dtF = clamp(dtC * 0.3, 8.0, 14.0 + 0.004 * t);
+    float dtC = min(dt0, uBankStep.z + uBankStep.w * t);
+    float dtF = clamp(dtC * uBankStep.x, 6.0, 10.0 + uBankStep.y * t);
     vec3 p = ro + rd * t;
     if (uDepthValid < 0.5 && p.y < mapAt(p.xz).a) break;
     float d = density(p, fine, hf);
@@ -390,6 +418,7 @@ function makeBanks(engine, map, region, depth) {
     uBankScale: CLOUDS.uBankScale, uBankAlt: CLOUDS.uBankAlt, uBankErode: CLOUDS.uBankErode, uBankShape: CLOUDS.uBankShape,
     uBankHug: CLOUDS.uBankHug, uBankStyle: CLOUDS.uBankStyle, uBankLight: CLOUDS.uBankLight,
     uBankLobeBase: CLOUDS.uBankLobeBase, uBankLobes: CLOUDS.uBankLobes,
+    uBankSun: CLOUDS.uBankSun, uBankRidge: CLOUDS.uBankRidge, uBankStep: CLOUDS.uBankStep,
   };
   const mat = new THREE.ShaderMaterial({
     uniforms: U, vertexShader: VERT, fragmentShader: FRAG,
@@ -411,7 +440,7 @@ function makeBanks(engine, map, region, depth) {
     const cur = renderer.getRenderTarget();
     if (cur) U.uRes.value.set(cur.width, cur.height);
     else renderer.getDrawingBufferSize(U.uRes.value);
-    U.uDepthValid.value = (cur && cur === engine.pipeline?.target && depth.valid.value > 0.5 && depth.frame === SKY.uFrame.value) ? 1 : 0;
+    U.uDepthValid.value = (cur && cur === engine.pipeline?.target && depth.valid.value > 0.5 && depth.frame === SKY.uFrame.value && !CLOUDS.uBankNoDepth.value) ? 1 : 0;
     U.uInvVP.value.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
   };
   return mesh;
@@ -424,7 +453,7 @@ let waterDefaults = null;
 /** apply looks.js `clouds` (+ explicit shot.clouds) and the visible-sun convention for a shot */
 function makeShotHook(engine, defaults, terrainSun) {
   return (shot) => {
-    for (const [k, v] of Object.entries(defaults)) if (k !== 'uTime' && k !== 'uVolSteps') {
+    for (const [k, v] of Object.entries(defaults)) if (k !== 'uTime' && k !== 'uVolSteps' && k !== 'uBankSun') {
       const u = CLOUDS[k];
       if (k === 'uBankLobes') u.value = v.map((x) => x.clone());
       else if (v?.clone) u.value = v.clone(); else u.value = v;
@@ -436,6 +465,15 @@ function makeShotHook(engine, defaults, terrainSun) {
       if (k === 'uBankLobes') CLOUDS[k].value = [0, 1, 2, 3].map((i) => new THREE.Vector4(...(v[i] || [0, 0, 0, 0])));
       else if (d && (d.isVector4 || d.isVector3 || d.isVector2) && Array.isArray(v)) CLOUDS[k].value = d.clone().fromArray(v);
       else CLOUDS[k].value = v;
+    }
+    // r3: bank light = the scene light (SUN.dir), elevation optionally re-aimed (uBankSunEl)
+    {
+      const d = SUN.dir, el = CLOUDS.uBankSunEl.value;
+      if (el > 900) CLOUDS.uBankSun.value.copy(d).normalize();
+      else {
+        const h = Math.hypot(d.x, d.z) || 1, e = (el * Math.PI) / 180;
+        CLOUDS.uBankSun.value.set((d.x / h) * Math.cos(e), Math.sin(e), (d.z / h) * Math.cos(e));
+      }
     }
     // sunken era: banks only above the water (shot 9 split level), never for an underwater camera
     CLOUDS.uBankOff.value = engine.era === 'sunken' && engine.camera.position.y < L.SUNKEN.surface ? 1 : 0;
@@ -463,7 +501,7 @@ function makeShotHook(engine, defaults, terrainSun) {
       if (!waterDefaults) waterDefaults = Object.fromEntries(WATER_LOOK_KEYS.filter((k) => wu[k]).map((k) => [k, wu[k].value?.clone ? wu[k].value.clone() : wu[k].value]));
       const explicit = shot.waterTune || {};
       for (const [k, v] of Object.entries(waterDefaults)) if (!(k in explicit)) { if (wu[k].value?.copy) wu[k].value.copy(v); else wu[k].value = v; }
-      for (const [k, v] of Object.entries(LOOKS[shot.id]?.water || {})) {
+      for (const [k, v] of Object.entries({ ...(LOOKS[shot.id]?.water || {}), ...(shot.water || {}) })) {
         if (!wu[k] || !WATER_LOOK_KEYS.includes(k)) { console.warn('[clouds] unknown water look override', k); continue; }
         if (k in explicit) continue;
         if (Array.isArray(v)) { if (wu[k].value.isColor) wu[k].value.setRGB(...v); else wu[k].value.fromArray(v); } else wu[k].value = v;
@@ -476,7 +514,7 @@ export async function build(engine) {
   const t0 = performance.now();
   const q = engine.quality;
   CLOUDS.uVolSteps.value = Math.max(24, Math.round(q.cloudSteps));
-  const bank = buildBankMap(Math.round(190 * Math.min(1.25, 0.6 + q.detail * 0.6)));
+  const bank = buildBankMap(300); // r3: one resolution for every preset (preview banks = high banks)
   const grabber = makeDepthGrabber(engine);
   const banks = makeBanks(engine, bank, BANK_REGION, engine.registry.sceneDepth);
   engine.scene.add(grabber, banks);

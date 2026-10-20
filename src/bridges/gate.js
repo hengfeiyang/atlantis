@@ -114,7 +114,7 @@ export function buildGateBridge(kit) {
       boxA(w, px0 + 1.5, 26.6, f > 0 ? zf : zf - 0.2, px1 - 1.5, 26.9, f > 0 ? zf + 0.2 : zf, AUX.mould, 0.02);
       // banner hanging from the cornice on the inner part of the pier face (ref 2)
       const bx = s > 0 ? px0 + 3.0 : px1 - 3.0;
-      if (!sunken) kit.slots.banner.push({ pos: kit.W(bx, yFr - 0.1, zf + f * 0.36), facing: kit.compass(0, f), size: [2.3, 8.2], tag: 'wall', style: 'V', source: 'bridges-gate-pier' });
+      if (!sunken) kit.slots.banner.push({ pos: kit.W(bx, yFr - 0.1, zf + f * 0.36), facing: kit.compass(0, f), size: [2.8, 10.0], tag: 'wall', style: 'V', source: 'bridges-gate-pier' });
       // statue pedestal standing in the water at the pier corner next to the arch
       const sx = s > 0 ? px0 + 2.6 : px1 - 2.6;
       boxA(w, sx - 1.4, -11, f > 0 ? zf + 0.4 : zf - 3.2, sx + 1.4, 1.6, f > 0 ? zf + 3.2 : zf - 0.4, AUX.ashlar(0.8), 0.04);
@@ -129,7 +129,7 @@ export function buildGateBridge(kit) {
     // the gate tower above the deck
     const tw = gateTower(kit, {
       x0: px0, x1: px1, z0: -zH, z1: zH, yDeck: deck, yTop: T.top,
-      passage: { hw: 4.8, h: 12.5 }, gilt: true, banded: true, bannerFaces: ['+z', '-z'], seed: s > 0 ? 3 : 7, tag: 'gate-tower',
+      passage: { hw: 4.8, h: 12.5 }, gilt: true, banded: true, bannerFaces: ['+z', '-z'], bannerBig: true, seed: s > 0 ? 3 : 7, tag: 'gate-tower',
       tholos: { R: 8.2, n: 12, colH: 8.2, domeH: 3.9, tridentH: 7.0, tridentThick: 1.6, stepF: 0.028, entF: 0.85, knobF: 0.6, drumH: 1.6 }, midFrac: 0.5,   // r2: ref 2 proportions (tall colonnade ≈ R, low dome, chunky trident)
       missingCols: sunken ? (i) => ruined(`${label}:col:${s}:${i}`, s > 0 ? 0.12 : 0.05) : null,
     });

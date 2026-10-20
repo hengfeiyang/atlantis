@@ -31,6 +31,13 @@ export const ATMO = {
   uMie: { value: new THREE.Vector3(0.76, 0.55, 0.8) },
   uAtmoTime: { value: 0 },
   uAtmoEnabled: { value: 1 },
+  // r3 (look-golden): art-directed light pool + broken cloud shadows (world space, applied to every lit built-in material
+  // before the aerial perspective; off by default, per shot in looks.js `atmo`). Ref 1: the citadel hill glows in full sun
+  // while the outer rings / plain lie under drifting cloud shade.
+  //   uPool      x, z centre (m), radius (m), gain (1 + gain inside, smooth falloff from 0.45 r to r)
+  //   uPoolShade amount (darkening), noise cell (m), threshold 0..1 (higher = fewer shadows), outer radius (m, fades out)
+  uPool: { value: new THREE.Vector4(0, 0, 1, 0) },
+  uPoolShade: { value: new THREE.Vector4(0, 400, 0.5, 4000) },
 };
 
 export function atmoUniforms() { return { ...ATMO }; }
@@ -50,6 +57,27 @@ uniform vec3 uMistColor;
 uniform vec3 uMie;
 uniform float uAtmoTime;
 uniform float uAtmoEnabled;
+uniform vec4 uPool;
+uniform vec4 uPoolShade;
+float atmoH21(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float atmoVN(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(atmoH21(i), atmoH21(i + vec2(1.0, 0.0)), f.x), mix(atmoH21(i + vec2(0.0, 1.0)), atmoH21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// light pool / cloud shade multiplier at a world point (1 = unchanged)
+float atmoPool(vec3 wp){
+  if (uPool.w == 0.0 && uPoolShade.x == 0.0) return 1.0;
+  float r = length(wp.xz - uPool.xy);
+  float k = 1.0 + uPool.w * (1.0 - smoothstep(uPool.z * 0.45, uPool.z, r));
+  if (uPoolShade.x > 0.0) {
+    vec2 q = wp.xz / uPoolShade.y + vec2(uAtmoTime * 0.004, 0.0);
+    float n = atmoVN(q) * 0.6 + atmoVN(q * 2.3 + 7.1) * 0.28 + atmoVN(q * 5.1 + 3.7) * 0.12;
+    float sh = smoothstep(uPoolShade.z, uPoolShade.z + 0.22, n);
+    sh *= smoothstep(uPool.z * 0.8, uPool.z * 1.4, r) * (1.0 - smoothstep(uPoolShade.w * 0.6, uPoolShade.w, r));
+    k *= 1.0 - uPoolShade.x * sh;
+  }
+  return k;
+}
 
 // Optical depth of an exponential height-density layer along a ray.
 float atmoOD(float y0, float dy, float dist, float dens, float H, float h0){
@@ -142,7 +170,7 @@ const FOG_PARS_FRAGMENT = /* glsl */ `
 `;
 const FOG_FRAGMENT = /* glsl */ `
 #ifdef USE_FOG
-  gl_FragColor.rgb = atmoApply( gl_FragColor.rgb, vAtmoWorldPos );
+  gl_FragColor.rgb = atmoApply( gl_FragColor.rgb * atmoPool( vAtmoWorldPos ), vAtmoWorldPos );
 #endif
 `;
 

@@ -12,8 +12,8 @@ const FRONT = FACES.pz | FACES.px | FACES.nx | FACES.py;
 const darker = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
 
 /** chord frame on circle R from bearing b0 to b1; +d toward the water (side), returns { F, len } */
-export function arcFrame(R, b0, b1, side, y = 0) {
-  const [x0, z0] = polarXZ(R, b0), [x1, z1] = polarXZ(R, b1);
+export function arcFrame(R, b0, b1, side, y = 0, PX = polarXZ) {
+  const [x0, z0] = PX(R, b0), [x1, z1] = PX(R, b1);
   const len = Math.hypot(x1 - x0, z1 - z0);
   const ax = [(x1 - x0) / len, 0, (z1 - z0) / len];
   const bm = ((b0 + b1) / 2) * D2R;
@@ -35,7 +35,7 @@ const P_FILLET = [[0, 0], [0.08, 0.0], [0.12, 0.06], [0.12, 0.2], [0.06, 0.26], 
  */
 export function revetBay(ctx, e, b0, b1, opts) {
   const { S, rng } = ctx;
-  const { F, len } = arcFrame(e.faceR, b0, b1, e.side);
+  const { F, len } = arcFrame(e.faceR, b0, b1, e.side, 0, e.polar);
   const mid = F.p(len / 2, 0, 0);
   const lod = opts.lod;
   const yB = e.floor - 1.5, yT = e.landY;
@@ -142,7 +142,7 @@ export function revetBay(ctx, e, b0, b1, opts) {
  */
 export function curtainBay(ctx, e, b0, b1, opts) {
   const { S, rng } = ctx;
-  const { F, len } = arcFrame(e.wallR, b0, b1, e.side);
+  const { F, len } = arcFrame(e.wallR, b0, b1, e.side, 0, e.polar);
   const mid = F.p(len / 2, 0, 0);
   const lod = opts.lod;
   const y0 = e.landY, H = e.wallH, T = 3.2;
@@ -348,13 +348,14 @@ export function buildEdge(ctx, e) {
     const db = (st.b1 - st.b0) / n;
     for (let k = 0; k < n; k++) {
       const b0 = st.b0 + k * db, b1 = b0 + db, bm = (b0 + b1) / 2;
-      const [mx, mz] = polarXZ(e.wallR, bm);
+      const [mx, mz] = (e.polar || polarXZ)(e.wallR, bm);
       const lod = ctx.lodAt(mx, mz);
       const endA = !st.closed && k === 0, endB = !st.closed && k === n - 1;
       const kk = Math.round(wrap360(b0) / db);
       // revetment (not where ship-sheds or the canal tunnel portals take over)
       const tunnel = e.ring === 'l1' && Math.abs(mx) < ctx.plan.tunnel.halfWidth + 1.5 && mz > 0;
-      if (!shedCovers(e, b0, b1) && !tunnel) revetBay(ctx, e, b0, b1, { lod, endA, endB, quay: e.id === 'citadel' || e.id === 'outer' });
+      const hidden = e.hidden && e.hidden.some(([a, b]) => bm > a && bm < b);
+      if (!shedCovers(e, b0, b1) && !tunnel && !hidden) revetBay(ctx, e, b0, b1, { lod, endA, endB, quay: e.id === 'citadel' || e.id === 'outer' });
       if (e.curtain) {
         const nearTower = towerBearings.some((tb) => Math.abs(((tb - bm + 540) % 360) - 180) * D2R * e.wallR < TOWER_HALF + 3);
         // clip the bay out of garden bastions (solid blocks built separately)
@@ -370,7 +371,7 @@ export function buildEdge(ctx, e) {
         }
         for (const [a, b, ea, eb] of pieces) curtainBay(ctx, e, a, b, { lod, endA: ea, endB: eb, k: kk, nearTower: nearTower || pieces.length > 1 || a !== b0 || b !== b1 });
         // footprint so the city / vegetation keep clear
-        const { F, len } = arcFrame(e.wallR, b0, b1, e.side);
+        const { F, len } = arcFrame(e.wallR, b0, b1, e.side, 0, e.polar);
         const c = F.p(len / 2, 0, -1.6);
         ctx.engine.footprints.addRect(c[0], c[2], len / 2 + 0.2, 3.2, Math.atan2(-F.ax[2], F.ax[0]), 'rings-wall');
       } else {
@@ -385,7 +386,7 @@ export function buildEdge(ctx, e) {
 /** low quay balustrade (outer-city shore) */
 function balustradeBay(ctx, e, b0, b1, opts) {
   const { S, rng } = ctx;
-  const { F, len } = arcFrame(e.wallR, b0, b1, e.side);
+  const { F, len } = arcFrame(e.wallR, b0, b1, e.side, 0, e.polar);
   const mid = F.p(len / 2, 0, 0);
   const W = S.get('white', mid[0], mid[2]);
   const y = e.landY;

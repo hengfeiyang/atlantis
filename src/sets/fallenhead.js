@@ -12,7 +12,7 @@ import { buildTridentGeometry } from './trident.js';
 import { buildStone } from './ruinkit.js';
 import { buildColumn, hashSpec } from './columns.js';
 import { mosaicMaterial, brokenDiscGeometry } from './mosaic.js';
-import { headBronzeMaterial, setGoldMaterial, setSandMaterial, rubbleMaterial, bandedColumnMaterial } from './materials.js';
+import { headBronzeMaterial, setGoldMaterial, setTridentGoldMaterial, setSandMaterial, rubbleMaterial, bandedColumnMaterial } from './materials.js';
 import { RNG } from '../core/rng.js';
 import { Simplex } from '../core/noise.js';
 
@@ -78,7 +78,7 @@ export async function buildFallenHeadSet(engine, o) {
     const T = F.atPlane(1515, 712, g0 + 0.35);
     const ax = T.clone().sub(C).setY(0).normalize();
     const tg = await job('trident', q);
-    const m = new THREE.Mesh(tg, setGoldMaterial(true)); m.name = 'setTrident';
+    const m = new THREE.Mesh(tg, setTridentGoldMaterial()); m.name = 'setTrident';
     // local: y = prongs (ax), z = up (prong plane horizontal), tilted a little so a side prong rests on the sand
     const yv = ax.clone(), zv = new THREE.Vector3(0, 1, 0).applyAxisAngle(ax, 0.12), xv = new THREE.Vector3().crossVectors(yv, zv).normalize();
     zv.crossVectors(xv, yv).normalize();

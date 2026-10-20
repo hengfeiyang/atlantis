@@ -5,8 +5,10 @@
 // Layout: L.CITADEL_TOWERS = { size, roof, list: [{ pos: [x, z] }] }. OWNER: bridges agent (added by the director in r3).
 import * as L from '../world/layout.js';
 import { heightAt } from '../world/heightfield.js';
-import { ruined } from '../world/era.js';
+import { ruined, ruinRand } from '../world/era.js';
 import { gateTower } from './tower.js';
+import { boxA, AUX } from './kit.js';
+import { rubble } from './parts.js';
 
 export function buildCitadelTowers(kit) {
   const C = L.CITADEL_TOWERS;
@@ -28,16 +30,40 @@ export function buildCitadelTowers(kit) {
       x0: -hs, x1: hs, z0: -hs, z1: hs, yDeck: base, yTop: yMid, passage: null, gilt: true, banded: false, niche: true,
       bannerFaces: kit.sunken ? [] : ['+z', '-x', '+x'], seed: 31 + i * 7, tag: 'citadel-tower-podium', fallenTop: true, midFrac: 0.5,
     });
-    const tw = gateTower(kit, {
-      x0: -hu, x1: hu, z0: -hu, z1: hu, yDeck: yMid, yTop: roof, passage: null, gilt: false, banded: false,
-      bannerFaces: kit.sunken ? [] : ['+z'], seed: 33 + i * 7, tag: 'citadel-tower', midFrac: 0.62,
-      tholos: { R: size * 0.4, n: 10, colH: size * 0.42, tridentH: size * 0.36 },
-      tridentBroken: kit.sunken, missingCols: kit.sunken ? (k) => ruined(`citadel-tower:${i}:col:${k}`, 0.4) : null,
+    // r3 (arch-a): slender shaft, then a narrower BELFRY stage whose arched portals open on the south / north faces
+    // (refs 4 / 5; ref 9: the arched belfry is what breaks the sunken surface), gold figures on the shaft roof
+    const yB = roof - 8.6, hb = hu * 0.7;
+    gateTower(kit, {
+      x0: -hu, x1: hu, z0: -hu, z1: hu, yDeck: yMid, yTop: yB, passage: null, gilt: false, banded: false,
+      bannerFaces: kit.sunken ? [] : ['+z'], seed: 33 + i * 7, tag: 'citadel-tower', midFrac: 0.62, fallenTop: true,
     });
+    kit.begin(x, z, Math.PI / 2);   // local x = world z: the belfry passage runs north-south (portal faces the cameras)
+    const tw = gateTower(kit, {
+      x0: -hb, x1: hb, z0: -hb, z1: hb, yDeck: yB + 0.15, yTop: roof, passage: { hw: hb * 0.5, h: 6.4 }, gilt: false, banded: true,
+      bannerFaces: [], seed: 35 + i * 7, tag: 'citadel-belfry', midFrac: 0.5,
+      tholos: { R: size * 0.36, n: 10, colH: size * 0.4, tridentH: size * 0.34 },
+      fallenTop: kit.sunken, missingCols: kit.sunken ? (k) => ruined(`citadel-tower:${i}:col:${k}`, 0.4) : null,
+    });
+    kit.begin(x, z, 0);
+    if (kit.sunken) {
+      // ruined crown: broken column stumps of the fallen tholos + a leaning broken trident (ref 9 silhouettes)
+      for (let k = 0; k < 8; k++) {
+        if (ruined(`citadel-tower:${i}:stump:${k}`, 0.35)) continue;
+        const a = (k / 8) * Math.PI * 2, r = size * 0.34, h = 0.8 + 3.4 * ruinRand(`citadel-tower:${i}:stump:${k}`, 1);
+        boxA(kit.mb.white, Math.cos(a) * r - 0.32, roof + 0.3, Math.sin(a) * r - 0.32, Math.cos(a) * r + 0.32, roof + 0.3 + h, Math.sin(a) * r + 0.32, AUX.ashlar(0.5), 0.05);
+      }
+      rubble(kit, 0, roof + 0.3, 0, 0.9, 4, `citadel-tower:${i}:crown`);
+    }
+    // gold figures at the shaft-roof edges, around the belfry (both eras: gilt pinnacle statues survive)
+    for (const [sx, sz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const px = sx * (hu - 0.55), pz = sz * (hu - 0.55);
+      if (kit.sunken && ruined(`citadel-tower:${i}:fig:${sx}:${sz}`, 0.4)) continue;
+      kit.slots.statue.push({ pos: kit.W(px, yB + 0.15, pz), facing: kit.compass(sx, sz), size: 3.0, tag: 'pinnacle', source: 'bridges-citadel-tower' });
+    }
     // sunken: no coral above (or just under) the water line
     if (kit.sunken) kit.coral.splice(c0, kit.coral.length - c0, ...kit.coral.slice(c0).filter((c) => c.pos[1] < surf - 1.5));
     kit.footprints.push({ cx: x, cz: z, hw: hs + 1.5, hd: hs + 1.5, rotY: 0, tag: 'citadel-tower' });
-    out.push({ pos: [x, base, z], roof, tip: tw.tip });
+    out.push({ pos: [x, base, z], roof, tip: kit.sunken ? roof + 4 : tw.tip, belfry: yB });
   });
   return out;
 }

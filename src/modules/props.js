@@ -115,11 +115,17 @@ export async function build(engine) {
   }
 
   // ---------------- urns / planters
-  for (const s of dedupe(S.urn, 0.5)) {
-    const tag = tagOf(s);
+  const rampFix = await rampartUrnFix();
+  for (const s0 of dedupe(S.urn, 0.5)) {
+    const tag = tagOf(s0);
+    // sunken: the rampart parapets are broken (ruined bays lose their coping) — the merlon urns fell into the sand
+    if (sunken && /rampart/.test(tag)) continue;
+    const s = /rampart/.test(tag) ? rampFix(s0) : s0;
     const kind = /marble|krater/.test(tag) ? 'krater' : /bronze|gold/.test(tag) ? 'urn' : h01(s.pos[0], s.pos[2], 'urn') < 0.22 ? 'krater' : 'urn';
     const wide = /wide|bowl|lotus/.test(tag);
-    const spec = { pos: s.pos, height: Math.min(1.3, Math.max(0.5, (s.size ?? 1) * 0.72)) * (wide ? 0.85 : 1), kind, facing: s.facing, ...(wide ? { squat: 0.62, wide: 1.25, plantScale: 0.78 } : {}) };
+    // r3: the flight-foot pedestals (shot 3 foreground, ref 3) carry big gilt urns, not 0.7 m pots
+    const hero = /stair-head/.test(tag);
+    const spec = { pos: s.pos, height: hero ? 1.2 : Math.min(1.3, Math.max(0.5, (s.size ?? 1) * 0.72)) * (wide ? 0.85 : 1), kind: hero ? 'urn' : kind, facing: s.facing, ...(wide ? { squat: 0.62, wide: 1.25, plantScale: 0.78 } : {}) };
     if (sunken) {
       const lab = `props:urn:${s.pos.map((v) => v.toFixed(1)).join(',')}`;
       if (ruined(lab, 0.6)) {
@@ -133,7 +139,7 @@ export async function build(engine) {
       coral(s.pos, 0.4, 'urn');
       continue;
     }
-    spec.plant = urnPlant(s);
+    spec.plant = hero ? 'bougainvillea' : urnPlant(s);
     urns.add(spec);
   }
   if (!sunken) for (const s of dedupe(S.planter, 0.5)) {
@@ -164,7 +170,7 @@ export async function build(engine) {
   counts.slots = { banner: banners.items.length, brazier: braziers.items.length, urn: urns.items.length, lampFlames: flames, lamps: lamps.items.length, boug: boug.count, lotus: lotus.count };
 
   // ---------------- fallbacks for regions the shots show but nobody dressed
-  if (!engine.__propsTest) try { addDefaults(engine, sets, counts.defaults, { sunken, ground }); } catch (e) { console.error('[props] defaults failed:', e.stack || e); }
+  if (!engine.__propsTest) try { await addDefaults(engine, sets, counts.defaults, { sunken, ground }); } catch (e) { console.error('[props] defaults failed:', e.stack || e); }
 
   // plants for the urns (lotus / bougainvillea) need the urn rims → build urns first
   const order = [['banners', banners], ['braziers', braziers], ['urns', urns], ['lamps', lamps]];
@@ -178,7 +184,9 @@ export async function build(engine) {
 
   const tris = Object.values(sets).reduce((a, s) => a + (s.tris || 0), 0);
   const triK = Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, Math.round((v.tris || 0) / 1000)]));
-  engine.registry.props = { banners: banners.items.length, braziers: braziers.items.length, tris };
+  engine.registry.props = { banners: banners.items.length, braziers: braziers.items.length, tris,
+    // placed positions (after defaults / fixes), for audits: [x, y, z, tag]
+    placed: { urn: urns.items.map((i) => i.pos), brazier: braziers.items.map((i) => i.pos) } };
   console.log(`[props] built in ${Math.round(performance.now() - t0)} ms (${engine.era}) — banners ${banners.items.length}, braziers ${braziers.items.length}, urns/planters ${urns.items.length}, lamps ${lamps.items.length}, bougainvillea ${boug.count} (${boug.cards} cards), lotus ${lotus.count}, fire quads ${fire.inst.length}, ~${(tris / 1e6).toFixed(2)} M tris ${JSON.stringify(triK)}k; slots ${JSON.stringify(counts.slots)}, defaults ${JSON.stringify(counts.defaults)}`);
 }
 
@@ -187,21 +195,27 @@ function addFlowerSlot(sets, s, ground) {
   // LOD: fewer cards far from every shot camera, none where it is sub-pixel
   const dc = CAMS.reduce((m, c) => Math.min(m, Math.hypot(c[0] - s.pos[0], c[1] - s.pos[1], c[2] - s.pos[2])), Infinity);
   if (dc > 700 && !/lotus|lily/.test(tag) && !sets.boug.engine.__propsTest) return;
-  const lodD = sets.boug.engine.__propsTest || dc < 80 ? 1 : dc < 250 ? 0.45 : 0.18;
+  // r3 LOD: card count ∝ (45 / d)², cards grow ∝ 1/sqrt(density) so the mass keeps its coverage (the ramparts push
+  // ~70 big masses seen from 100-1400 m: 0.5 M cards at the old 0.45 / 0.18 steps)
+  const lodD = sets.boug.engine.__propsTest || dc < 45 ? 1 : Math.max(0.03, (45 / dc) * (45 / dc));
+  const leafScale = Math.min(3, 1 / Math.sqrt(lodD));
   const sz = Array.isArray(s.size) ? s.size : [s.size ?? 1.5, s.size ?? 1.2];
   if (/lotus|lily/.test(tag)) { sets.lotus.pond({ center: s.pos, radius: sz[0], cover: s.cover ?? 0.3 }); return; }
+  // r3 layout change: a mound slot that ended up inside the raised ground (e.g. under the stair-head landing) is lifted
+  // onto it; one far below / above any ground is left alone (it sits on architecture the height field does not know)
+  const liftPos = (p) => { const g = ground(p[0], p[2]); return Number.isFinite(g) && g > p[1] + 0.3 && g < p[1] + 25 ? [p[0], g, p[2]] : p; };
   // a scalar size without an explicit edge keyword = a bougainvillea mass growing at pos (e.g. against a balustrade)
   if (!Array.isArray(s.size) && !/curtain|edge|over|climb|column|lotus|lily/.test(tag)) {
     const k = s.size ?? 2;
-    sets.boug.bush({ pos: s.pos, radius: 0.42 * k, height: 0.6 * k, spill: 0.25 * k, density: 0.85 * lodD }); return;
+    sets.boug.bush({ pos: liftPos(s.pos), radius: 0.42 * k, height: 0.6 * k, spill: 0.25 * k, density: 0.85 * lodD, leafScale }); return;
   }
-  if (/bush|mound|pot/.test(tag)) { sets.boug.bush({ pos: s.pos, radius: sz[0], height: sz[1] ?? sz[0] * 1.1, spill: s.spill ?? 0.3, density: lodD }); return; }
-  if (/climb|column/.test(tag)) { sets.boug.climb({ pos: s.pos, radius: sz[0], height: sz[1] ?? 4, side: s.facing ?? 180, coverage: s.coverage ?? 0.55, density: lodD }); return; }
-  sets.boug.curtain({ top: s.pos, facing: s.facing ?? 180, length: sz[0], drop: sz[1] ?? 1.2, depth: s.depth ?? 0.45, ground, density: lodD });
+  if (/bush|mound|pot/.test(tag)) { sets.boug.bush({ pos: liftPos(s.pos), radius: sz[0], height: sz[1] ?? sz[0] * 1.1, spill: s.spill ?? 0.3, density: lodD, leafScale }); return; }
+  if (/climb|column/.test(tag)) { sets.boug.climb({ pos: s.pos, radius: sz[0], height: sz[1] ?? 4, side: s.facing ?? 180, coverage: s.coverage ?? 0.55, density: lodD, leafScale }); return; }
+  sets.boug.curtain({ top: s.pos, facing: s.facing ?? 180, length: sz[0], drop: sz[1] ?? 1.2, depth: s.depth ?? 0.45, ground, density: lodD, leafScale });
 }
 
 /** default dressing where producers left a region empty */
-function addDefaults(engine, sets, d, { sunken, ground }) {
+async function addDefaults(engine, sets, d, { sunken, ground }) {
   const near = (items, c, r) => items.some((it) => Math.hypot((it.pos || it.top)[0] - c[0], (it.pos || it.top)[2] - c[2]) < r);
   const fp = engine.footprints;
   const free = (x, z, r) => !fp || !fp.isFree || fp.isFree(x, z, r);
@@ -225,6 +239,8 @@ function addDefaults(engine, sets, d, { sunken, ground }) {
       d.stairUrns = (d.stairUrns || 0) + 1;
     }
   }
+  if (!sunken) { try { dressFlight(engine, sets, d, ground); } catch (e) { console.error('[props] flight dressing failed:', e.stack || e); } }
+  if (!sunken) { try { await rampartBanners(engine, sets, d); } catch (e) { console.error('[props] rampart banners failed:', e.stack || e); } }
   // ---- garden terrace on land ring 2 (shot 5): brazier left, lotus pot right, framed in the shot camera.
   // The deck may sit on top of the ring wall (above the height field): use registry.sets.terrace when the sets
   // module published it, else the shot-5 eye height (2.2 m above the deck).
@@ -249,6 +265,128 @@ function addDefaults(engine, sets, d, { sunken, ground }) {
       d.terraceLotus = 1;
     }
   }
+}
+
+/**
+ * r3 (refs 3 / 6): the north flight from the stair-head landing into the forecourt — magenta bougainvillea masses
+ * spilling over the cheek-wall copings (both faces), heavier near the flight foot where shot 3 sees them.
+ * registry.temple.flight = { from, to, riser, tread, n, x0, x1 }; cheek walls at x = ±(x1 + 0.9), coping ±1.0 wide,
+ * coping top = step y + 1.18 (src/modules/temple.js buildStair).
+ */
+function dressFlight(engine, sets, d, ground) {
+  const F = engine.registry.temple?.flight;
+  if (!F || !Number.isFinite(F.riser) || !Number.isFinite(F.tread)) return;
+  const fz0 = F.from[2], fz1 = F.to[2], fy0 = F.from[1], fy1 = F.to[1], fhw = (F.x1 - F.x0) / 2;
+  const slope = F.riser / F.tread;
+  // line through the stepped coping (mid-step): top of the cheek wall at z
+  const copeY = (z) => fy0 + 1.18 - Math.max(0, (fz0 - z) / F.tread - 0.5) * F.riser;
+  const zMin = fz1 + 1.9;     // clear of the foot pedestal (z fz1 + 0.8, 1.6 m wide)
+  // [z centre, length, side] — 'in' = over the stair side, 'out' = over the outer face; hand-placed so the masses
+  // read as clumps with bare coping between them (ref 3)
+  const plan = {
+    '-1': [[zMin + 1.3, 2.6, 'in'], [zMin + 1.6, 2.2, 'out'], [zMin + 5.4, 1.9, 'in'], [zMin + 8.6, 2.6, 'out'], [zMin + 10.2, 2.2, 'in'], [zMin + 16, 2.4, 'out']],
+    '1': [[zMin + 1.1, 2.4, 'in'], [zMin + 2.0, 2.6, 'out'], [zMin + 5.8, 2.6, 'in'], [zMin + 9.5, 2.0, 'out'], [zMin + 13.5, 2.4, 'in']],
+  };
+  let n = 0;
+  for (const sgn of [-1, 1]) {
+    const xc = sgn * (fhw + 0.9);
+    for (const [zc, len, side] of plan[String(sgn)]) {
+      if (zc + len / 2 > fz0 - 1) continue;
+      const inner = side === 'in';
+      const x = xc + (inner ? -sgn : sgn) * 1.0;
+      const facing = (inner ? -sgn : sgn) > 0 ? 90 : 270;
+      // `along` = +z for facing 90, -z for 270; the coping rises toward +z
+      const sl = facing === 90 ? slope : -slope;
+      const yTop = copeY(zc);
+      const floor = inner ? yTop - 1.18 - 0.05 : fy1 - 0.3;
+      sets.boug.curtain({ top: [x, yTop, zc], facing, length: len * 1.3, drop: inner ? 1.0 : 2.2 + 0.6 * h01(zc, sgn, 'fd'), depth: 1.25, mound: 0.6, slope: sl,
+        ground: (gx, gz) => Math.max(floor, inner ? floor : ground(gx, gz)), density: 0.5, leafScale: 1.4, family: Math.floor(h01(zc, sgn, 'fam') * 4) });
+      n++;
+    }
+    // a big mound on the court beside the foot pedestal (outer side) — ref 3 masses at the balustrade ends
+    const pz = fz1 + 0.8, px = xc + sgn * 2.4;
+    sets.boug.bush({ pos: [px, Math.max(fy1, ground(px, pz)), pz + 0.6], radius: 1.3, height: 1.8, spill: 0.2, density: 0.5, leafScale: 1.4, family: sgn > 0 ? 1 : 0 });
+    // mounds against the outer face further up (their crowns show over the coping)
+    for (const [dz, rr, hh] of [[4.2, 1.2, 2.1], [8.0, 1.4, 2.8]]) {
+      const bx = xc + sgn * 2.1, bz = fz1 + dz;
+      sets.boug.bush({ pos: [bx, Math.max(fy1, ground(bx, bz)), bz], radius: rr, height: hh, spill: 0.15, density: 0.45, leafScale: 1.45, family: Math.floor(h01(bz, sgn, 'mf') * 4) });
+      n++;
+    }
+    n++;
+  }
+  d.flightBoug = n;
+}
+
+/**
+ * r3 audit: the temple's rampart urn slots ('urns on the parapet merlons') sit at the bay CENTRE at merlon height
+ * (yTop + 1.7), 0.65 m above the parapet coping there (the merlons are at the bay joints). Such a slot is lowered
+ * onto the coping. Slots already at a joint (or at another height) are left untouched.
+ */
+async function rampartUrnFix() {
+  let plan = null;
+  try { plan = (await import('./temple.js')).rampartPlan?.(); } catch { /* */ }
+  if (!Array.isArray(plan)) return (s) => s;
+  const tiers = plan.map((R) => { const nb = Math.max(12, Math.round((2 * Math.PI * R.rOut) / (R.bay ?? 10))); return { ...R, nb, da: (2 * Math.PI) / nb }; });
+  return (s) => {
+    const r = Math.hypot(s.pos[0], s.pos[2]);
+    const T = tiers.find((t) => Math.abs(r - t.rOut) < 1.2 && Math.abs(s.pos[1] - (t.yTop + 1.7)) < 0.2);
+    if (!T) return s;
+    const a = (Math.atan2(s.pos[0], -s.pos[2]) + 2 * Math.PI) % (2 * Math.PI);
+    const f = a / T.da - Math.floor(a / T.da);
+    if (Math.abs(f - 0.5) > 0.12) return s;                 // not at a bay centre
+    // onto the parapet coping of the same bay (z -0.15 … 0.3 in the bay frame): present in every intact bay, whereas
+    // a joint merlon is missing next to some gaps
+    const rc = T.rOut + 0.075;
+    return { ...s, pos: [Math.sin(a) * rc, T.yTop + 1.05, -Math.cos(a) * rc] };
+  };
+}
+
+/**
+ * r3 (refs 1, 4, 5): long navy trident banners on the great red ramparts. They hang under the cornice in front of every
+ * third orichalcum pilaster (bay joints) and stop above the white string course. The bay plan is the temple's pure
+ * rampartPlan(); joints next to a gap (stair, cascades) and the bastion towers are skipped. If the temple module
+ * ever pushes its own banner slots tagged 'rampart', those win and nothing is added here.
+ */
+async function rampartBanners(engine, sets, d) {
+  if ((engine.slots.banner || []).some((s) => /rampart/.test(tagOf(s)))) return;
+  let plan, casc = [];
+  try { plan = (await import('./temple.js')).rampartPlan?.(); } catch { /* temple not loadable */ }
+  if (!Array.isArray(plan) || !plan.length) return;
+  try { casc = (await import('../water/cascades.js')).planCascades() || []; } catch { /* none */ }
+  const R2D = 180 / Math.PI;
+  const cascadeAt = (r, b, margin) => casc.some((c) => {
+    if (c.kind !== 'hill') return false;
+    const r0 = Math.hypot(c.from[0], c.from[2]);
+    if (r < r0 - 3) return false;
+    const half = ((c.width / 2 + margin + (r - r0) * 0.06) / r) * R2D;
+    return Math.abs(((b - c.bearing + 540) % 360) - 180) < half;
+  });
+  const stairGap = (b, r) => Math.abs(b - 180) < ((L.CITADEL_STAIR.width / 2 + 4) / r) * R2D;
+  const towers = engine.registry.temple?.towers || [];
+  let n = 0;
+  plan.forEach((R, k) => {
+    const H = R.yTop - R.yFoot, T = R.rOut - R.rIn;
+    void T;
+    const nb = Math.max(12, Math.round((2 * Math.PI * R.rOut) / (R.bay ?? 10)));
+    const da = 360 / nb;
+    const gap = (i) => { const b = ((((i % nb) + nb) % nb) + 0.5) * da; return stairGap(b, R.rOut) || cascadeAt(R.rOut, b, 2.5) || cascadeAt(R.rIn, b, 2.5); };
+    const hs = Math.max(4.6, H * 0.36), yc = H - Math.max(2.0, H * 0.11);
+    const top = R.yFoot + yc - 0.12;
+    const len = Math.min(9.5, yc - 0.12 - (hs + 0.85));
+    if (len < 2.5) return;
+    const w = Math.min(2.0, Math.max(1.2, len / 4.4));
+    const jr = R.rOut / Math.cos((da / 2) * (Math.PI / 180)) + 0.42 + 0.05;   // pilaster front at the joint
+    for (let i = 0; i < nb; i++) {
+      if ((i + k) % 3 !== 0) continue;
+      if (gap(i) || gap(i - 1)) continue;          // joint i sits between bay i-1 and bay i
+      const b = i * da;
+      const [x, z] = L.polar(jr, b);
+      if (towers.some((t) => Math.hypot(t[0] - x, t[2] - z) < 9)) continue;
+      sets.banners.add(bannerFromSlot({ pos: [x, top, z], facing: b, size: [w, len], tag: 'rampart', style: len > 7.6 ? 'L' : 'V' }));
+      n++;
+    }
+  });
+  d.rampartBanners = n;
 }
 
 // ------------------------------------------------------------------------------------- test

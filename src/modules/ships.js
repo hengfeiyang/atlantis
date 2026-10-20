@@ -16,6 +16,7 @@ import { buildWreck, buildWreckPiece } from '../ships/wreck.js';
 import { shipWoodMaterial, wreckWoodMaterial, sailMaterial } from '../ships/mats.js';
 
 const D2R = Math.PI / 180;
+const HERO_LEN = 0.84;
 let SAND = null, STONE = null;
 try { STONE = await import('../materials/stone.js'); } catch { /* shared stone not available */ }
 try { SAND = (await import('../terrain/sand.js')).sunkenGround; } catch { /* terrain sand not available */ }
@@ -63,7 +64,10 @@ async function buildGolden(engine, reg) {
   const dens = engine.quality.density;
   const fleet = new Fleet(engine), wakes = new Wakes(engine);
   const placed = [];
-  const clear = (x, z, r) => placed.every((p) => Math.hypot(p[0] - x, p[1] - z) > p[2] + r);
+  // r3 (director): nothing moored / sailing within 25 m of a golden camera (shot 4 sits 14 m off the l1 shed face)
+  const camsG = SHOTS.filter((s) => s.era === 'golden' && s.id !== 2).map((s) => s.pos);
+  const camClear = (x, z, r) => camsG.every((c) => Math.hypot(c[0] - x, c[2] - z) > 25 + r);
+  const clear = (x, z, r) => placed.every((p) => Math.hypot(p[0] - x, p[1] - z) > p[2] + r) && camClear(x, z, r * 0.5);
   const put = (variant, x, z, heading, o = {}) => {
     const s = o.scale ?? 1;
     const m = shipMatrix(x, o.y ?? 0, z, heading, o.heel ?? 0, o.pitch ?? 0, s);
@@ -77,12 +81,13 @@ async function buildGolden(engine, reg) {
   };
 
   // ---- hero (shot 2)
-  const H = L.SHIPS.hero;
+  // r3: the hero hull a little shorter (ref 2 shows a compact trireme: the bow was cut by the shot-2 frame edge)
+  const H = { ...L.SHIPS.hero, lengthScale: HERO_LEN };
   const hero = buildHero(engine, H);
   engine.add(hero.group);
   placed.push([H.pos[0], H.pos[2], 22]);
   reg.hero = { pos: H.pos, heading: H.heading, group: hero.group };
-  { const [fx, fz] = fwdOf(H.heading); wakes.add({ pos: [H.pos[0] + fx * 20.5, H.pos[2] + fz * 20.5], heading: H.heading, length: 38, beam: 5.6, speed: 3.2, oars: true, prio: 100, id: 'hero' }); }
+  { const [fx, fz] = fwdOf(H.heading); wakes.add({ pos: [H.pos[0] + fx * 20.5 * HERO_LEN, H.pos[2] + fz * 20.5 * HERO_LEN], heading: H.heading, length: 38 * HERO_LEN, beam: 5.6, speed: 3.2, oars: true, prio: 100, id: 'hero' }); }
 
   // ---- canal (ref 2 background: ships beyond the gate bridge; ref 1: ships between the moles)
   const canalShips = [
@@ -118,6 +123,20 @@ async function buildGolden(engine, reg) {
       put(rng.chance(0.5) ? 'boatSail' : 'boatSailB', x, z, hd, { speed: rng.range(1.0, 2.0), heel: rng.range(0.03, 0.07), r: 5, bow: 4.2, len: 8, beam: 2.2 });
     }
     n++;
+  }
+
+  // ---- shot 5 (ref 5): two triremes under sail in water ring 1 below the garden terrace — placed in the shot camera
+  {
+    const s5 = SHOTS.find((s) => s.id === 5);
+    if (s5) {
+      const f = [s5.target[0] - s5.pos[0], s5.target[2] - s5.pos[2]], fl = Math.hypot(f[0], f[1]); f[0] /= fl; f[1] /= fl;
+      const camH = (Math.atan2(f[0], -f[1]) / D2R + 360) % 360;
+      for (const [dist, ang, rel, v, sc] of [[94, 4, 118, 'sailRow', 1.0], [128, -11, 252, 'sailRowB', 0.95]]) {
+        const a = (camH + ang) * D2R, x = s5.pos[0] + Math.sin(a) * dist, z = s5.pos[2] - Math.cos(a) * dist;
+        const hd = (camH + rel) % 360;
+        if (L.zoneAt(x, z) === 'w1' && waterClear(x, z, hd, 38, 6, -2)) put(v, x, z, hd, { speed: 2.6, oars: true, heel: 0.025, prio: 6, scale: sc });
+      }
+    }
   }
 
   // ---- water rings (ref 5 shows two triremes under sail in ring 2 below the garden terrace)
@@ -156,10 +175,17 @@ async function buildGolden(engine, reg) {
   const sheds = await shedSlots(engine);
   let nShed = 0;
   for (const s of sheds) {
-    if (!(rng.random() < 0.88)) continue;
+    // r3: per-shed deterministic fill (independent of the other placements' rng use); every shed near shot 4 is filled
+    const h = Math.abs(Math.sin(s.pos[0] * 12.9898 + s.pos[2] * 78.233) * 43758.5453) % 1;
+    const s4 = SHOTS.find((q) => q.id === 4)?.pos;
+    if (!(h < 0.88 || (s4 && Math.hypot(s.pos[0] - s4[0], s.pos[2] - s4[2]) < 140))) continue;
     const hd = s.facing, [fx, fz] = fwdOf(hd), sc = 0.9;
     const off = 0.4 - 15.0 * sc;    // ship origin behind the opening: the eye at the arch front, stem + ram outside
     const x = s.pos[0] + fx * off, z = s.pos[2] + fz * off;
+    // keep the lens clear (shot 4 sits 14 m off the shed face): only the bow tip is tested, at 14 m — ref 4 shows the
+    // sheds filled right up to the frame edge, so the 25 m ring-ship clearance does not apply inside the sheds
+    const bx = x + fx * 20.5 * sc, bz = z + fz * 20.5 * sc;
+    if (!camClear(bx, bz, -11)) continue;
     const m = shipMatrix(x, 0.0, z, hd, 0, 0, sc);
     fleet.add('shed', V.shed, m);
     reg.ships.push({ variant: 'shed', pos: [x, 0, z], heading: hd, scale: sc, shed: s.index ?? nShed });

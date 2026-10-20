@@ -100,6 +100,11 @@ uniform vec3 uFoamLight;    // foam: x sky ambient gain, y sun scatter gain, z f
 vec3 wBody;
 uniform vec3 uSunIrrW;      // sun irradiance (SKY.uSunIrr)
 uniform vec2 uSunSpec;      // x: visible-sun glitter gain, y: CSM-light specular kept (0 = replaced)
+uniform float uBodyFres;    // r3: body in-scatter weighted by the transmitted fraction (1 - Fresnel)
+uniform float uSeaOpaque;   // r3: opacity of the sea body seen from above (sunken era)
+uniform vec3 uSeaBody;      // r3: its radiance
+uniform float uGlintR;      // r3: glint radius (fraction of the default)
+uniform float uGlintVar;    // r3: extra facet-slope variance for the sparse sun glints (broad gold glitter field, ref 4)
 uniform vec3 uGlitterTint;  // colour of the glitter path (the low sun's disk is deeper gold than the scene light)
 
 // values shared between the hooks of this material
@@ -185,13 +190,23 @@ const SURF_COLOR = /* glsl */`
     float across = dot(d, vec2(-A.w, A.z));
     float ac = abs(across);
     float spk = clamp(sp / 5.0, 0.0, 1.6);
+    // B.w packs oars (0/1) + 2 * round(foam * 4): r3 per-wake foam boost (hero trireme, ref 2: bow wave + oar churn)
+    float fq = floor(B.w * 0.5 + 0.01);
+    float oarsOn = B.w - 2.0 * fq;
+    float foamK = 1.0 + 0.25 * fq;
     // hull half width along the hull (pointed bow, full amidships, narrower stern)
     float u = clamp(along / max(Lh, 1.0), 0.0, 1.0);
     float hw = bm * 0.5 * (along < 0.0 ? 0.0 : sqrt(clamp(u / 0.28, 0.0, 1.0)) * (1.0 - 0.35 * smoothstep(0.7, 1.0, u)));
     // bow wave: a white collar hugging the hull, strongest at the stem, fading aft
-    float collarW = 0.5 + 0.9 * spk;
-    float collar = (1.0 - smoothstep(collarW * 0.4, collarW * (1.2 + 0.6 * (1.0 - u)), ac - hw)) * step(-1.0, along) * (1.0 - smoothstep(Lh * 0.45, Lh * 1.05, along));
-    collar *= smoothstep(-bm * 0.6, 0.0, along) * (0.45 + 0.55 * (1.0 - u)) * spk;
+    float collarW = (0.5 + 0.9 * spk) * (1.0 + 0.3 * (foamK - 1.0) * (1.0 - smoothstep(0.0, 0.35, u)));
+    // (ragged outer edge: the bow wave breaks in lumps, not a painted stripe)
+    float cN = cgVnoise2(vec2(along * 0.45 + float(i) * 5.1, ac * 0.8 - uTime * 0.6));
+    float collar = pow(1.0 - smoothstep(0.0, collarW * (1.2 + 0.6 * (1.0 - u)) * (0.7 + 0.6 * cN), ac - hw), 1.6) * (0.75 + 0.5 * cN) * step(-1.0, along) * (1.0 - smoothstep(Lh * 0.45, Lh * 1.05, along));
+    collar *= smoothstep(-bm * 0.6, 0.0, along) * (0.45 + 0.55 * (1.0 - u)) * min(spk * foamK, 1.4);
+    // breaking bow wave crest at the stem (rolls out to both sides, ref 2)
+    float stem = exp(-pow(max(along, 0.0) / (Lh * 0.12 * foamK), 2.0)) * pow(1.0 - smoothstep(0.0, collarW * (1.0 + 0.7 * foamK) * (0.6 + 0.8 * cN), ac - hw), 1.4) * smoothstep(-bm * 0.9, -bm * 0.1, along);
+    collar = max(collar, stem * min(1.0, spk * foamK * 1.4));
+    wakeSlope += vec2(-A.w, A.z) * sign(across) * (collar * 0.18 + stem * 0.25) * sin((ac - hw) * 3.1 - uTime * 2.0 + cN * 3.0);
     // Kelvin arms (19.5 deg) starting at the bow, widening and fading astern
     float aT = along * 0.354 + hw * 0.6;
     float armW = 0.6 + bm * 0.15 + max(along, 0.0) * 0.035;
@@ -206,15 +221,15 @@ const SURF_COLOR = /* glsl */`
     trail *= (0.4 + 0.8 * smoothstep(0.3, 0.8, trN)) * spk;
     // oar splashes: rows of small white puffs outboard of the hull (stroke cycle ~2.2 s)
     float oars = 0.0;
-    if (B.w > 0.5) {
+    if (oarsOn > 0.5) {
       float side = ac - hw - 3.2;
       float cellA = along / 1.15;
       float ph = fract(uTime / 2.2 + cgHash12(vec2(floor(cellA), float(i))) * 0.15);
       float env = smoothstep(0.0, 0.08, ph) * (1.0 - smoothstep(0.15, 0.6, ph));
-      float spot = (1.0 - smoothstep(0.25, 0.55, length(vec2(fract(cellA) - 0.5, side / 1.3)))) * step(Lh * 0.18, along) * step(along, Lh * 0.8);
+      float spot = (1.0 - smoothstep(0.25, 0.55, length(vec2(fract(cellA) - 0.5, side / 1.3)) + 0.35 * (cgVnoise2(P.xz * 2.7 + float(i)) - 0.5))) * step(Lh * 0.18, along) * step(along, Lh * 0.8);
       // the swirls left by earlier strokes trail astern
       float sw = (1.0 - smoothstep(0.6, 1.6, abs(side))) * smoothstep(Lh * 0.2, Lh * 0.5, along) * exp(-max(along - Lh * 0.8, 0.0) / 14.0) * smoothstep(0.55, 0.8, cgVnoise2(vec2(side * 1.4, along * 0.5) + float(i)));
-      oars = spot * env + sw * 0.5;
+      oars = (spot * env + sw * 0.5) * min(foamK, 1.8);
     }
     wakeF = max(wakeF, max(max(collar, arm * 0.8), max(trail, oars)));
     wakeTurb = max(wakeTurb, trail + collar * 0.6);
@@ -271,7 +286,12 @@ const SURF_COLOR = /* glsl */`
     wc *= smoothstep(0.25, 0.7, slick + 0.2);
   }
   float amount = max(max(beach * 0.85, line), max(surf, min(1.0, churn + tailF * 0.4)));
-  amount = max(amount, max(wakeF, wc));
+  // r3: close-range wakes (shot 2 hero): their own fine bubbly lace (0.2-0.5 m cells; the 1.4 m foam cells are
+  // coarser than a 2 m bow-wave collar and turned it into a flat white stripe)
+  float rk = 1.0 - smoothstep(0.05, 0.25, pxw);
+  float wl = cgVnoise2(P.xz * 2.3 + vec2(uTime * 0.15, 0.0)) * 0.55 + cgVnoise2(P.xz * 5.7 - vec2(0.0, uTime * 0.3)) * 0.3 + cgVnoise2(P.xz * 0.9) * 0.15;
+  float wakeLace = smoothstep(0.6, 0.74, wl + (min(wakeF, 1.0) - 0.74) * 0.75) * step(0.05, wakeF);
+  amount = max(amount, max(wakeF * mix(0.78, 0.3, rk), wc));
   // broad patches (low-frequency mask) filled with lacy, bubbly foam
   vec2 lq0 = q0 * 0.126;
   float ftLow = cgVnoise2(lq0) * 0.7 + cgVnoise2(lq0 * 2.1 + 3.3) * 0.3;
@@ -280,7 +300,10 @@ const SURF_COLOR = /* glsl */`
   float cov = mask * lace;
   wFoam = clamp(cov * min(1.0, amount * 2.4) + smoothstep(0.7, 1.0, churn) * 0.7, 0.0, 1.0);
   // solid cores (bow collar, whitecap crests, contact line) stay white when the lace is unresolved
-  wFoam = max(wFoam, smoothstep(0.55, 1.0, max(wakeF * 0.9, max(wc, line * 0.8))) * (0.55 + 0.45 * ft));
+  // (r3: close up the lace is resolved — the cores break into bubbly lumps instead of a flat white band)
+  float coreBreak = mix(smoothstep(0.42, 0.6, ft * 0.75 + fine * 0.45), 1.0, smoothstep(0.04, 0.2, pxw));
+  wFoam = max(wFoam, smoothstep(0.55, 1.0, max(wakeF * 0.9 * (1.0 - rk), max(wc, line * 0.8))) * (0.55 + 0.45 * ft) * coreBreak);
+  wFoam = max(wFoam, wakeLace * rk * 0.95);
   // aerated water between the foam patches (milky turquoise: plunge pools, wake trails)
   float aerW = clamp(churn * 1.3 + wakeTurb * 0.5, 0.0, 1.0) * (1.0 - wFoam);
   // ---- sparse sun glints (tiny facets mirroring the sun; re-rolled a few times a second, smooth
@@ -301,12 +324,12 @@ const SURF_COLOR = /* glsl */`
     // probability that a sub-pixel facet has the tilt that mirrors the sun into the eye (Gaussian slope
     // distribution around the resolved normal, sub-pixel variance + a capillary floor)
     vec2 dl = Hs.xz / max(Hs.y, 0.05) - wN.xz / wN.y;
-    float plaus = exp(-dot(dl, dl) / (2.0 * (wVar + 0.0025)));
+    float plaus = exp(-dot(dl, dl) / (2.0 * (wVar + 0.0025 + uGlintVar)));
     float dens = uGlint.x * gK * plaus * (0.35 + 0.65 * smoothstep(0.2, 0.8, slick)) * (1.0 - wFoam) * (1.0 - aerW);
     vec2 gfw = max(fwidth(gc), vec2(1e-4));
     vec2 gs = max(vec2(1.0), gfw / vec2(0.35, 0.35));
     float rr = length((gf - go * 0.4) / gs);
-    wGlint = step(1.0 - dens, gr) * (1.0 - smoothstep(0.08 * env, 0.3 * env + 1e-3, rr));
+    wGlint = step(1.0 - dens, gr) * (1.0 - smoothstep(0.08 * env * uGlintR, 0.3 * env * uGlintR + 1e-3, rr));
     if (wGlint > 0.5) wN = Hs;
   }
   // ---- water body (single-scatter, saturates with the optical depth along the view)
@@ -322,13 +345,19 @@ const SURF_COLOR = /* glsl */`
   float F = 0.02 + 0.98 * pow(1.0 - cv, 5.0);
   // the body is light scattered inside the sunlit water column: emitted (not shadowed by the walls the
   // way a diffuse surface would be — the column under a shadow edge is still lit at depth)
-  wBody = body * (uSunIrrW * uBodyLight.x * max(uSunDir.y, 0.05) + uSkyAmbW * uBodyLight.y) * (1.0 - wFoam);
+  // r3: only the light refracted OUT of the water reaches the eye (1 - F): at grazing views (water-level shots 2, 4)
+  // the mirror wins and the lit buildings show in it (ref 4), instead of a flat turquoise glow
+  wBody = body * (uSunIrrW * uBodyLight.x * max(uSunDir.y, 0.05) + uSkyAmbW * uBodyLight.y) * (1.0 - wFoam) * mix(1.0, 1.0 - F, uBodyFres);
   diffuseColor.rgb = foamAlb * wFoam;
   // foam is a dense scattering layer: sky light from every side and light forward-scattered from the
   // low sun behind it (backlit wakes / surf stay white, refs 1, 2)
   float fwd = pow(max(dot(-V, normalize(uSunDir)), 0.0), 4.0);
   wBody += foamAlb * wFoam * (uSkyAmbW * uFoamLight.x + uSunIrrW * uFoamLight.y * (0.3 + fwd * uFoamLight.z));
   diffuseColor.a = 1.0 - (1.0 - F) * (1.0 - wFoam) * (1.0 - aerW * 0.75 * uBodyK);
+  // r3 (sunken era from above, ref 9): the dusk sea is a dark navy body with the sky mirrored on it — the bright
+  // underwater medium behind the surface shows through only faintly
+  diffuseColor.a = 1.0 - (1.0 - diffuseColor.a) * (1.0 - uSeaOpaque);
+  wBody += uSeaBody * uSeaOpaque * (1.0 - F) * (1.0 - wFoam);
   // ---- planar reflection (perturbed ray, aerial perspective of the reflected point)
   {
     vec3 R = reflect(-V, wN); R.y = max(R.y, 0.004); R = normalize(R);
@@ -352,7 +381,14 @@ const SURF_COLOR = /* glsl */`
     rc *= 0.25;
     float d1 = textureLod(tReflDepth, uv1, 0.0).r;
     if (d1 >= 0.99999) rc *= wSkyT;
+#ifdef CG_UW
+    // (sunken era: start the air segment above the wave crests — from inside a crest the core's air/water split
+    //  treated the reflected mountains as seen through the water and tinted them bright blue; same for far points whose
+    //  depth-reconstructed position lands under the surface — everything in the reflection is above the water)
+    if (d1 < 0.99999) { vec4 o = uReflInvVP * vec4(uv1 * 2.0 - 1.0, d1 * 2.0 - 1.0, 1.0); vec3 oP = o.xyz / o.w; oP.y = max(oP.y, uLevel + 2.5); rc = atmoApplyFrom(rc, P + vec3(0.0, 2.0, 0.0), oP); }
+#else
     if (d1 < 0.99999) { vec4 o = uReflInvVP * vec4(uv1 * 2.0 - 1.0, d1 * 2.0 - 1.0, 1.0); rc = atmoApplyFrom(rc, P + vec3(0.0, 0.05, 0.0), o.xyz / o.w); }
+#endif
     vec2 e = min(uv1, 1.0 - uv1);
     wReflW = uReflOn * smoothstep(0.0, 0.06, min(e.x, e.y)) * step(0.0, c1.w);
     wRefl = rc;
@@ -512,6 +548,10 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     uSunIrrW: SKY.uSunIrr,
     uSunSpec: { value: new THREE.Vector2(2.5, 0) },
     uGlitterTint: { value: new THREE.Vector3(1.0, 0.82, 0.55) },
+    uBodyFres: { value: 1.0 },
+    uGlintVar: { value: 0.0 },
+    uGlintR: { value: 1.0 },
+    uSeaOpaque: { value: 0.0 }, uSeaBody: { value: new THREE.Vector3(0.02, 0.05, 0.1) },
   };
   for (const [k, v] of Object.entries(look)) setU(uniforms, k, v);
   const mat = makeSurfaceMaterial(uniforms);
@@ -581,7 +621,7 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     list.forEach((w, i) => {
       const a = (w.heading * Math.PI) / 180, fx = Math.sin(a), fz = -Math.cos(a);
       wakesA[i].set(w.x, w.z, fx, fz);
-      wakesB[i].set(w.length, w.beam, w.speed, w.oars ? 1 : 0);
+      wakesB[i].set(w.length, w.beam, w.speed, (w.oars ? 1 : 0) + 2 * Math.round(Math.max(0, w.foam || 0) * 4));
     });
     uniforms.uWakeN.value = list.length;
   }
@@ -594,21 +634,21 @@ export function createWaterSurface(engine, { maps, shore, waves, reflection, siz
     const p = w.pos || [w.x, w.z];
     const rec = {
       x: p.length === 3 ? p[0] : p[0], z: p.length === 3 ? p[2] : p[1],
-      heading: w.heading ?? 0, length: w.length ?? 30, beam: w.beam ?? 5, speed: w.speed ?? 3, oars: !!w.oars, id: w.id,
+      heading: w.heading ?? 0, length: w.length ?? 30, beam: w.beam ?? 5, speed: w.speed ?? 3, oars: !!w.oars, foam: w.foam ?? 0, id: w.id,
     };
     wakes.push(rec);
     syncWakes();
     return {
       update(o) {
         if (o.pos) { rec.x = o.pos[0]; rec.z = o.pos.length === 3 ? o.pos[2] : o.pos[1]; }
-        for (const k of ['heading', 'length', 'beam', 'speed', 'oars']) if (o[k] !== undefined) rec[k] = o[k];
+        for (const k of ['heading', 'length', 'beam', 'speed', 'oars', 'foam']) if (o[k] !== undefined) rec[k] = o[k];
         syncWakes();
       },
       remove() { const i = wakes.indexOf(rec); if (i >= 0) wakes.splice(i, 1); syncWakes(); },
     };
   }
   function setWakes(list) { wakes.length = 0; for (const w of list || []) addWake(w); return wakes.length; }
-  return { group, surface, absorb, material: mat, uniforms, addImpact, setImpacts, impactCount: () => n, addWake, setWakes, wakes };
+  return { group, surface, absorb, material: mat, uniforms, addImpact, setImpacts, impactCount: () => n, addWake, setWakes, wakes, syncWakes };
 }
 
 export function setU(U, k, v) {

@@ -14,7 +14,7 @@ import { streamPower, thermal, droplets } from './erosion.js';
 import { mulberry32 } from '../core/rng.js';
 import { Simplex } from '../core/noise.js';
 
-export const FAR_VERSION = 'a5';
+export const FAR_VERSION = 'a6';   // r3: foothill crags
 /** grid domain (metres) */
 export const FAR_DOMAIN = { x0: -20480, z0: -20480, x1: 20480, z1: 6144 };
 /** bake parameters (see generateFarGrid) */
@@ -22,7 +22,7 @@ export const FAR_DEFAULTS = {
   cell: 16, coarse: 64, U0: 100, K: 0.2, spIters: 50, ctalus: 4, cthIters: 1, fill: 0.3,
   cRidge: 0.32, cRidgeLen: 800, cEnforce: 12, cTalus2: 1.15,
   rDetail: 0.08, rdLen: 1600, gAmp: 34, gLen: 420, gSteer: 1.2, teeth: 95, teethLen: 230, ice: 0,
-  fineIters: 3, fineK: 0.0006, ftalusHi: 0.35, drops: 0.25, dCap: 1, dEro: 0.05, terr: 0.55, sharpen: 0.4,
+  fineIters: 3, fineK: 0.0006, ftalusHi: 0.35, drops: 0.25, dCap: 1, dEro: 0.05, terr: 0.55, sharpen: 0.4, crags: 0.3, cragLen: 230,
 };
 /** far-field weight: 0 inside the analytic near field, 1 where the eroded relief applies */
 export function farWeight(x, z) { const r = Math.hypot(x, z); const t = Math.min(1, Math.max(0, (r - 2300) / 900)); return t * t * (3 - 2 * t); }
@@ -276,6 +276,26 @@ function generate(o) {
       }
     }
     log(`[far] teeth in ${Date.now() - t6} ms`);
+  }
+  // r3: foothill crags (refs 1, 4: the low ranges in front of the wall are rocky, with tors and jagged spurs
+  // on their crests, not smooth eroded cones): ridged ≈ 170 m detail ∝ relief, strongest on convex ground
+  if ((o.crags ?? 0) > 0) {
+    const t7 = Date.now();
+    const bt = boxBlur(h, nx, nz, Math.max(2, Math.round(100 / cell)), 2);
+    const wl = o.cragLen ?? 170;
+    for (let j = 0; j < nz; j++) {
+      const z = D.z0 + j * cell;
+      for (let i = 0; i < nx; i++) {
+        const c = j * nx + i;
+        if (R[c] < 30) continue;
+        const w = sstep(30, 150, R[c]) * (1 - 0.6 * sstep(900, 1600, R[c]));
+        const convex = sstep(-12, 22, h[c] - bt[c]);
+        const x = D.x0 + i * cell;
+        const tt = nC.ridged2(x / wl + 0.45 * nD.noise2(x / 650, z / 650), z / wl + 0.45 * nA.noise2(x / 650 + 4.1, z / 650), 3, 2.1, 0.5, 1.0);
+        h[c] += o.crags * Math.max(160, Math.min(R[c], 600)) * (tt - 0.34) * w * (0.3 + 0.7 * convex);
+      }
+    }
+    log(`[far] crags in ${Date.now() - t7} ms`);
   }
   // strata: dipping bedding planes turn steep faces into ledges (snow bands) and risers (dark rock)
   if ((o.terr ?? 0.6) > 0) {

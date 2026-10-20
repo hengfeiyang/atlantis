@@ -8,6 +8,7 @@
 // radius of the curtain-wall face (set back from faceR toward the land), `landY` = ground height at the
 // top of the face, `wallTop` = parapet top.
 import * as L from '../world/layout.js';
+import { molePlan } from './mole.js';
 
 export const TOWER_HALF = 5.6;     // half width of a wall tower (square plan)
 export const TOWER_PROJ = 3.2;     // projection of a tower in front of the curtain face
@@ -65,6 +66,9 @@ function gatesFor(e) {
       out.push({ bearing: b, kind: 'bridge', water: rb.ring, half: GATE_HALF, flank: false });
     }
   }
+  // r3 (arch-a): the shed-mole bridge lands on the citadel quay (its end tower straddles the curtain, ref 4)
+  const mp = molePlan();
+  if (mp && e.id === 'citadel') out.push({ bearing: mp.gate.bearing, kind: 'bridge', water: 'w1', half: mp.gate.half, flank: false, mole: true });
   return out;
 }
 
@@ -136,7 +140,7 @@ export function ringPlan() {
     e.stretches = stretches(e.blocks);
     for (const g of gatesFor(e)) {
       const [x, z] = polarXZ(e.wallR, g.bearing);
-      gates.push({ edge: e.id, ring: e.ring, water: g.water, kind: g.kind, bearing: g.bearing, pos: [x, e.landY, z], faceR: e.faceR, wallR: e.wallR, side: e.side, landY: e.landY, wallTop: e.wallTop, halfWidth: g.half, facing: wrap360(g.bearing + (e.side > 0 ? 0 : 180)) });
+      gates.push({ edge: e.id, ring: e.ring, water: g.water, kind: g.kind, bearing: g.bearing, pos: [x, e.landY, z], faceR: e.faceR, wallR: e.wallR, side: e.side, landY: e.landY, wallTop: e.wallTop, halfWidth: g.half, facing: wrap360(g.bearing + (e.side > 0 ? 0 : 180)), mole: !!g.mole });
     }
     // towers: ~72 m apart along each stretch; at stretch ends only where the gap is ours (stair, canal);
     // forced towers where a bridge abuts the wall (canal-mouth arch)
@@ -197,8 +201,29 @@ export function ringPlan() {
     }
     e.shedRanges = shedRangesFor(e);
   }
+  // r3 (arch-a): the shed mole (ref 4) is rooted in the inner face of land ring 1 — drop the ring sheds / towers it covers
+  const mole = molePlan();
+  if (mole) {
+    const hit = (pts) => pts.some(([x, z]) => mole.inside(x, z, 3));
+    for (let i = sheds.length - 1; i >= 0; i--) {
+      const sh = sheds[i];
+      const e = edges.find((q) => q.id === sh.edge);
+      const pts = [];
+      for (const u of [-sh.halfDeg, 0, sh.halfDeg]) for (const r of [sh.faceR, sh.frontR]) pts.push(polarXZ(r, sh.bearing + u));
+      if (e.ring === 'l1' && hit(pts)) sheds.splice(i, 1);
+    }
+    for (const e of edges) if (e.ring === 'l1') e.shedCover = e.shedCover.flatMap(([b0, b1]) => {
+      const keep = sheds.filter((q) => q.edge === e.id && q.bearing > b0 && q.bearing < b1);
+      if (!keep.length) return [];
+      const lo = Math.min(...keep.map((q) => q.bearing - q.halfDeg)), hi = Math.max(...keep.map((q) => q.bearing + q.halfDeg));
+      return [[Math.max(b0, lo), Math.min(b1, hi)]];
+    });
+    for (let i = towers.length - 1; i >= 0; i--) { const t = towers[i]; if (t.ring === 'l1' && mole.inside(t.pos[0], t.pos[2], 8)) towers.splice(i, 1); }
+    for (const sh of mole.sheds) if (sh.ship) sheds.push(sh);
+  }
   // quays: low walks at y ≈ 1.3 in front of the revetment on both sides of every gate and in the canal
   for (const g of gates) {
+    if (g.mole) continue;   // the shed-mole bridge lands beside the citadel spouts: no quay walks there
     const e = edges.find((q) => q.id === g.edge);
     const span = 70 / e.faceR / D2R;
     for (const sgn of [-1, 1]) {
@@ -216,7 +241,7 @@ export function ringPlan() {
   const T = L.CANAL_TUNNEL;
   const tunnel = { z0: T.z0, z1: T.z1, clear: T.clear, springY: 3.2, crownY: 3.2 + T.clear / 2, landY: L.RINGS[1].top, halfWidth: hw + 3.5 };
   const moles = L.MOLES.map((m) => ({ ...m, halfWidth: 9, topY: 3.2, light: { pos: [m.lighthouse[0], 3.2, m.lighthouse[1]], height: 46 } }));
-  PLAN = { edges, bastions: edges.flatMap((e) => e.bastions.map((b) => ({ ...b, edge: e.id }))), towers, gates, sheds, shedFillers, quays, canal, tunnel, moles, constants: { TOWER_HALF, TOWER_PROJ, GATE_HALF, SHED, BAY } };
+  PLAN = { mole, edges, bastions: edges.flatMap((e) => e.bastions.map((b) => ({ ...b, edge: e.id }))), towers, gates, sheds, shedFillers, quays, canal, tunnel, moles, constants: { TOWER_HALF, TOWER_PROJ, GATE_HALF, SHED, BAY } };
   return PLAN;
 }
 export function inRange(b, r) { const d = wrap360(b - r.b0); return d <= wrap360(r.b1 - r.b0); }

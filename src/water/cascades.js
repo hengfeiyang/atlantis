@@ -21,43 +21,62 @@ import { SHOTS } from '../world/shots.js';
 // hill falls: bearing (deg), width (m), flow (0..1), start: 'plateau' | 'ledge1' | 'ledge2'
 // (keep clear of the grand stair at 180 and of the w1 bridges at 0 / 90 / 270)
 const HILL = [
-  { b: 158, w: 8, flow: 1.0, start: 'plateau', spring: 'cold' },
-  { b: 202, w: 8, flow: 1.0, start: 'plateau', spring: 'hot' },
-  { b: 141, w: 4.5, flow: 0.85, start: 'plateau' },
-  { b: 219, w: 4.5, flow: 0.85, start: 'plateau' },
-  { b: 126, w: 2.2, flow: 0.6, start: 'ledge1' },
-  { b: 234, w: 2.2, flow: 0.6, start: 'ledge1' },
-  { b: 112, w: 6, flow: 0.95, start: 'plateau' },
-  { b: 248, w: 6, flow: 0.95, start: 'plateau' },
-  { b: 101, w: 1.6, flow: 0.5, start: 'ledge2' },
-  { b: 259, w: 1.6, flow: 0.5, start: 'ledge2' },
-  { b: 72, w: 3.5, flow: 0.8, start: 'plateau' },
-  { b: 288, w: 3.5, flow: 0.8, start: 'plateau' },
-  { b: 58, w: 1.5, flow: 0.5, start: 'ledge1' },
-  { b: 302, w: 1.5, flow: 0.5, start: 'ledge1' },
-  { b: 40, w: 5, flow: 0.9, start: 'plateau' },
-  { b: 320, w: 5, flow: 0.9, start: 'plateau' },
-  { b: 22, w: 2.0, flow: 0.55, start: 'ledge2' },
-  { b: 338, w: 2.0, flow: 0.55, start: 'ledge2' },
-  { b: 170, w: 1.4, flow: 0.45, start: 'ledge2' },
-  { b: 190, w: 1.4, flow: 0.45, start: 'ledge2' },
+  // r3: the citadel is 62 m tall with a sheer 20 m plateau cliff (red rampart band) + two 48-50° rock slopes:
+  // refs 1, 4, 5 show MANY falls — wide white curtains off the plateau rim, narrower ribbons from the ledges.
+  // South half (shots 1, 2, 4, 5) densest; the stair (180 ± ~12° at the rim) and the w1 bridges (0/90/270) stay clear.
+  { b: 158, w: 14, flow: 1.0, start: 'plateau', spring: 'cold' },
+  { b: 202, w: 14, flow: 1.0, start: 'plateau', spring: 'hot' },
+  { b: 141, w: 9, flow: 0.9, start: 'plateau' },
+  { b: 219, w: 9, flow: 0.9, start: 'plateau' },
+  { b: 130, w: 5, flow: 0.7, start: 'ledge1' },
+  { b: 230, w: 5, flow: 0.7, start: 'ledge1' },
+  { b: 113, w: 10, flow: 0.95, start: 'plateau' },
+  { b: 247, w: 10, flow: 0.95, start: 'plateau' },
+  { b: 101, w: 3, flow: 0.55, start: 'ledge2' },
+  { b: 259, w: 3, flow: 0.55, start: 'ledge2' },
+  { b: 171, w: 2.5, flow: 0.5, start: 'ledge2' },
+  { b: 189, w: 2.5, flow: 0.5, start: 'ledge2' },
+  { b: 72, w: 6, flow: 0.8, start: 'plateau' },
+  { b: 288, w: 6, flow: 0.8, start: 'plateau' },
+  { b: 57, w: 3, flow: 0.55, start: 'ledge1' },
+  { b: 303, w: 3, flow: 0.55, start: 'ledge1' },
+  { b: 40, w: 8, flow: 0.9, start: 'plateau' },
+  { b: 320, w: 8, flow: 0.9, start: 'plateau' },
+  { b: 22, w: 3, flow: 0.55, start: 'ledge2' },
+  { b: 338, w: 3, flow: 0.55, start: 'ledge2' },
 ];
 
 /** where the wall spouts are (published for the rings agent: notch / lion-head spout in the parapet) */
 export const SPOUT_R = L.CITADEL.wall.r + 2.2;
 export const SPOUT_Y = L.CITADEL.quayY + L.CITADEL.wall.height - 1.6;
 
+/** tier-1 rampart face radius (temple.js rampartPlan(): rOut = terraces[0].r0 + 1.6) and the outlet sill height
+ *  (≈ 13.5 m above ledge 1, under the string course / cornice of the 20 m red wall) */
+export const RAMPART_FACE_R = L.CITADEL.terraces[0].r0 + 1.6;
+export const OUTLET_Y = L.CITADEL.terraces[0].y + 13.5;
+
 export function planCascades() {
   const C = L.CITADEL, [t1, t2] = C.terraces;
   const specs = [];
   for (const h of HILL) {
-    const r0 = h.start === 'plateau' ? C.plateau - 6 : h.start === 'ledge1' ? t1.r1 - 6 : t2.r1 - 4;
-    const y0 = h.start === 'plateau' ? C.summit : h.start === 'ledge1' ? t1.y : t2.y;
-    const [x, z] = L.polar(r0, h.b);
-    specs.push({ id: `hill-${h.b}`, from: [x, y0, z], dir: h.b, width: h.w, flow: h.flow, kind: 'hill', bearing: h.b, spring: h.spring, maxRun: 160 });
+    if (h.start === 'plateau') {
+      // r3: the plateau falls pour out of arched OUTLETS in the red tier-1 rampart face (citadel agent: the red band stays
+      // continuous, ref 5) — `outlet` = the opening the temple module cuts: { r (face), y (sill), width, height }
+      const [x, z] = L.polar(RAMPART_FACE_R + 0.35, h.b);
+      const outlet = { r: RAMPART_FACE_R, y: OUTLET_Y, width: h.w + 1.2, height: 3.2 + 0.15 * h.w };
+      specs.push({
+        id: `hill-${h.b}`, from: [x, OUTLET_Y + 0.25, z], dir: h.b, width: h.w, flow: h.flow, kind: 'hill', bearing: h.b, spring: h.spring, maxRun: 160,
+        snap: false, v0: 2.0 + 1.6 * h.flow, fan: 0.2, widen: 0.15, widenDrop: 10, aer: 0.35, outlet,
+      });
+    } else {
+      const r0 = h.start === 'ledge1' ? t1.r1 - 6 : t2.r1 - 4;
+      const y0 = h.start === 'ledge1' ? t1.y : t2.y;
+      const [x, z] = L.polar(r0, h.b);
+      specs.push({ id: `hill-${h.b}`, from: [x, y0, z], dir: h.b, width: h.w, flow: h.flow, kind: 'hill', bearing: h.b, spring: h.spring, maxRun: 160 });
+    }
     // the wall spout below it (wider pour, white from the lip)
     const [sx, sz] = L.polar(SPOUT_R, h.b);
-    const sw = Math.min(9, h.w * 1.05 + 0.8);
+    const sw = Math.min(12, h.w * 0.9 + 1.0);
     specs.push({
       id: `spout-${h.b}`, from: [sx, SPOUT_Y, sz], dir: h.b, width: sw, flow: Math.min(1, h.flow + 0.1), snap: false,
       v0: 2.4 + 1.2 * h.flow, fan: 0.25, widen: 0.25, widenDrop: 8, aer: 0.9, kind: 'spout', bearing: h.b,
@@ -71,7 +90,7 @@ export function traceCascades(engine, ground, specs, level = 0) {
   const falls = [];
   for (const spec of specs) {
     try {
-      const f = traceFall(ground, { ...spec, lipJitter: spec.kind === 'hill' ? 0.4 : 0.15 }, engine.rng('casc:' + spec.id), {
+      const f = traceFall(ground, { ...spec, lipJitter: spec.kind === 'hill' && spec.snap !== false ? 0.4 : 0.15 }, engine.rng('casc:' + spec.id), {
         level, tMax: spec.kind === 'spout' ? 8 : 60, sMax: spec.kind === 'spout' ? 40 : 260,
       });
       f.id = spec.id; f.spec = spec; f.kind = spec.kind;
@@ -136,6 +155,7 @@ export function buildCascadeMeshes(engine, falls, { maps, ground, shadowMap = nu
     fm.uniforms.uSunCol.value.copy(sunCol);
     fm.uniforms.uSunDirF.value.copy(SUN.dir).normalize();
     amb.copy(ATMO.uHazeColor.value).multiplyScalar(0.62).add(new THREE.Color().copy(SKY.uZenith.value).multiplyScalar(0.55));
+    fm.uniforms.uFallAmb.value.copy(amb).multiplyScalar(0.9);
     if (mist.uniforms) { mist.uniforms.uSunCol.value.copy(sunCol); mist.uniforms.uSkyAmb.value.copy(amb).multiplyScalar(1.6); }
     if (churn) { churn.uniforms.uSunCol.value.copy(sunCol); churn.uniforms.uSkyAmb.value.copy(amb).multiplyScalar(1.9 * Math.PI * 0.5); }
   };
@@ -182,12 +202,13 @@ function addMist(mist, f, rng, density, level, farFactor = 1) {
     seen.push(l);
     const e = Math.min(1, l.speed / 20);
     if (e < 0.4) continue;
-    const nC = Math.round((0.4 + 1.6 * e) * k);
+    // r3: 20 m drops off the plateau cliff: wide curtains land hard — spray scaled by the curtain width
+    const nC = Math.round((0.4 + 1.6 * e) * k * (1 + W / 5));
     for (let m = 0; m < nC; m++) {
       const [ox, oz] = disk(1.4);
       mist.add({
-        pos: [l.x + ox * W * 0.35 + dx * 1.2, l.y + rng.range(0.3, 1.5), l.z + oz * W * 0.35 + dz * 1.2],
-        size: rng.range(0.5, 1.2) * (0.6 + e) + 0.04 * W, life: rng.range(1.4, 2.8),
+        pos: [l.x + ox * W * 0.4 + dx * 1.2, l.y + rng.range(0.3, 1.5), l.z + oz * W * 0.35 + dz * 1.2],
+        size: rng.range(0.5, 1.2) * (0.6 + e) + 0.08 * W, life: rng.range(1.4, 2.8),
         vel: [ox * 1.2 + dx * 1.5, 0.5 + rng.range(1.2, 3.0) * e, oz * 1.2 + dz * 1.5], gravity: 1.5, growth: 1.3,
         density: rng.range(0.05, 0.1) * f.flow, kind: 2, stretch: 0.9,
       });

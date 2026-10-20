@@ -162,7 +162,7 @@ export function towerKit(spec) {
     W.aux = [0, 0.3, 0, 0];
     chamferBox(W, Fc, -1.1, 1.1, yS + 0.75, yS + 2.0, -1.1, 1.1, 0.06, COL);
     sweep(W, Fc.yawed(0).at(0, 0, 1.1), -1.3, 1.3, [[0, yS + 2.0], [0.2, yS + 2.08], [0.2, yS + 2.25]], COL, true);
-    lathe(K.get('gilt'), Fc, 0, yS + 2.25, 0, [[0, 0], [0.75, 0], [0.8, 0.12], [0.45, 0.25], [0.35, 0.55], [0, 0.55]], 16, COL);
+    // r3: the props brazier (own bowl + foot) sits directly on the pedestal top (yS + 2.0): no gilt dish here
     return K;
   }
   Pv.aux = [0, 0, 0, AUX_PAVING(1.0)];
@@ -232,8 +232,8 @@ export const PYLON_HALF = 3.5;
 /**
  * Instance every tower of the plan. Returns { group, count, tris }.
  */
-export function buildTowers(ctx, M) {
-  const { plan, engine } = ctx;
+export function buildTowers(ctx, M, plan = ctx.plan) {
+  const { engine } = ctx;
   const kits = new Map();
   const inst = new Map(); // key → [matrix]
   const dummy = new THREE.Object3D();
@@ -246,7 +246,7 @@ export function buildTowers(ctx, M) {
     // r2: land ring 1 = slender pylons with gold flame bowls (ref 4; a few domed towers on the outer face only),
     // citadel shore = open tholoi with gold domes (ref 4 left), land ring 2 = domed towers with some tholoi
     const hsh = ((Math.round(t.bearing * 100) * 2654435761) >>> 0) / 4294967296;
-    const design = t.end ? 'tholos' : e.id === 'citadel' ? 'tholos' : e.ring === 'l1' ? (e.id === 'l1-out' && hsh < 0.25 ? 'dome' : 'pylon') : (hsh < 0.25 ? 'tholos' : 'dome');
+    const design = t.designWant ? t.designWant : t.end ? 'tholos' : e.id === 'citadel' ? 'tholos' : e.ring === 'l1' ? (e.id === 'l1-out' && hsh < 0.25 ? 'dome' : 'pylon') : (hsh < 0.25 ? 'tholos' : 'dome');
     const banded = t.end;
     let state = 'intact', lean = 0;
     const label = `rings:tower:${t.edge}:${Math.round(t.bearing * 100)}`;
@@ -259,7 +259,7 @@ export function buildTowers(ctx, M) {
     const key = `${e.id === 'citadel' ? 'c' : e.ring}|${e.landY}|${e.wallTop}|${design}|${banded ? 'b' : 'w'}|${water ? 'w' : 'l'}|${state}|${seed}`;
     if (!kits.has(key)) kits.set(key, towerKit({ y0: e.landY, wallTop: e.wallTop, yb: water ? e.floor - 1.5 : e.landY - 0.6, design, banded, state, water, seed }));
     // transform: local +z → toward the water, origin on the curtain face at the tower bearing
-    const [x, z] = polarXZ(e.wallR, t.bearing);
+    const [x, z] = (e.polar || polarXZ)(e.wallR, t.bearing);
     const b = (t.bearing * Math.PI) / 180;
     const nx = Math.sin(b) * e.side, nz = -Math.cos(b) * e.side;
     dummy.position.set(x, 0, z);
@@ -282,7 +282,7 @@ export function buildTowers(ctx, M) {
     if (!ctx.sunken) {
       if (design === 'pylon') {
         engine.slots.banner.push({ pos: front(e.wallTop + 9.5 - 4.0, 0.42), facing: t.facing, size: [1.7, 10.5], tag: 'rings-pylon' });
-        const v = new THREE.Vector3(0, e.wallTop + 9.5 + 2.8, TOWER_PROJ - PYLON_HALF).applyMatrix4(m);
+        const v = new THREE.Vector3(0, e.wallTop + 9.5 + 2.0, TOWER_PROJ - PYLON_HALF).applyMatrix4(m);   // r3: = pedestal top (props audit)
         engine.slots.brazier.push({ pos: [v.x, v.y, v.z], facing: t.facing, size: 2.6, tag: 'rings-pylon' });
       } else {
         // r2: hung in front of the string courses (proj 0.24) and below the upper window (sill yS - 4.2)

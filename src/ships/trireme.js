@@ -216,17 +216,18 @@ export function buildTrireme(o = {}) {
   // ---- stem post: rises from the cutwater above the bow and curls back in a big volute (refs 2, 4)
   {
     const gT = triGunwale(0.999), Z = TRI.z1;
-    const neck = bezier([[0, -0.2, Z + 0.02], [0, gT * 0.7, Z + 0.25], [0, gT + 1.0, Z + 0.55], [0, gT + 2.4, Z + 0.7]], 10);
-    const vc = [0, gT + 2.55, Z + 0.05], R0 = 0.68, spiral = [];
-    for (let i = 1; i <= 22; i++) { const a = (i / 22) * PI * 1.85, r = R0 * (1 - 0.62 * (i / 22)); spiral.push([0, vc[1] + Math.sin(a) * r * 0.98, vc[2] + Math.cos(a) * r]); }
+    // r3: swan neck (ref 4 sheds / ref 2): the post sweeps FORWARD out of the cutwater, then curls up and back
+    const neck = bezier([[0, -0.2, Z + 0.02], [0, gT * 0.75, Z + 0.45], [0, gT + 1.3, Z + 1.55], [0, gT + 2.7, Z + 1.75]], 14);
+    const R0 = 0.9, vc = [0, gT + 2.7, Z + 1.75 - R0], spiral = [];
+    for (let i = 1; i <= 26; i++) { const a = (i / 26) * PI * 1.9, r = R0 * (1 - 0.6 * (i / 26)); spiral.push([0, vc[1] + Math.sin(a) * r * 0.98, vc[2] + Math.cos(a) * r]); }
     const pts = [...neck, ...spiral];
     const nP = pts.length;
-    wood.tube(pts, (t, i) => { const k = i / (nP - 1); return [0.17 * (1 - 0.35 * k), 0.36 * (1 - 0.6 * k)]; }, SID, (s) => ({ aW: [s, 0, seed, K.GOLD], aX: [3, 0, 0, 0] }), { caps: true });
+    wood.tube(pts, (t, i) => { const k = i / (nP - 1); return [0.2 * (1 - 0.35 * k), 0.5 * (1 - 0.62 * k)]; }, SID, (s) => ({ aW: [s, 0, seed, K.GOLD], aX: [3, 0, 0, 0] }), { caps: true });
     // dark wood core showing between gilt edges (a second, slightly wider but thinner plank)
-    wood.tube(neck, [0.2, 0.22], SID, (s) => ({ aW: [s, 0, seed, K.NAVY], aX: [3, 0, 0, 0] }));
+    wood.tube(neck, [0.24, 0.3], SID, (s) => ({ aW: [s, 0, seed, K.NAVY], aX: [3, 0, 0, 0] }));
     // carved rosette at the volute eye + bosses
-    wood.tube([[-0.21, vc[1], vc[2]], [0.21, vc[1], vc[2]]], 0.2, SID + 2, (s) => ({ aW: [s, 0, seed, K.GOLD], aX: [3, 0, 0, 0] }), { caps: true });
-    for (const yy of [gT - 0.1, gT + 0.9]) { const tt = (yy + 0.2) / (gT + 2.6); wood.tube([[-0.24, yy, Z + 0.15 + tt * 0.5], [0.24, yy, Z + 0.15 + tt * 0.5]], 0.11, 8, (s) => ({ aW: [s, 0, seed, K.GOLD], aX: [3, 0, 0, 0] }), { caps: true }); }
+    wood.tube([[-0.25, vc[1], vc[2]], [0.25, vc[1], vc[2]]], 0.24, SID + 2, (s) => ({ aW: [s, 0, seed, K.GOLD], aX: [3, 0, 0, 0] }), { caps: true });
+    for (const [yy, zz] of [[gT - 0.1, Z + 0.86], [gT + 0.9, Z + 1.2]]) { wood.tube([[-0.28, yy, zz], [0.28, yy, zz]], 0.12, 8, (s) => ({ aW: [s, 0, seed, K.GOLD], aX: [3, 0, 0, 0] }), { caps: true }); }
     // epotides (cat-heads) with gilt discs either side of the bow, above the eye
     const ze = 16.1, te = tOf(ze), ge = triGunwale(te) - 0.3, we = triWidthAt(te, ge);
     wood.beam([-(we + 0.3), ge, ze], [we + 0.3, ge, ze], 0.26, 0.26, (p) => W(p[0], p[1], seed, K.TIMBER, p[1]), [0, 0, 1]);

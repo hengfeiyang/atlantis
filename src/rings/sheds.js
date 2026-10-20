@@ -28,8 +28,8 @@ function crag(su, y) {
   }
   return [f1, f2, id];
 }
-function rockDisp(x, y, z) {
-  const su = Math.atan2(x, -z) * 300;             // ≈ metres along the face (continuous across bays)
+function rockDisp(x, y, z, e) {
+  const su = e && e.su ? e.su(x, z) : Math.atan2(x, -z) * 300;             // ≈ metres along the face (continuous across bays)
   const [f1, f2, id] = crag(su, y);
   const gap = f2 - f1;
   const crev = 1 - Math.min(1, gap / 0.3);
@@ -38,7 +38,8 @@ function rockDisp(x, y, z) {
   const mass = Math.max(0, noiseA.fbm3(x * 0.04, y * 0.05, z * 0.04, 2) + 0.15) * 1.4;
   const fine = 0.12 * noiseB.noise3(x * 0.9, y * 0.9, z * 0.9);
   const cav = Math.min(1, Math.max(0, crev * 0.9 + TF.CAV * 0.3));
-  return [Math.max(-1.4, Math.min(3.6, 0.7 + lump + t + mass + fine)), cav];
+  const k = e && e.rockAmp != null ? e.rockAmp : 1;   // r3: shed mole = flatter dressed-rock face (front-lit in shot 4)
+  return [Math.max(-1.4 * k, Math.min(3.6 * k, 0.7 * k + (lump + mass) * k + t + fine)), cav * (0.5 + 0.5 * k)];
 }
 /** rock top above the land level (m): lumpy crest rising toward the curtain foot (the wall sits ON the rock) */
 function crest(x, z) {
@@ -52,13 +53,15 @@ function crest(x, z) {
  */
 function shedBay(ctx, e, sh, halfDeg, opts) {
   const { S, rng } = ctx;
-  const b = sh.bearing, side = e.side, R0 = e.faceR, Rf = R0 + side * SHED.depth;
+  const DEP = e.shedDepth ?? SHED.depth, BACK = e.shedBack ?? SHED.back;   // r3: per-edge (shed mole: shallow front, deep interior)
+  const b = sh.bearing, side = e.side, R0 = e.faceR, Rf = R0 + side * DEP;
   const yB = e.floor - 1.0, yT = e.landY;
   const ra = SHED.clear / 2, ys = sh.crown - ra;
   const br = b * D2R;
-  const [ox, oz] = polarXZ(R0, b);
+  const PX = e.polar || polarXZ;
+  const [ox, oz] = PX(R0, b);
   const Fb = new Frame([ox, 0, oz], [Math.cos(br), 0, Math.sin(br)], [0, 1, 0], [Math.sin(br) * side, 0, -Math.cos(br) * side]);
-  const W = (u, y, rr) => { const [x, z] = polarXZ(rr, b + u); return [x, y, z]; };
+  const W = (u, y, rr) => { const [x, z] = PX(rr, b + u); return [x, y, z]; };
   const mid = W(0, 0, Rf);
   const lod = ctx.lodAt(mid[0], mid[2]);
   const Rk = S.get('rock', mid[0], mid[2]);
@@ -89,7 +92,7 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
       // the top row climbs to the lumpy crest (the cliff continues up to the wall foot)
       if (j === ny) yy = yT + crest(p0[0], p0[2]);
       else if (j === ny - 1) yy += 0.45 * crest(p0[0], p0[2]);
-      let [d, cav] = rockDisp(p0[0], yy, p0[2]);
+      let [d, cav] = rockDisp(p0[0], yy, p0[2], e);
       if (j === ny) d = 0.4 * d - 0.3;
       if (yy < 0.4) d = 0.6 * d - 0.2;
       if (j === 0) d = Math.min(d, 0.3);
@@ -156,13 +159,13 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
       const yTop = (r) => { const pw = W(u, 0, r); return yT + crest(pw[0], pw[2]) * 0.8; };
       const y0 = yB + ((yT - yB) * j) / nyy, y1 = yB + ((yT - yB) * (j + 1)) / nyy;
       const r0 = R0 + (Rf - R0) * (k / nr), r1 = R0 + (Rf - R0) * ((k + 1) / nr);
-      const dp = (r, y) => { if (y >= yT - 1e-3) y = yTop(r); const p = W(u, y, r); const dd = rockDisp(p[0], y, p[2])[0] * 0.8; return W(u + (u < 0 ? -1 : 1) * (dd / r) / D2R, y, r); };
+      const dp = (r, y) => { if (y >= yT - 1e-3) y = yTop(r); const p = W(u, y, r); const dd = rockDisp(p[0], y, p[2], e)[0] * 0.8; return W(u + (u < 0 ? -1 : 1) * (dd / r) / D2R, y, r); };
       Rk.quadToward(dp(r0, y0), dp(r1, y0), dp(r1, y1), dp(r0, y1), [1, 1, 1], dir);
     }
   }
   if (opts.solid) return;
   // ---- dressed arch: jambs, voussoirs, gilt keystone
-  const Ff = Fb.at(0, 0, SHED.depth);
+  const Ff = Fb.at(0, 0, DEP);
   const Wt = S.get('white', mid[0], mid[2]), G = S.get('gilt', mid[0], mid[2]);
   const ring = 0.85;
   Wt.aux = [0, 0.4, 0, AUX_ASHLAR(0.6)];
@@ -196,10 +199,12 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
   Wt.aux = [0, 0, 0, 0];
   // ---- interior: side walls, vault, back wall, slipway (lamp glow baked in aux.z)
   const I = S.get('interior', mid[0], mid[2]);
-  const dBack = -SHED.back, dFront = SHED.depth - 1.2;
+  const dBack = -BACK, dFront = DEP - 1.2;
   const lamps = [];
-  for (const dl of [SHED.depth - 4.5, 2.5, -9]) for (const sx of [-1, 1]) lamps.push([sx * (ra - 0.4), ys - 0.6, dl]);
-  const glow = (p) => { let g = 0; for (const l of lamps) { const d2 = (p[0] - l[0]) ** 2 + (p[1] - l[1]) ** 2 + (p[2] - l[2]) ** 2; g += 2.2 / (1 + d2 * 0.35); } return g; };
+  const lampD = e.shedLamps || [DEP - 4.5, DEP - 11.5, DEP - 23];
+  for (const dl of lampD) for (const sx of [-1, 1]) lamps.push([sx * (ra - 0.4), ys - 0.6, dl]);
+  const gain = e.lampGain ?? 1;
+  const glow = (p) => { let g = 0; for (const l of lamps) { const d2 = (p[0] - l[0]) ** 2 + (p[1] - l[1]) ** 2 + (p[2] - l[2]) ** 2; g += 2.2 * gain / (1 + d2 * 0.35 / gain); } return g; };
   const nd = lod === 0 ? 12 : 6;
   const IQ = (a, b2, c, d, n) => {
     // local points → world, aux.z from the glow at each vertex (one quad = constant aux; subdivided enough)
@@ -237,7 +242,7 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
       box(Wd, Fr, -0.18, 0.18, 0, 0.22, 0, Math.hypot(rise, run), [1, 1, 1], FACES.py | FACES.px | FACES.nx);
     }
     // tie beams across the dock
-    if (lod <= 1) for (const dd of [-14, -6, 1.5, 6.5, 11]) box(Wd, Fb, -ra, ra, ys - 0.35, ys - 0.05, dd - 0.15, dd + 0.15, [0.9, 0.9, 0.9], FACES.py | FACES.ny | FACES.pz | FACES.nz);
+    if (lod <= 1) for (const dd of [-14, -6, 1.5, 6.5, 11].map((v) => v + DEP - SHED.depth)) box(Wd, Fb, -ra, ra, ys - 0.35, ys - 0.05, dd - 0.15, dd + 0.15, [0.9, 0.9, 0.9], FACES.py | FACES.ny | FACES.pz | FACES.nz);
     // lamps (emissive) on iron brackets
     const Lp = S.get('lamp', mid[0], mid[2]);
     for (const l of lamps) {
@@ -247,17 +252,35 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
     }
   }
   // ---- slots + registry
-  sh.slotPos = Fb.p(0, 0, SHED.depth - 0.5);
+  sh.slotPos = Fb.p(0, 0, DEP - 0.5);
   if (!ctx.sunken) {
     // banners between the arches (on the rock, hung from iron rods)
     if (sh.index % 2 === 0) {
-      const pb = W(halfDeg, sh.crown + 0.6, Rf);
-      const dB = Math.max(0, rockDisp(pb[0], sh.crown + 0.6, pb[2])[0]);
-      ctx.slots.banner.push({ pos: W(halfDeg, sh.crown + 0.6, Rf + side * (dB + 0.45)), facing: sh.facing, size: [1.6, 4.4], tag: 'rings-shed' });
+      // r3 (props audit): sample the real rock surface (same clamps as the face grid) over the banner area and
+      // pick the spot on the pier where the cloth hangs closest to the rock without cutting into it
+      const surf = (sv, y) => {
+        const uu = Math.asin(Math.max(-1, Math.min(1, sv / Rf))) / D2R, p = W(uu, y, Rf);
+        let d = rockDisp(p[0], y, p[2], e)[0];
+        const dOpen = y <= ys ? Math.abs(Math.abs(sv) - ra) : Math.abs(Math.hypot(sv, y - ys) - ra);
+        if (dOpen < 3.5) d = Math.min(d, -0.2 + 0.55 * dOpen);
+        return d;
+      };
+      const svP = Rf * Math.sin(halfDeg * D2R), bw = 1.6, bh = 4.4;
+      let best = null;
+      for (const ds of [0, -0.35, 0.35, -0.7, 0.7]) for (const y0 of [sh.crown + 0.6, sh.crown + 1.2, sh.crown + 0.1]) {
+        const sv = svP + ds;
+        let dMax = -9;
+        for (const fu of [-0.5, 0, 0.5]) for (const fv of [0, 0.35, 0.7, 1]) dMax = Math.max(dMax, surf(sv + fu * bw, y0 - fv * bh));
+        const dC = surf(sv, y0 - bh * 0.3);
+        const gap = dMax + 0.12 - dC;
+        if (!best || gap < best.gap) best = { gap, sv, y0, off: dMax + 0.12 };
+      }
+      const uB = Math.asin(Math.max(-1, Math.min(1, best.sv / Rf))) / D2R;
+      ctx.slots.banner.push({ pos: W(uB, best.y0, Rf + side * best.off), facing: sh.facing, size: [bw, bh], tag: 'rings-shed' });
     }
     if (sh.index % 3 === 0) {
       const pv = W(halfDeg * 0.6, yT, Rf);
-      const dI = Math.max(0, rockDisp(pv[0], yT, pv[2])[0] * 0.55);
+      const dI = Math.max(0, rockDisp(pv[0], yT, pv[2], e)[0] * 0.55);
       ctx.slots.ivy.push({ pos: W(halfDeg * 0.6, yT + crest(pv[0], pv[2]) - 0.3, Rf + side * (dI + 0.3)), facing: sh.facing, size: 4 + 3 * rng.random(), tag: 'rings-shed-rock' });
     }
   } else {
@@ -267,14 +290,13 @@ function shedBay(ctx, e, sh, halfDeg, opts) {
 }
 
 /** build all ship-sheds and the solid piers between their groups: returns { count, ledges } */
-export function buildSheds(ctx) {
-  const { plan } = ctx;
+export function buildSheds(ctx, edges = ctx.plan.edges, sheds = ctx.plan.sheds, fillers = ctx.plan.shedFillers) {
   let count = 0;
   const ledges = [];
-  for (const e of plan.edges) {
-    const list = plan.sheds.filter((s) => s.edge === e.id);
+  for (const e of edges) {
+    const list = sheds.filter((s) => s.edge === e.id);
     if (!list.length) continue;
-    const fill = plan.shedFillers.filter((f) => f.edge === e.id);
+    const fill = fillers.filter((f) => f.edge === e.id);
     // every bay (shed or filler) sorted by bearing; caps where the neighbour is missing
     const all = [...list.map((s) => ({ s, b: s.bearing, h: s.halfDeg })), ...fill.map((f) => ({ f, b: f.bearing, h: f.halfDeg }))].sort((a, b) => a.b - b.b);
     for (let i = 0; i < all.length; i++) {

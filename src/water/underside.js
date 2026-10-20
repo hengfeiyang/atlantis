@@ -91,9 +91,10 @@ export function createUnderside(engine, { waves, level, size = 30000, look = {} 
     uSkyZen: { value: new THREE.Vector3(1.0, 1.6, 2.2) },
     uSkyHor: { value: new THREE.Vector3(1.6, 2.0, 2.3) },
     uSunRad: { value: new THREE.Vector3(60, 56, 48) },
-    uDeepUp: { value: new THREE.Vector3(0.07, 0.22, 0.30) },
+    // r3 (look-sunken request, ref 7): the ceiling seen from below is bright — TIR of the lit water + overall gain
+    uDeepUp: { value: new THREE.Vector3(0.12, 0.36, 0.46) },
     uDeepDown: { value: new THREE.Vector3(0.012, 0.05, 0.085) },
-    uUnder: { value: new THREE.Vector4(1.6, 0.6, 0.004, 1.0) },
+    uUnder: { value: new THREE.Vector4(1.6, 0.6, 0.004, 2.2) },
     uUwWaveK: { value: 1.0 },
     uDebugU: { value: Number(engine.params?.get?.('waterDebugU') || 0) },
   };

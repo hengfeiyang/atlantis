@@ -28,7 +28,7 @@ export function buildRingBridge(kit, P) {
   const x0 = P.x0, x1 = P.x1, Lb = x1 - x0;
   let piersW, n;
   if (special) { n = 1; piersW = []; }
-  else if (P.ring === 'w1') { n = 3; piersW = [5, 5]; }
+  else if (P.ring === 'w1') { n = 6; piersW = [4.5, 4.5, 12, 4.5, 4.5]; }   // r3: w1 is 120 m wide — six arches + a mid-span gate tower (ref 5)
   else if (P.ring === 'w2') { n = 6; piersW = [4.5, 4.5, 12, 4.5, 4.5]; }
   else { n = 4; piersW = [4.5, 4.5, 4.5]; }
   const span = (Lb - piersW.reduce((s, v) => s + v, 0)) / n;

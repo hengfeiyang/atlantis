@@ -1,5 +1,6 @@
 // Atlantis ornament & building kit (temple agent): gold tridents, pinnacles, sea-creature relief
 // silhouettes for pediments / friezes, gold domes, round basins, palaces for the citadel ledges.
+// r3: greatRampart(B, o) (panelled red orichalcum tiers with medallions, pilasters, bastion towers), medallion(mbGold, mbFrame, R).
 // All functions write into a MeshBuilder at its current transform (y up, front = +Z) unless noted.
 import * as THREE from 'three';
 import { MeshBuilder, box, lathe, tube, extrudeOutline, ellipsoid, lerp, clamp, hash3 } from './geom.js';
@@ -352,6 +353,158 @@ export function rampart(B, o) {
     if (o.onTower) o.onTower([x + rx, yb + th + 3.4 + tw * 0.42 * 1.5, z + rz], a);
   }
   return towers.length;
+}
+
+// ------------------------------------------------------------------------------------ great rampart (r3)
+/** gilt medallion facing local +Z at the current transform: rayed rim, boss, small trident (ref 5 rampart roundels) */
+export function medallion(mbGold, mbFrame, R, o = {}) {
+  const det = o.detail ?? 0.5;
+  mbFrame.push(); mbFrame.rotateX(PI / 2);
+  lathe(mbFrame, [[R, -0.02, 0.2, 0], [R, 0.12, 0, 0.7, true], [R * 0.9, 0.2, 0, 0.7, true], [R * 0.84, 0.1, 0.4, 0, true], [R * 0.84, 0.04, 0.5, 0, true], [0.001, 0.04, 0.5, 0]], det > 0.6 ? 28 : 20, {});
+  mbFrame.pop();
+  // rays (sun-like rim, alternating long / short)
+  const nr = o.rays ?? 16;
+  for (let k = 0; k < nr; k++) {
+    const a = (k / nr) * PI * 2, l = k % 2 ? 0.16 : 0.3;
+    mbGold.push(); mbGold.rotateZ(a);
+    box(mbGold, [-R * 0.05, R * 1.02, -0.02], [R * 0.05, R * (1.02 + l), 0.1], 0.01, [0.1, 0.6, 0, 0]);
+    mbGold.pop();
+  }
+  mbGold.push(); mbGold.rotateX(PI / 2);
+  lathe(mbGold, [[R * 0.34, 0.04, 0.3, 0], [R * 0.3, 0.16, 0, 0.6, true], [R * 0.16, 0.24, 0, 0.5, true], [0.001, 0.27, 0, 0]], 16, {});
+  mbGold.pop();
+  if (o.trident !== false) { mbGold.push(); mbGold.translate(0, -R * 0.74, 0.12); trident(mbGold, R * 1.48, { detail: 0.3 }); mbGold.pop(); }
+}
+
+/**
+ * r3 great orichalcum rampart (refs 1, 4, 5): the citadel's red tiers. A solid annulus wall rIn..rOut from yFoot to yTop
+ * (its top is a paved walkway; the inner part is buried in the hill / cliff), outer face in bays: black plinth, red field
+ * with gilt-framed panels (lower register) and rayed gilt medallions (upper register), orichalcum pilasters with gold bases
+ * and capitals, white string course, white cornice with a gold band and dentils, low parapet; bastion towers (white with red
+ * courses, open lantern, gold dome). World frame (B at identity).
+ * o: { rIn, rOut, yFoot, yTop, bay (m, ≈ 10), gapAt(bearingDeg) → true to leave an opening, towerEvery (m), towerAt(b) → bool,
+ *      towerH (above yTop), seed, ruin, detail, onTower(pos, a), onBay({pos, a, top, i}) }
+ * Returns { bays, towers }.
+ */
+export function greatRampart(B, o) {
+  const { rIn, rOut, yFoot, yTop } = o;
+  const seed = o.seed ?? 1, ruin = !!o.ruin, det = o.detail ?? 0.6;
+  const mR = B.get('red'), mM = B.marble, mK = B.get('black'), mG = B.gold, mGr = B.get('giltRelief'), mO = B.get('orichalcum'), mBd = B.get('banded');
+  const all = [mR, mM, mK, mG, mGr, mO, mBd];
+  const H = yTop - yFoot, T = rOut - rIn;
+  const n = Math.max(12, Math.round((2 * PI * rOut) / (o.bay ?? 10)));
+  const da = (2 * PI) / n;
+  const W = 2 * rOut * Math.sin(da / 2);
+  const gap = (i) => { const a = (((i % n) + n) % n + 0.5) * da; return !!(o.gapAt && o.gapAt((a * 180) / PI)); };
+  const towers = [];
+  let lastTower = -1e9, bays = 0;
+  const hs = Math.max(4.6, H * 0.36);          // string course height above the foot
+  const yc = H - Math.max(2.0, H * 0.11);      // cornice bottom
+  const pw = Math.min(1.6, W * 0.13);          // pilaster width
+  for (let i = 0; i < n; i++) {
+    if (gap(i)) continue;
+    const a = (i + 0.5) * da;
+    const x = Math.sin(a) * rOut, z = -Math.cos(a) * rOut;
+    const hh = ruin ? H * (0.55 + 0.4 * hash3(seed, i, 3)) : H;
+    for (const m of all) { m.push(); m.translate(x, yFoot, z); m.rotateY(PI - a); }
+    const w2 = W / 2 + 0.02;
+    // plinth + base moulding
+    box(mK, [-w2, -2.6, -T], [w2, 1.3, 0.5], 0.04, [0.15, 0.7, 0.2, 3.045]);
+    box(mM, [-w2, 1.3, -0.4], [w2, 1.8, 0.32], 0.03, [0.1, 0.8, 0.3, 0]);
+    // body: red field (ashlar), its core reaching back into the hill
+    box(mR, [-w2, 1.8, -T], [w2, Math.min(hh, yc), 0], 0, [0.05, 0, 0.5, 3.07]);
+    if (!ruin || hh > H * 0.92) {
+      // white string course with a gold fillet
+      box(mM, [-w2, hs, -0.1], [w2, hs + 0.55, 0.26], 0.03, [0.1, 0.8, 0.4, 0]);
+      box(mG, [-w2, hs + 0.2, 0.26], [w2, hs + 0.3, 0.29], 0, [0.1, 0.4, 0, 0]);
+      // cornice (white, overhanging), gold band, dentils, frieze, walkway slab
+      box(mM, [-w2, yc, -T], [w2, H - 0.25, 0.25], 0.03, [0.05, 0.6, 0.5, 0]);
+      box(mM, [-w2, yc + 0.55, 0.25], [w2, yc + 1.0, 0.75], 0.03, [0.05, 0.9, 0.6, 0]);
+      box(mG, [-w2, yc + 0.3, 0.25], [w2, yc + 0.42, 0.29], 0, [0.1, 0.4, 0, 0]);
+      const nd = Math.floor(W / 0.55);
+      if (det >= 0.5) for (let k = 0; k < nd; k++) { const xx = -W / 2 + (k + 0.5) * (W / nd); box(mM, [xx - 0.14, yc + 0.32, 0.25], [xx + 0.14, yc + 0.55, 0.5], 0, [0.2, 0.5, 0, 0]); }
+      box(mM, [-w2, H - 0.25, -T], [w2, H, 0.3], 0.02, [0.05, 0.7, 0.1, 5.24]);
+      // parapet: low white wall with a gold coping fillet, merlon blocks over the pilasters
+      box(mM, [-w2, H, -0.15], [w2, H + 1.05, 0.3], 0.03, [0.05, 0.7, 0.3, 0]);
+      box(mG, [-w2, H + 0.95, 0.3], [w2, H + 1.0, 0.32], 0, [0.1, 0.4, 0, 0]);
+      box(mM, [-W / 2 - pw * 0.7, H, -0.25], [-W / 2 + pw * 0.7, H + 1.7, 0.4], 0.03, [0.05, 0.8, 0.4, 0]);
+      // lower register: gilt-framed panel; upper register: rayed medallion in a gilt frame
+      const fx = W / 2 - pw / 2 - 0.85, fw = 0.2;
+      const frame = (y0, y1) => {
+        box(mGr, [-fx, y0, -0.02], [fx, y0 + fw, 0.08], 0.01, [0.2, 0.7, 0, 0]);
+        box(mGr, [-fx, y1 - fw, -0.02], [fx, y1, 0.08], 0.01, [0.2, 0.7, 0, 0]);
+        box(mGr, [-fx, y0 + fw, -0.02], [-fx + fw, y1 - fw, 0.08], 0.01, [0.2, 0.7, 0, 0]);
+        box(mGr, [fx - fw, y0 + fw, -0.02], [fx, y1 - fw, 0.08], 0.01, [0.2, 0.7, 0, 0]);
+      };
+      if (hs - 2.9 > 1.2) frame(2.5, hs - 0.6);
+      const u0 = hs + 1.2, u1 = yc - 0.7;
+      if (u1 - u0 > 2.5) {
+        frame(u0, u1);
+        const R = Math.min(fx * 0.62, (u1 - u0) * 0.33);
+        if (det >= 0.35 && !(ruin && hash3(seed, i, 8) < 0.5)) { mG.push(); mGr.push(); mG.translate(0, (u0 + u1) / 2, 0.05); mGr.translate(0, (u0 + u1) / 2, 0.05); medallion(mG, mGr, R, { detail: det, trident: det >= 0.5 }); mG.pop(); mGr.pop(); }
+      }
+    }
+    // pilasters (orichalcum shafts, gold base + capital) at the bay's left joint, and the right one before a gap
+    const pil = (px) => {
+      const top = Math.min(hh, yc);
+      box(mO, [px - pw / 2, 1.8, -0.05], [px + pw / 2, top, 0.42], 0.02, [0.05, 0.6, 0.3, 0]);
+      box(mG, [px - pw / 2 - 0.1, 1.8, -0.05], [px + pw / 2 + 0.1, 2.4, 0.52], 0.02, [0.1, 0.6, 0, 0]);
+      if (!ruin || hh > H * 0.92) {
+        box(mG, [px - pw / 2 - 0.12, top - 0.75, -0.05], [px + pw / 2 + 0.12, top, 0.55], 0.02, [0.1, 0.6, 0, 0]);
+        box(mG, [px - pw * 0.18, hs + 1.4, 0.42], [px + pw * 0.18, top - 1.3, 0.47], 0.01, [0.1, 0.5, 0, 0]);   // gold flute strip
+      }
+    };
+    pil(-W / 2);
+    if (gap(i + 1)) pil(W / 2);
+    for (const m of all) m.pop();
+    bays++;
+    if (o.onBay) o.onBay({ pos: [x, yFoot + hh, z], a, top: yFoot + hh, i });
+    const arc = i * da * rOut;
+    const joint = (k) => [Math.sin(k * da) * rOut, Math.cos(k * da) * -rOut, k * da];
+    const want = o.towerAt ? o.towerAt((a * 180) / PI, arc - lastTower) : (o.towerEvery && arc - lastTower > o.towerEvery);
+    if (want && !gap(i - 1) && !gap(i + 1)) { lastTower = arc; towers.push(joint(i)); }
+    // flank towers framing an opening (the stair, a cascade pouring through the wall)
+    if (o.flankAt && gap(i - 1) && o.flankAt((((i - 0.5) * da) * 180) / PI)) { lastTower = arc; towers.push(joint(i)); }
+    if (o.flankAt && gap(i + 1) && o.flankAt((((i + 1.5) * da) * 180) / PI)) { lastTower = arc + W; towers.push(joint(i + 1)); }
+  }
+  // bastion towers at bay joints: banded white / red shaft projecting from the wall, gold capital band, open lantern, gold dome
+  const th = H + (o.towerH ?? 8), tw = o.towerW ?? Math.min(8, Math.max(5, H * 0.36)), tp = tw * 0.55;
+  for (const [x, z, a] of towers) {
+    if (ruin && hash3(seed, x, 77) < 0.35) continue;
+    const top = ruin ? th * (0.6 + 0.25 * hash3(seed, z, 5)) : th;
+    for (const m of all) { m.push(); m.translate(x, yFoot, z); m.rotateY(PI - a); }
+    box(mK, [-tw / 2 - 0.4, -2.6, -2], [tw / 2 + 0.4, 1.5, tp + 0.4], 0.04, [0.1, 0.7, 0.2, 0]);
+    // white shaft (refs 4 / 5 slender white towers) with two red bands and gold fillets
+    box(mM, [-tw / 2, 1.5, -2], [tw / 2, top, tp], 0.03, [0.05, 0.3, 0.5, 3.07]);
+    for (const fy of [0.3, 0.62]) {
+      const yb = 1.5 + (top - 1.5) * fy;
+      box(mR, [-tw / 2 - 0.06, yb, -2], [tw / 2 + 0.06, yb + 1.4, tp + 0.06], 0.01, [0.05, 0.4, 0.3, 0]);
+      box(mG, [-tw / 2 - 0.08, yb + 1.4, -2], [tw / 2 + 0.08, yb + 1.5, tp + 0.08], 0, [0.1, 0.4, 0, 0]);
+    }
+    if (!ruin) {
+      box(mM, [-tw / 2 - 0.35, top, -2.3], [tw / 2 + 0.35, top + 0.8, tp + 0.35], 0.03, [0.05, 0.8, 0.5, 0]);
+      box(mG, [-tw / 2 - 0.37, top + 0.3, -2.3], [tw / 2 + 0.37, top + 0.45, tp + 0.37], 0, [0.1, 0.5, 0, 0]);
+      // gilt panel with a trident on the front face
+      box(mGr, [-tw * 0.3, top - 6.2, tp - 0.02], [tw * 0.3, top - 1.4, tp + 0.07], 0.01, [0.2, 0.6, 0, 0]);
+      mG.push(); mG.translate(0, top - 6.0, tp + 0.07); trident(mG, 4.4, { detail: 0.3 }); mG.pop();
+      // dark window slits
+      for (const s of [-1, 1]) box(B.mb.interior, [s * tw * 0.22 - 0.3, top * 0.42, tp - 0.01], [s * tw * 0.22 + 0.3, top * 0.42 + 2.6, tp + 0.02], 0, [0.6, 0, 0, 0]);
+      // lantern: four piers + entablature, gold dome with a trident finial
+      const lc = (tp - 2) / 2;
+      mM.push(); mM.translate(0, top + 0.8, lc);
+      const lr = tw * 0.36;
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(mM, [sx * lr - 0.35, 0, sz * lr - 0.35], [sx * lr + 0.35, 3.0, sz * lr + 0.35], 0.02, [0.05, 0.6, 0.3, 0]);
+      box(mM, [-lr - 0.6, 3.0, -lr - 0.6], [lr + 0.6, 3.6, lr + 0.6], 0.02, [0.05, 0.8, 0.4, 0]);
+      mM.pop();
+      mG.push(); mM.push(); mG.translate(0, top + 4.4, lc); mM.translate(0, top + 4.4, lc);
+      const dt = dome(mM, mG, lr + 0.3, { drum: 0, rise: 1.05, ribs: 8, segs: 18 });
+      mG.translate(0, dt - 0.2, 0); pinnacle(mG, 2.4, { detail: 0.4 });
+      mG.pop(); mM.pop();
+      if (o.onTower) { const lx = Math.sin(a) * (tp + 0.3), lz = -Math.cos(a) * (tp + 0.3); o.onTower([x + lx, yFoot + top - 2, z + lz], a, yFoot + top + 4.4 + dt); }
+    }
+    for (const m of all) m.pop();
+  }
+  return { bays, towers: towers.length };
 }
 
 // ------------------------------------------------------------------------------------ pavilion (cheap tholos)

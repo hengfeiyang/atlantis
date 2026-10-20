@@ -3,3 +3,7 @@ bridges — stable importable API:
                        GATE (gate bridge: z 690, deck 30, towers x ∈ ±[28, 47], z ± 12, viaduct to ±104, stairs to ±156)
   engine.registry.bridges = { gate: {...GATE, towers:[{pos, tip}]}, ring:[{id, towers}], plan }
 Slots: banner (golden), statue / brazier (both eras), coral + kelp (sunken). Footprints tagged 'bridge-*'.
+r3 (arch-a): src/rings/mole.js molePlan() (pure) — shed mole in w1 for shot 4 (L.SHED_MOLE): { inside(x,z,margin), poly, tunnelPoly, gate, bridge };
+  published as engine.registry.rings.mole; its sheds are in registry.rings.sheds (mole: true, ship slots > 27 m from the shot-4 cam).
+  src/bridges/mole.js: buildMoleHead (tunnel block + bridge to the citadel quay), buildMoleTowers (ref-1 towers on the sea moles).
+  registry.bridges.{moleHead, moleTowers}; citadel towers now podium + shaft + arched belfry (ruined crown in the sunken era).

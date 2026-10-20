@@ -113,7 +113,7 @@ const FOL_EMISSIVE = /* glsl */ `
 {
   // warm bounce light from the sunlit ground onto the underside of crowns (the sky-only IBL has none)
   float vgDown = clamp(0.5 - 0.5 * normalize(vCgWorldNormal).y, 0.0, 1.0);
-  totalEmissiveRadiance += diffuseColor.rgb * vec3(0.2, 0.17, 0.11) * (0.35 + 0.65 * vgDown) * mix(0.5, 1.0, clamp(vFol.x, 0.0, 1.0));
+  totalEmissiveRadiance += diffuseColor.rgb * vec3(0.26, 0.22, 0.14) * (0.35 + 0.65 * vgDown) * mix(0.5, 1.0, clamp(vFol.x, 0.0, 1.0));
 }
 #ifdef USE_FOG
 {
@@ -127,13 +127,14 @@ const FOL_EMISSIVE = /* glsl */ `
 // r5b (colour): base albedo / ambient / interior darkening lowered (≈ ×0.7 gain, ×0.85 amb, ×0.8 deepK; ×0.62 made near shaded cypresses read black, shot 6): graded foliage
 // was OkLab L 0.36-0.47 vs refs 0.21-0.33 and the grade had to pull greens down; sunlit tips of broadleaf / shrubs warmer
 // and more saturated (vegetation request), less blue in the crown interiors
+// r3: shaded crowns read black on the hill (shots 4 / 5): ambient 1.1 → 1.35 (olive / broad / pine / shrub), ground bounce ×1.3
 const SPECIES = {
   cypress: { relief: 0.6, amb: 1.0, gain: 3.0, up: 0.18, color: '#aaa996', rough: 0.8, tip: [1.45, 1.25, 0.6], deep: [1.0, 0.95, 0.78], dry: [1.1, 1.0, 0.8], tipAmt: 0.9, deepK: 0.42, transl: 0.5, vari: 1.25 },
-  olive: { amb: 1.1, gain: 1.2, up: 0.3, color: '#86847a', rough: 0.62, tip: [1.12, 1.1, 0.98], deep: [0.85, 0.95, 1.0], dry: [1.08, 1.04, 0.9], tipAmt: 0.45, deepK: 0.38, transl: 0.55, vari: 0.7 },
-  broad: { amb: 1.1, gain: 2.2, up: 0.3, color: '#8e9470', rough: 0.6, tip: [1.4, 1.3, 0.68], deep: [0.8, 0.95, 0.9], dry: [1.12, 1.02, 0.78], tipAmt: 0.75, deepK: 0.36, transl: 0.7, vari: 0.9 },
-  pine: { amb: 1.1, gain: 1.3, up: 0.3, color: '#929a78', rough: 0.7, tip: [1.2, 1.15, 0.85], deep: [0.8, 0.95, 0.92], dry: [1.1, 1.0, 0.8], tipAmt: 0.55, deepK: 0.34, transl: 0.5, vari: 0.8 },
+  olive: { amb: 1.35, gain: 1.2, up: 0.3, color: '#86847a', rough: 0.62, tip: [1.12, 1.1, 0.98], deep: [0.85, 0.95, 1.0], dry: [1.08, 1.04, 0.9], tipAmt: 0.45, deepK: 0.38, transl: 0.55, vari: 0.7 },
+  broad: { amb: 1.35, gain: 2.2, up: 0.3, color: '#8e9470', rough: 0.6, tip: [1.4, 1.3, 0.68], deep: [0.8, 0.95, 0.9], dry: [1.12, 1.02, 0.78], tipAmt: 0.75, deepK: 0.36, transl: 0.7, vari: 0.9 },
+  pine: { amb: 1.35, gain: 1.3, up: 0.3, color: '#929a78', rough: 0.7, tip: [1.2, 1.15, 0.85], deep: [0.8, 0.95, 0.92], dry: [1.1, 1.0, 0.8], tipAmt: 0.55, deepK: 0.34, transl: 0.5, vari: 0.8 },
   palm: { relief: 0.0, amb: 1.1, gain: 2.6, up: 0.22, color: '#a9aa92', rough: 0.55, tip: [1.3, 1.22, 0.7], deep: [0.85, 0.95, 0.9], dry: [1.1, 1.02, 0.8], tipAmt: 0.6, deepK: 0.42, transl: 3.0, vari: 0.6 },
-  shrub: { amb: 1.1, gain: 2.3, up: 0.3, color: '#8a9270', rough: 0.72, tip: [1.4, 1.3, 0.68], deep: [0.8, 0.95, 0.9], dry: [1.15, 1.02, 0.75], tipAmt: 0.75, deepK: 0.34, transl: 0.5, vari: 1.0 },
+  shrub: { amb: 1.35, gain: 2.3, up: 0.3, color: '#8a9270', rough: 0.72, tip: [1.4, 1.3, 0.68], deep: [0.8, 0.95, 0.9], dry: [1.15, 1.02, 0.75], tipAmt: 0.75, deepK: 0.34, transl: 0.5, vari: 1.0 },
 };
 
 const _cache = new Map();

@@ -25,6 +25,7 @@ import { buildEdge, quayRun, arcFrame, spoutLips, bastionBlock } from '../rings/
 import { buildTowers } from '../rings/towers.js';
 import { buildSheds } from '../rings/sheds.js';
 import { buildTunnel, buildCanal, buildMoles, portalBay } from '../rings/canal.js';
+import { buildMole } from '../rings/moleBuild.js';
 
 function safe(label, fn, fb = null) {
   try { return fn(); } catch (e) { console.error(`[rings] ${label} failed:`, e && (e.stack || e)); return fb; }
@@ -60,6 +61,8 @@ export async function build(engine) {
     edges: plan.edges.map((e) => ({ id: e.id, ring: e.ring, side: e.side, faceR: e.faceR, wallR: e.wallR, landY: e.landY, wallTop: e.wallTop, cladding: e.cladding, floor: e.floor, curtain: e.curtain })),
     towers: plan.towers, gates: plan.gates, sheds: plan.sheds, quays: plan.quays, canal: plan.canal, tunnel: plan.tunnel, moles: plan.moles,
     lighthouses: [], spouts: [], ledges: [], bastions: plan.bastions,
+    // r3 (arch-a): shed mole in w1 (ref 4 / shot 4). inside(x, z, margin) → true over the mole + its tunnel block
+    mole: plan.mole ? { spec: plan.mole.spec, poly: plan.mole.poly, tunnelPoly: plan.mole.tunnelPoly, inside: plan.mole.inside, gate: plan.mole.gate, bridge: plan.mole.bridge } : null,
   };
   reg.walls = reg.edges;
 
@@ -104,6 +107,9 @@ export async function build(engine) {
   const sh = safe('sheds', () => buildSheds(ctx), { count: 0, ledges: [] });
   reg.ledges = sh.ledges;
   stats.shedMs = Math.round(performance.now() - tS);
+  const tMo = performance.now();
+  const mole = safe('mole', () => buildMole(ctx, M), null);
+  stats.moleMs = Math.round(performance.now() - tMo);
   const tun = safe('tunnel', () => buildTunnel(ctx));
   const canal = safe('canal', () => buildCanal(ctx), { spouts: [] });
   reg.spouts = canal.spouts || [];
@@ -118,6 +124,7 @@ export async function build(engine) {
   const tw = safe('towers', () => buildTowers(ctx, M), null);
   stats.towerMs = Math.round(performance.now() - tT);
   if (tw) group.add(tw.group);
+  if (mole && mole.towers) group.add(mole.towers.group);
   if (moles.riprap) group.add(moles.riprap);
   engine.add(group);
   // shadow casting: the shed interiors / voids / lamps don't need to cast
@@ -139,12 +146,12 @@ export async function build(engine) {
       flush();
     }
   }
-  const tris = ctx.S.tris + (tw ? tw.tris : 0);
+  const tris = ctx.S.tris + (tw ? tw.tris : 0) + (mole && mole.towers ? mole.towers.tris : 0);
   stats.tris = +(tris / 1e6).toFixed(2);
   stats.meshes = group.children.length;
   stats.ms = Math.round(performance.now() - t0);
   reg.stats = stats;
-  console.log(`[rings] built in ${stats.ms} ms (${engine.era}): ${bays} bays / ${Math.round(wallLen)} m of wall (${stats.wallMs} ms), ${tw ? tw.count : 0} towers (${tw ? tw.kinds : 0} kinds, ${stats.towerMs} ms), ${sh.count} ship-sheds (${stats.shedMs} ms), tunnel ${tun ? 'ok' : '-'}, canal spouts ${reg.spouts.length}, ${moles.boulders || 0} boulders, ${stats.tris} M tris, ${stats.meshes} meshes`);
+  console.log(`[rings] built in ${stats.ms} ms (${engine.era}): ${bays} bays / ${Math.round(wallLen)} m of wall (${stats.wallMs} ms), ${tw ? tw.count : 0} towers (${tw ? tw.kinds : 0} kinds, ${stats.towerMs} ms), ${sh.count} ship-sheds (${stats.shedMs} ms), tunnel ${tun ? 'ok' : '-'}, canal spouts ${reg.spouts.length}, mole ${mole ? `${mole.sheds} sheds / ${mole.towers.count} pylons (${stats.moleMs} ms)` : '-'}, ${moles.boulders || 0} boulders, ${stats.tris} M tris, ${stats.meshes} meshes`);
 }
 
 // ------------------------------------------------------------------ test scene

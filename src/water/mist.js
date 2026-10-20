@@ -148,6 +148,13 @@ void main(){
     // veil spray: vertical striations (water dust falling in sheets)
     if (vKind < 0.5) wisp *= 0.55 + 0.45 * cgVnoise2(vec2(vW.x * 0.9 + vW.z * 0.9 + vSeed * 9.0, vW.y * 0.08 + uTime * 0.4));
     a = body * wisp * vA;
+    // r3: spray puffs a few px .. tens of px across read as stamped cotton balls — blend toward a soft
+    // gaussian body (overlapping puffs merge into one hazy spray cloud at the foot of the falls)
+    if (vKind > 1.5) {
+      float pxS = 2.0 / max(fwidth(vUv.x), 1e-4);
+      float soft = mix(0.75, 0.35, smoothstep(40.0, 160.0, pxS));
+      a = mix(a, exp(-2.6 * r2) * clamp(0.3 + 0.9 * billow, 0.0, 1.0) * vA * 0.55, soft);
+    }
     // big mist banks (> ~10 m): a soft gaussian body modulated by the billows — from afar the ragged
     // threshold edge of a single puff reads as a hard ellipse
     if (vKind > 0.5 && vKind < 1.5) {

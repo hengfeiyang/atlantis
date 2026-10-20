@@ -92,7 +92,11 @@ export function buildTunnel(ctx) {
       chamferBox(G, F, sx < 0 ? -T.rx - 1.5 : T.rx - 0.1, sx < 0 ? -T.rx + 0.1 : T.rx + 1.5, T.spring - 0.3, T.spring, -1.4, 0.45, 0.03, [1, 1, 1]);
     }
     // gilt trident relief panel over the keystone + banner slots on the portal piers
-    if (!ctx.sunken) for (const sx of [-1, 1]) ctx.slots.banner.push({ pos: F.p(sx * (T.rx + 4.5), yT - 1.4, 0.45), facing: dir > 0 ? 180 : 0, size: [2.4, 7.5], tag: 'rings-tunnel' });
+    if (!ctx.sunken) for (const sx of [-1, 1]) {
+      // r3 (props audit): the portal face is on the ring arc (not the straight frame): hang 0.3 m in front of it
+      const bx = sx * (T.rx + 4.5), R = dir > 0 ? eOut.faceR : eIn.faceR, zf = Math.sqrt(R * R - bx * bx);
+      ctx.slots.banner.push({ pos: [bx, yT - 1.4, zf + dir * 0.3], facing: dir > 0 ? 180 : 0, size: [2.4, 7.5], tag: 'rings-tunnel' });
+    }
   }
   // interior: walls + elliptical vault + water-stained base, lamps
   const I = S.get('interior', 0, (zN + zS) / 2);
@@ -394,7 +398,7 @@ export function buildMoles(ctx, M) {
     for (let k = 0; k < nd; k++) Pv.quadToward([x - hw, yT, z0 + (len * k) / nd], [x + hw, yT, z0 + (len * k) / nd], [x + hw, yT, z0 + (len * (k + 1)) / nd], [x - hw, yT, z0 + (len * (k + 1)) / nd], [0.95, 0.93, 0.9], [0, 1, 0]);
     Pv.aux = [0, 0, 0, 0];
     engine.footprints.addRect(x, (z0 + z1) / 2, hw, len / 2, 0, 'rings-mole');
-    if (!ctx.sunken) for (let z = z0 + 30; z < z1 - 20; z += 40) ctx.slots.brazier.push({ pos: [x - Math.sign(x) * 0.0, yT, z], facing: 180, size: 1.0, tag: 'rings-mole ground' });
+    if (!ctx.sunken) for (let z = z0 + 36; z < z1 - 20; z += 44) ctx.slots.brazier.push({ pos: [x - Math.sign(x) * 0.0, yT, z], facing: 180, size: 1.0, tag: 'rings-mole ground' });
     out.lighthouses.push(lighthouse(ctx, m, rocks));
   }
   // instanced rip-rap
@@ -493,7 +497,7 @@ function lighthouse(ctx, m, rocks) {
     lathe(G, Fc, 0, 0, 0, [[0, yD], [rL + 0.6, yD], [rL + 0.6, yD + 0.6], [rL + 0.3, yD + 0.75], ...Array.from({ length: 11 }, (_, i) => { const a = ((i + 1) / 11) * (Math.PI / 2); return [(rL + 0.3) * Math.cos(a), yD + 0.75 + (rL + 0.3) * 1.1 * Math.sin(a)]; })], 24, [1, 1, 1]);
     const yF = yD + 0.75 + (rL + 0.3) * 1.1;
     lathe(G, Fc, 0, 0, 0, [[0, yF - 0.05], [0.5, yF], [0.55, yF + 0.4], [0.2, yF + 0.8], [0.6, yF + 1.3], [0.5, yF + 1.8], [0.12, yF + 2.1], [0.04, yF + 3.6], [0, yF + 3.7]], 10, [1, 1, 1]);
-    engine.slots.brazier.push({ pos: [x, yL + 0.1, z], facing: 0, size: 2.2, tag: 'rings-lighthouse' });
+    // r3 (props audit): no brazier slot inside the lantern — the glowing core is the beacon fire
     engine.slots.statue.push({ pos: [x, yF + 1.8, z], facing: 180, size: 4.5, tag: 'rings-lighthouse-top' });
     for (const F0 of faces) { const F = F0.at(0, 0, h1); engine.slots.banner.push({ pos: F.p(0, y1 - 1.0, 0.15), facing: 0, size: [2.6, 8], tag: 'rings-lighthouse' }); }
     // fix banner facings (per face)

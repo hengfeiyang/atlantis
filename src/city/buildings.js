@@ -38,7 +38,7 @@ function pickWin(rng, kind) {
   return rng.pick([WIN.RECT, WIN.RECT, WIN.SHUTTER, WIN.SHUTTER, WIN.SMALL, WIN.ARCH, WIN.FRAMED]);
 }
 /** ATLANTIS style knobs (set by the city module per district) */
-export const STYLE = { flat: 0.62, storeys: [2, 3], big: 1.0 };
+export const STYLE = { flat: 0.5, storeys: [2, 3], big: 1.0 };   // r3 (citadel): flat 0.62 → 0.5 — ref 1 shows many more red tile roofs (warmer, richer aerial)
 function pickRoof(rng, w, d, kind) {
   const r = rng.random();
   if (kind === 'tower') return r < 0.45 ? 'pyramid' : r < 0.85 ? 'flat' : 'hip';

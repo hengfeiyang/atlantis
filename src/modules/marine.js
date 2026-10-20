@@ -16,6 +16,7 @@ import { surfaceMap, groundY, makeDensity, reefCluster, grassPatch, kelpAt, plac
 import { buildSchools, buildSwimmer } from '../marine/fauna.js';
 import { MARINE_U, FISH_GLINT, CORAL_GLOW } from '../marine/materials.js';
 import { makeKeepFilter } from '../marine/keep.js';
+import { SK } from '../core/sunken.js';
 
 const V = THREE.Vector3;
 const UP = new V(0, 1, 0);
@@ -223,6 +224,90 @@ function framingKelp(engine, maps) {
   return n;
 }
 
+// ------------------------------------------------------------------ sand drift mask (r3 look-sunken)
+/**
+ * core/sunken.js lays a sand-dust overlay on every up face; on the plateau (shots 6, 9) it covered the paving
+ * uniformly. From the top-down surface map: texels LOWER than something within ≈ 2 m (wall feet, steps, basin and
+ * pedestal sides, between rubble) collect sand, open paving stays swept → R8 mask in SK.tSkDrift (0.5 m cells).
+ */
+function bakeDriftMask(map) {
+  const cell = 0.5, n = Math.round(map.size / cell), x0 = map.cx - map.size / 2, z0 = map.cz - map.size / 2;
+  const Y = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const s = map.sample(x0 + (i + 0.5) * cell, z0 + (j + 0.5) * cell);
+    Y[j * n + i] = s ? s.y : -1e4;
+  }
+  const r = 4, A = new Float32Array(n * n), B = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {           // separable max (2 m window)
+    let m = -1e4; for (let k = Math.max(0, i - r); k <= Math.min(n - 1, i + r); k++) m = Math.max(m, Y[j * n + k]);
+    A[j * n + i] = m;
+  }
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    let m = -1e4; for (let k = Math.max(0, j - r); k <= Math.min(n - 1, j + r); k++) m = Math.max(m, A[k * n + i]);
+    B[j * n + i] = m;
+  }
+  const D = new Uint8Array(n * n);
+  for (let j = 1; j < n - 1; j++) for (let i = 1; i < n - 1; i++) {   // 3x3 blur of the cavity depth → 0..1
+    let acc = 0;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+      const k = (j + dj) * n + i + di;
+      const d = Y[k] < -1e3 ? 0 : B[k] - Y[k];
+      acc += THREE.MathUtils.smoothstep(d, 0.12, 0.9) * (1 - THREE.MathUtils.smoothstep(d, 7, 14));
+    }
+    D[j * n + i] = Math.round((acc / 9) * 255);
+  }
+  const tex = new THREE.DataTexture(D, n, n, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping; tex.needsUpdate = true;
+  SK.tSkDrift.value = tex;
+  SK.uSkDrift.value.set(x0, z0, 1 / map.size, 1);
+}
+
+// ------------------------------------------------------------------ shot 6 foreground dressing (r3 look-sunken)
+const linC = (r, g, b) => [r, g, b].map((v) => Math.pow(v / 255, 2.2));
+const D6_PAL = [linC(232, 104, 36), linC(222, 70, 40), linC(240, 150, 44), linC(150, 70, 170), linC(196, 52, 70), linC(244, 196, 70), linC(214, 90, 140)];
+const D6_SPECIES = { bush: 0.22, softtree: 0.18, finger: 0.14, whorl: 0.12, staghorn: 0.08, tube: 0.1, fan: 0.06, anemone: 0.05, brain: 0.05 };
+/**
+ * ref 6: the balustrades, pedestals, basin rims and blocks of the stair-top foreground are smothered in vivid orange /
+ * red / purple coral. Camera rays through a pixel grid of the lower frame are marched against the temple-zone surface
+ * map; RAISED flat surfaces (not the sand / mosaic plaza) 3-64 m from the lens get dense curated growth (tag 'dress6').
+ */
+function dressShot6(engine, maps, rng) {
+  const s6 = shotById(6);
+  const zone = maps.find((m) => m.z.id === 'temple')?.map;
+  if (!s6 || !zone) return 0;
+  const F = frameOf(s6);
+  const dq = Math.max(0.5, Math.min(1.2, engine.quality.density ?? 1));
+  const sx = Math.round(26 / dq), sy = Math.round(22 / dq);
+  let n = 0;
+  const why = { miss: 0, steep: 0, sand: 0, rough: 0, patch: 0 };
+  const pickSp = () => { let r = rng.random(), acc = 0; for (const k in D6_SPECIES) { acc += D6_SPECIES[k]; if (r <= acc) return k; } return 'bush'; };
+  for (let py = 455; py < 941; py += sy) for (let px = 6; px < 1672; px += sx) {
+    const jx = px + rng.range(-0.4, 0.4) * sx, jy = py + rng.range(-0.4, 0.4) * sy;
+    const d = F.at((2 * jx) / 1672 - 1, 1 - (2 * jy) / 941, 1).sub(F.pos).normalize();
+    let hit = null;
+    for (let t = 3; t < 64; t += Math.min(0.12, 0.04 + t * 0.003)) {
+      const x = F.pos.x + d.x * t, y = F.pos.y + d.y * t, z = F.pos.z + d.z * t;
+      const q = zone.sample(x, z);
+      if (q && y <= q.y) { hit = { x, y: q.y, z, t, ny: q.ny }; break; }
+    }
+    if (!hit) { why.miss++; continue; }
+    if (hit.ny < 0.75) { why.steep++; continue; }
+    if (hit.y < groundY(engine, hit.x, hit.z) + 0.35) { why.sand++; continue; }      // the plaza sand / mosaic stays clear
+    if (zone.rough(hit.x, hit.z, 0.1) > 0.26) { why.rough++; continue; }             // flat tops only (no statue heads / arms)
+    const patch = noise01(hit.x, hit.z, 0.55, 11) * 0.7 + noise01(hit.x, hit.z, 1.7, 12) * 0.3;
+    if (patch < 0.3 || rng.random() > 0.45 + patch) { why.patch++; continue; }
+    const sp = pickSp();
+    if (hit.t > 30 && rng.random() > 30 / hit.t) { why.patch++; continue; }  // far rows: fewer, bigger heads
+    const k = THREE.MathUtils.clamp(hit.t / 13, 0.5, 1.6) * rng.range(0.7, 1.25) * (sp === 'fan' ? 0.6 : 1);
+    const rgb = D6_PAL[Math.floor(rng.random() * D6_PAL.length)];
+    engine.slots.coral.push({ pos: [hit.x, hit.y - 0.02, hit.z], normal: [rng.range(-0.15, 0.15), 1, rng.range(-0.15, 0.15)], species: sp, scale: k, rgb, size: k, tag: 'dress6:' + sp });
+    n++;
+  }
+  console.log('[marine] dress6 ' + n + ' ' + JSON.stringify(why));
+  return n;
+}
+
 // ------------------------------------------------------------------ fauna (anchored to the shot frames)
 function faunaDefs(engine, groundFn) {
   const defs = [], swimmers = [];
@@ -241,11 +326,13 @@ function faunaDefs(engine, groundFn) {
   if (s7) {
     const F = frameOf(s7);
     // the great swirl around the arch (ref 7): a broad ribbon sweeping down past the wreck and up the right tower
-    defs.push({ id: 's7-swirl', type: 'stream', count: N(11000), size: 0.4, width: 10, thick: 4.5, speed: 2.4, pulses: 3,
-      path: [F.at(-0.78, 0.5, 42), F.at(-0.45, 0.12, 32), F.at(-0.22, -0.25, 26), F.at(0.12, -0.32, 30), F.at(0.42, -0.05, 40), F.at(0.5, 0.35, 52), F.at(0.18, 0.62, 64), F.at(-0.35, 0.72, 58)].map(P) });
-    defs.push({ id: 's7-mill', type: 'mill', count: N(3000), size: 0.36, center: P(F.at(0.68, 0.18, 48)), r0: 2.5, r1: 7.5, height: 14, speed: 2.0, dir: 1, tilt: 0.25, squash: 0.8 });
-    defs.push({ id: 's7-far', type: 'stream', count: N(1500), size: 0.3, width: 10, thick: 6, speed: 1.6, lo: true,
-      path: [F.at(-0.2, 0.15, 85), F.at(0.25, 0.1, 95), F.at(0.35, 0.45, 110), F.at(-0.15, 0.5, 100)].map(P) });
+    // r3 (look-sunken): thinner and routed AROUND the arch (ref 7: the bridge reads through a loose swirl; the dense
+    // band sweeps the left side, the floor in front of the wreck and the right tower, over the deck high up)
+    defs.push({ id: 's7-swirl', type: 'stream', count: N(6000), size: 0.4, width: 8, thick: 3.0, speed: 2.4, pulses: 3,
+      path: [F.at(-0.82, 0.45, 40), F.at(-0.62, 0.02, 32), F.at(-0.3, -0.42, 26), F.at(0.12, -0.5, 30), F.at(0.5, -0.22, 40), F.at(0.66, 0.3, 50), F.at(0.42, 0.82, 60), F.at(-0.4, 0.86, 56)].map(P) });
+    defs.push({ id: 's7-mill', type: 'mill', count: N(2200), size: 0.36, center: P(F.at(0.74, 0.12, 46)), r0: 2.5, r1: 7.0, height: 14, speed: 2.0, dir: 1, tilt: 0.25, squash: 0.8 });
+    defs.push({ id: 's7-far', type: 'stream', count: N(900), size: 0.3, width: 8, thick: 5, speed: 1.6, lo: true,
+      path: [F.at(0.55, -0.1, 80), F.at(0.85, 0.05, 90), F.at(0.9, 0.5, 100), F.at(0.6, 0.6, 92)].map(P) });
     const tp = F.at(0.24, 0.47, 15);
     swimmers.push({ kind: 'turtle', scale: 1.25, speed: 0.55, flapHz: 0.32, path: loopThrough(tp, F.right.clone().multiplyScalar(0.75).addScaledVector(F.fwd, -0.6).add(new V(0, 0.3, 0)), 11, { dy: 1.5, side: -1 }) });
   }
@@ -323,14 +410,17 @@ export async function build(engine) {
   const maps = ZONES.map((z) => ({ z, map: surfaceMap(engine, { cx: z.cx, cz: z.cz, size: z.size, res: z.size / z.cell }) }));
   const city = surfaceMap(engine, { cx: CITY.cx, cz: CITY.cz, size: CITY.size, res: CITY.size / CITY.cell });
   const mapMs = Math.round(performance.now() - tm);
+  { const tz = maps.find((m) => m.z.id === 'temple')?.map; if (tz) { try { bakeDriftMask(tz); } catch (e) { console.warn('[marine] drift mask failed', e); } } }
 
   // hero zones
-  const canalKelp = (x, z) => (Math.abs(x) > 9 && Math.abs(x) < 46 && z > 560 && z < 900) || (Math.abs(x) >= 46 && z > 600 && z < 860 && Math.abs(x) < 120 && L.zoneAt(x, z) !== 'l2');
+  const canalKelp = (x, z) => (Math.abs(x) > 9 && Math.abs(x) < 46 && z > 560 && z < 900) || (Math.abs(x) >= 46 && z > 600 && z < 860 && Math.abs(x) < 120 && L.zoneAt(x, z) !== 'l2')
+  // r3 (look-sunken): the shot-7 view corridor between the lens and the gate bridge stays open (ref 7: the bridge reads)
+  const canalKelp7 = (x, z) => canalKelp(x, z) && !(z > 696 && z < 822 && Math.abs(x + 10.7) < 19);
   for (const { z, map } of maps) {
     if (!map) { console.warn('[marine] no surface map for zone', z.id); continue; }
     scatterHero(engine, lib, map, z, dens, rng, stats, {
       frames: cams.map((c) => frameOf(c)),
-      kelp: z.id === 'canal' ? canalKelp : z.id === 'head' ? (x, zz) => L.zoneAt(x, zz) === 'w2' : null,
+      kelp: z.id === 'canal' ? canalKelp7 : z.id === 'head' ? (x, zz) => L.zoneAt(x, zz) === 'w2' : null,
       columns: z.id === 'temple' ? (x, y, zz) => y > 12 && y < 36 && Math.hypot(x, zz) > 140 : z.id === 'head' ? (x, y) => y > 12 : null,
     });
   }
@@ -360,6 +450,7 @@ export async function build(engine) {
     }
   }
   framingKelp(engine, maps);
+  stats.dress6 = dressShot6(engine, maps, new RNG('marine:dress6'));
   consumeSlots(engine, lib, rng, dens, maps.map((m) => m.map).concat([city]), stats);
 
   // fauna first (its triangles count against the module budget)
@@ -375,7 +466,7 @@ export async function build(engine) {
   const mt = ((res.tris + fauna.school.tris) / 1e6).toFixed(2);
   engine.registry.marine = { root, U: { MARINE_U, FISH_GLINT, CORAL_GLOW }, stats, instances: res.instances, mtris: +mt, bySpecies: res.bySpecies, fish: fauna.school.count };
   console.log(`[marine] built in ${ms} ms (surface maps ${mapMs} ms): ${res.instances} growth instances, ${fauna.school.count} fish, ${mt} M tris; ` +
-    `thinned lo ${res.thinned} hi ${res.thinnedHi}; clusters ${stats.clusters}, faces ${stats.faces}, grass ${stats.grass}, kelp ${stats.kelp}, columns ${stats.columns}, coral slots ${stats.slots}/${(engine.slots.coral || []).length} (dressed ${stats.dressed || 0}), kelp slots ${stats.kelpSlots}/${(engine.slots.kelp || []).length}`);
+    `thinned lo ${res.thinned} hi ${res.thinnedHi}; clusters ${stats.clusters}, faces ${stats.faces}, grass ${stats.grass}, kelp ${stats.kelp}, columns ${stats.columns}, coral slots ${stats.slots}/${(engine.slots.coral || []).length} (dressed ${stats.dressed || 0}), kelp slots ${stats.kelpSlots}/${(engine.slots.kelp || []).length}, dress6 ${stats.dress6}`);
   console.log('[marine] species ' + JSON.stringify(res.bySpecies) + ' keep ' + JSON.stringify(lib.filter.stats));
 }
 

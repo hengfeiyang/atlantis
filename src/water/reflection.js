@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { ATMO } from '../core/atmosphere.js';
 import { SKY } from '../core/sky.js';
+import { UW } from '../core/underwater.js';
 
 export class PlanarReflection {
   constructor(engine, { level = 0, scale = 0.5 } = {}) {
@@ -118,6 +119,11 @@ export class PlanarReflection {
     renderer.xr.enabled = false;
     renderer.shadowMap.autoUpdate = false;
     ATMO.uAtmoEnabled.value = 0;
+    // r3 (sunken era): the mirrored camera sits UNDER the sea surface — the underwater core would render the sky as
+    // the Snell-window fallback and light everything as submerged (bright blue reflections in ref 9's dusk sea).
+    // Everything the reflection sees is above the surface: push the medium's surface away for the pass.
+    const prevSurf = this.engine.era === 'sunken' && UW?.uUwSurface ? UW.uUwSurface.value : null;
+    if (prevSurf !== null) UW.uUwSurface.value = -1e5;
     // no sun disk (the GGX sun term on the water does the glint). NOT uEnvPass: that would also scale the
     // sky down to the dim IBL level (SKY.uEnvScale) and subdue the clouds — reflections need the visible sky.
     if (SKY.uSunDisk) SKY.uSunDisk.value = 0;
@@ -128,6 +134,7 @@ export class PlanarReflection {
     renderer.setRenderTarget(prevRT);
     if (SKY.uSunDisk) SKY.uSunDisk.value = prevDisk;
     ATMO.uAtmoEnabled.value = prevAtmo;
+    if (prevSurf !== null) UW.uUwSurface.value = prevSurf;
     renderer.shadowMap.autoUpdate = prevShadow;
     renderer.xr.enabled = prevXR;
     this.hidden.forEach((o, i) => { o.visible = vis[i]; });

@@ -283,8 +283,8 @@ vec3 tFields(vec3 P, float fp, float moist, out float hgt, out float treeW) {
   vec2 cell = floor(uv / sz), f = fract(uv / sz);
   float h = cgHash12(cell + rc.z * 31.0);
   float h2 = cgHash12(cell * 1.7 + 4.1);
-  vec3 wheat = vec3(0.245, 0.195, 0.085), crop = vec3(0.080, 0.110, 0.036), pasture = vec3(0.110, 0.125, 0.052);
-  vec3 plough = vec3(0.150, 0.105, 0.065), dry = vec3(0.180, 0.150, 0.085);
+  vec3 wheat = vec3(0.300, 0.235, 0.095), crop = vec3(0.085, 0.135, 0.036), pasture = vec3(0.125, 0.150, 0.055);   // r3: lusher, warmer
+  vec3 plough = vec3(0.175, 0.115, 0.068), dry = vec3(0.215, 0.180, 0.095);
   vec3 c = h < 0.22 ? wheat : h < 0.42 ? crop : h < 0.62 ? pasture : h < 0.74 ? plough : dry;
   c *= 0.85 + 0.3 * h2;
   c = mix(c, crop * 1.1, smoothstep(0.55, 0.95, moist) * 0.5);
@@ -374,7 +374,7 @@ float plainW = smoothstep(1950.0, 2150.0, rr) * smoothstep(2.0, 5.0, P.y) * smoo
 if (plainW > 0.0) {
   float fh, tw;
   vec3 fc = tFields(P, fp, moist, fh, tw);
-  vec3 treeC = mix(vec3(0.028, 0.042, 0.020), vec3(0.050, 0.064, 0.030), smoothstep(-0.5, 0.6, mC)) * (0.75 + 0.5 * smoothstep(-0.6, 0.6, cgSnoise(P * 0.18)));
+  vec3 treeC = mix(vec3(0.034, 0.056, 0.022), vec3(0.062, 0.084, 0.032), smoothstep(-0.5, 0.6, mC)) * (0.75 + 0.5 * smoothstep(-0.6, 0.6, cgSnoise(P * 0.18)));
   fc = mix(fc, treeC, tw);
   g = mix(g, fc, plainW);
   gH = mix(gH, fh, plainW);
@@ -416,6 +416,59 @@ float hgt = mix(gH, tlH + cvegH, rockW);
 tN = normalize(mix(tN, tlN, rockW * (1.0 - fw)));
 float rough = mix(0.95, tlRgh, rockW);
 float ao = mix(1.0, tlAO, rockW);
+
+// ---------------- r3: citadel hillside (refs 4, 5): warm grey-tan limestone crags at mid contrast, maquis
+// clinging to them, planted soil terraces on every bench. The lit benches are dark soil / shrubs and the
+// (mostly shaded) risers paler rock, so sun-lit vs shaded parts no longer read as black / white blotches.
+float citS = smoothstep(109.6, 110.4, rr) * (1.0 - smoothstep(213.5, 219.0, rr)) * (1.0 - fw) * smoothstep(1.0, 4.0, P.y);
+if (citS > 0.0) {
+  float upC = smoothstep(0.50, 0.86, N.y + 0.12 * mD + 0.06 * mC);
+  // rock: tLime structure kept (beds, joints) but compressed toward a warm mid grey-tan
+  float rl = dot(tlAlb, vec3(0.3, 0.59, 0.11));
+  vec3 crk = mix(vec3(0.250, 0.212, 0.170), vec3(0.360, 0.312, 0.250), smoothstep(-0.5, 0.6, mB + 0.5 * mC + 0.3 * mD));
+  crk = mix(crk, crk * vec3(1.12, 0.93, 0.74), ochre * 0.5);
+  vec3 rcC = crk * clamp(0.62 + 0.75 * rl, 0.55, 1.25);
+  rcC = mix(rcC, rcC * vec3(0.80, 0.84, 0.74), smoothstep(0.55, 0.95, cav) * 0.5);   // damp crevices, not black
+  // maquis: lentisk / myrtle / oleander clumps (rounded, mid-dark green, olive highlights)
+  float shN = cgSnoise(P * 0.19 + 3.0) + 0.55 * cgSnoise(P * 0.52 + 1.0) * (1.0 - smoothstep(0.2, 0.8, fp)) + 0.35 * mC + 0.25 * cav;
+  float shrub = smoothstep(-0.20, 0.25, shN + 0.85 * upC - 0.30);
+  float lf = cgSnoise(P * 1.7 + 2.0) * (1.0 - smoothstep(0.06, 0.3, fp));
+  vec3 mq = mix(vec3(0.050, 0.100, 0.026), vec3(0.130, 0.165, 0.052), smoothstep(-0.5, 0.7, cgSnoise(P * 0.33 + 9.0) + 0.4 * mC)) * (0.85 + 0.3 * lf);
+  // soil terraces: warm red-brown garden earth and dry grass between the shrubs
+  vec3 terr = mix(vec3(0.205, 0.140, 0.085), vec3(0.150, 0.145, 0.070), smoothstep(-0.3, 0.5, mB + 0.4 * mD));
+  vec3 hill = mix(rcC, mix(terr, mq, shrub), upC);
+  hill = mix(hill, mq, shrub * (1.0 - upC) * 0.6);   // shrubs hanging on the crags
+  col = mix(col, hill, citS);
+  hgt = mix(hgt, mix(tlH * 0.7, 0.12 * shN * (1.0 - smoothstep(0.1, 0.4, fp)), upC), citS);
+  tN = normalize(mix(tN, mix(tlN, N, upC), citS));
+  rough = mix(rough, 0.92, citS);
+  ao = mix(ao, mix(mix(1.0, tlAO, 0.45), 0.9 + 0.1 * shrub, upC), citS);
+  rockW = mix(rockW, 1.0 - upC, citS);
+}
+// r3: the plateau rim (r 110 → 114, 62 → 42) is a built retaining wall under the red rampart: dressed ashlar
+// courses, warm limestone, weathering streaks (shape.js makes it a clean battered face, field.js no rock there)
+float pwW = smoothstep(109.4, 110.1, rr) * (1.0 - smoothstep(114.0, 114.8, rr)) * smoothstep(0.45, 0.75, 1.0 - abs(N.y)) * (1.0 - fw);
+if (pwW > 0.0) {
+  float arc = atan(P.x, -P.z) * 112.0;
+  float cyc = (P.y - 42.0) / 0.94;
+  float ci = floor(cyc);
+  float bl = 1.7 + 0.9 * cgHash12(vec2(ci, 3.7));
+  float cxx = arc / bl + 0.5 * mod(ci, 2.0) + cgHash12(vec2(ci, 9.1));
+  float bi = floor(cxx);
+  float jy = min(fract(cyc), 1.0 - fract(cyc)) * 0.94, jx = min(fract(cxx), 1.0 - fract(cxx)) * bl;
+  float jnt = 1.0 - smoothstep(0.018, 0.05 + fp * 0.6, min(jx, jy));
+  float bh = cgHash12(vec2(bi, ci) + 0.37);
+  vec3 ash = mix(vec3(0.48, 0.43, 0.36), vec3(0.58, 0.53, 0.45), bh) * (0.92 + 0.12 * mD);
+  float stk = smoothstep(0.1, 0.6, cgSnoise(vec3(arc * 0.35, P.y * 0.03, 1.0)) + 0.3 * mC);
+  ash = mix(ash, ash * vec3(0.62, 0.62, 0.60), stk * 0.5 * smoothstep(42.0, 60.0, P.y));
+  ash = mix(ash, ash * vec3(0.55, 0.62, 0.45), smoothstep(48.0, 42.0, P.y) * 0.5);    // damp, green foot
+  ash *= 1.0 - 0.55 * jnt;
+  col = mix(col, ash, pwW);
+  hgt = mix(hgt, -0.03 * jnt + 0.012 * (bh - 0.5), pwW);
+  tN = normalize(mix(tN, N, pwW));
+  ao = mix(ao, 1.0 - 0.3 * jnt, pwW);
+  rough = mix(rough, 0.85, pwW);
+}
 
 // ---------------- shores and beds (golden sea level y = 0)
 float emerg = smoothstep(-2.0, -7.0, wd) * smoothstep(2.5, 1.2, P.y) * (1.0 - fw);
@@ -460,14 +513,17 @@ float cv = clamp(curv, -3.0, 3.0);
 float yb = P.y * 0.03 + 1.8 * cgSnoise(vec3(P.xz * 0.0006, 2.2)) + 0.35 * cgSnoise(P * 0.004);
 float band = smoothstep(-0.5, 0.5, sin(yb * 6.2831 + 2.0 * cgSnoise(P * 0.002)));
 // rock: blue-grey limestone/gneiss, lighter fresh faces, warm weathered patches, dark wet streaks
-vec3 rockF = mix(vec3(0.270, 0.262, 0.252), vec3(0.480, 0.440, 0.375), // r4: far rock 0.18-0.32 (shaded faces mid grey-blue under haze, not near-black); r5 warmer light rock
+vec3 rockF = mix(vec3(0.300, 0.268, 0.236), vec3(0.560, 0.488, 0.392),   // r3: warmer tan / cream lit rock (refs 1, 4)
+   // r4: far rock 0.18-0.32 (shaded faces mid grey-blue under haze, not near-black); r5 warmer light rock
    smoothstep(-0.55, 0.65, mB + 0.45 * (band - 0.5) * slope + 0.25 * strk));
-rockF = mix(rockF, vec3(0.300, 0.255, 0.195), smoothstep(0.15, 0.75, mA + 0.25 * strk + 0.2 * mB) * 0.7);
+rockF = mix(rockF, vec3(0.420, 0.318, 0.215), smoothstep(0.15, 0.75, mA + 0.25 * strk + 0.2 * mB) * 0.7);
+// r3: strata ledges / risers on the steep faces (more structure at telephoto, refs 1, 4)
+rockF *= mix(1.0, 0.80 + 0.36 * band, smoothstep(0.25, 0.6, slope));
 rockF *= 0.80 + 0.32 * smoothstep(-0.9, 0.9, strk2) + 0.10 * strk3;
 rockF *= 1.0 + 0.10 * smoothstep(0.0, -2.0, cv) - 0.22 * smoothstep(0.2, 2.5, cv); // fresh ribs, dark damp gullies
 // scree / talus fans: gentler slopes below the faces
 float screeW = smoothstep(0.40, 0.22, slope + 0.08 * mC) * smoothstep(700.0, 1150.0, P.y + 150.0 * mB);
-vec3 screeC = mix(vec3(0.250, 0.243, 0.230), vec3(0.330, 0.318, 0.295), 0.5 + 0.5 * mC);
+vec3 screeC = mix(vec3(0.290, 0.265, 0.235), vec3(0.390, 0.352, 0.300), 0.5 + 0.5 * mC);
 vec3 fc = mix(rockF, screeC, screeW * 0.75) * uFarTint;
 // alpine meadows / dwarf pine above the forest on gentle ground
 float tl = 1380.0 + 240.0 * mA + 110.0 * mB;
@@ -579,6 +635,7 @@ if (uEra > 0.5) {
 
 diffuseColor.rgb = max(col, vec3(0.0));
 if (uTDebug > 0.5) { diffuseColor.rgb = vec3(0.5); ao = 1.0; }
+if (uTDebug > 1.5) { diffuseColor.rgb = vec3(citS, pwW, 0.0); }   // zone debug (citadel hillside / plateau wall)
 tBump = hgt * uTBump; tRough = rough; tAO = ao; tFW = fw;
 cgAO = ao;
 `;

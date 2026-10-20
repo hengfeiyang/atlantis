@@ -48,6 +48,9 @@
 //   uUwAmbTint   vec3   multiplies the IBL (sky) on surfaces under water
 //   uUwSunSurf   float  multiplies the direct sun on surfaces under water
 //   uUwSkyColor  vec3   sky radiance seen through Snell's window (background fallback)
+//   uUwLightMode float  r3: 0 = the light under water is the VISIBLE sun (ATMO.uSunDir, the disk); 1 = the scene
+//                       sun of the shot (shot.sun → SUN.dir, runtime uUwLightDir): ref 9 shows the sun on the horizon in
+//                       front but lights the temple front from behind-left with slanted shafts — decoupled per shot
 //   uUwSteps     float  medium ray-march steps (≤ 24)
 //   uUwWaves     vec4[16] surface waves (kx, kz, amplitude, phase); ω from deep-water dispersion
 //   uUwMeniscus  vec4   x line darkness, y line half-width (uv units), z refraction strength, w on/off
@@ -117,6 +120,8 @@ export const UW = {
   uUwAmbTint: { value: new THREE.Vector3(1.4, 1.45, 1.5) }, // r2 (look-sunken)
   uUwSunSurf: { value: 1.0 },
   uUwSkyColor: { value: new THREE.Vector3(1.6, 2.4, 3.0) },
+  uUwLightMode: { value: 0 },          // r3 (look-sunken)
+  uUwLightDir: { value: new THREE.Vector3(-0.7, 0.35, 0.6).normalize() }, // runtime: SUN.dir
   uUwSteps: { value: 16 },
   uUwWaves: { value: makeWaves() },
   uUwMeniscus: { value: new THREE.Vector4(0.55, 0.0022, 0.5, 1) },
@@ -136,7 +141,7 @@ export const UW = {
 };
 
 // set at runtime (engine / install), never snapshotted or overridden per shot
-export const UW_RUNTIME = new Set(['uUwTime', 'uUwFrame', 'uUwSunDir', 'uUwSunIrr', 'tUwCaustic', 'uUwSlices', 'uUwTile', 'uUwMapRes', 'uUwPixAngle', 'tUwShaft', 'uUwShaftM', 'uUwShaftOn']);
+export const UW_RUNTIME = new Set(['uUwTime', 'uUwFrame', 'uUwSunDir', 'uUwLightDir', 'uUwSunIrr', 'tUwCaustic', 'uUwSlices', 'uUwTile', 'uUwMapRes', 'uUwPixAngle', 'tUwShaft', 'uUwShaftM', 'uUwShaftOn']);
 
 // ------------------------------------------------------------------------------------------------ GLSL
 // surface waves (also used by the caustic-map pass and the meniscus); the water agent may use them for
@@ -194,6 +199,8 @@ uniform vec3 uUwSkyColor;
 uniform float uUwSteps;
 uniform float uUwFrame;
 uniform vec3 uUwSunDir;
+uniform float uUwLightMode;
+uniform vec3 uUwLightDir;
 uniform vec3 uUwSunIrr;
 uniform sampler2D tUwCaustic;   // caustic map: 4 depth slices in RGBA (mean 1), tiled every uUwTile metres
 uniform vec4 uUwSlices;         // refracted path length (m) of each slice
@@ -216,14 +223,17 @@ float uwNoise2(vec2 p){
 
 ${UW_WAVE_GLSL}
 // toward-the-sun direction under water (Snell refraction of the incoming sun light)
+// toward the light in AIR that feeds the water (visible sun, or the shot's scene sun: uUwLightMode)
+vec3 uwSunAir(){ return uUwLightMode > 0.5 ? uUwLightDir : uUwSunDir; }
 vec3 uwSunW(){
-  vec3 s = normalize(vec3(uUwSunDir.x, max(uUwSunDir.y, 0.02), uUwSunDir.z));
+  vec3 sa = uwSunAir();
+  vec3 s = normalize(vec3(sa.x, max(sa.y, 0.02), sa.z));
   vec3 t = refract(-s, vec3(0.0, 1.0, 0.0), 1.0 / 1.333);
   return -normalize(t);
 }
 // Fresnel transmission of the sun light into the water (Schlick, F0 = 0.02)
 float uwSunTransmit(){
-  float c = clamp(uUwSunDir.y, 0.02, 1.0);
+  float c = clamp(uwSunAir().y, 0.02, 1.0);
   float m = 1.0 - c; float m2 = m * m;
   return 1.0 - (0.02 + 0.98 * m2 * m2 * m);
 }
@@ -685,7 +695,8 @@ export function installUnderwater(engine, deps) {
       // toward the VISIBLE sun (ATMO.uSunDir, set per shot by the look) + the lighting's soft-shadow jitter,
       // so CSM shadows / N·L agree with the caustics, shafts and Snell's window
       const jit = csm.lightDirection.clone().negate().sub(SUN.dir);
-      const d = ATMO.uSunDir.value.clone().normalize().add(jit);
+      UW.uUwLightDir.value.copy(SUN.dir);
+      const d = (UW.uUwLightMode.value > 0.5 ? SUN.dir : ATMO.uSunDir.value).clone().normalize().add(jit);
       d.y = Math.max(d.y, 0.02); d.normalize();
       const t = refract(d.clone().negate(), 1 / 1.333);
       csm.lightDirection.copy(t);
@@ -701,6 +712,7 @@ export function installUnderwater(engine, deps) {
       }
     },
     onShot() {
+      UW.uUwLightDir.value.copy(SUN.dir);
       UW.uUwSunIrr.value.set(SUN.color.r, SUN.color.g, SUN.color.b).multiplyScalar(SUN.intensity);
       placeSnow();
       UW.uUwPixAngle.value = (2 * Math.tan((engine.camera.fov * Math.PI) / 360)) / engine.height;
@@ -738,7 +750,7 @@ export function installUnderwater(engine, deps) {
     fwd.y = 0; if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, -1); fwd.normalize();
     const F = cam.position.clone().addScaledVector(fwd, R * 0.62);
     F.y = Math.min(F.y, UW.uUwSurface.value);
-    const d = ATMO.uSunDir.value.clone().normalize(); d.y = Math.max(d.y, 0.02); d.normalize();
+    const d = (UW.uUwLightMode.value > 0.5 ? SUN.dir : ATMO.uSunDir.value).clone().normalize(); d.y = Math.max(d.y, 0.02); d.normalize();
     const sw = refract(d.clone().negate(), 1 / 1.333).negate();     // toward the sun, under water
     const up = (UW.uUwSurface.value + 40 - F.y) / Math.max(sw.y, 0.1);
     shaftLight.position.copy(F).addScaledVector(sw, up);

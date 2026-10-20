@@ -280,6 +280,7 @@ uniform vec4 uFallK2;  // x: white-water threshold offset, y: edge raggedness, z
 uniform vec3 uFallWhite; // aerated water albedo (blue-white)
 uniform vec3 uFallGap;   // thin clear falling water between the white streaks (dark slate)
 uniform vec3 uFallGlass; // glassy lip
+uniform vec3 uFallAmb;   // r3: sky light scattered inside the aerated water (keeps shaded falls white, refs 1, 4, 5)
 float wfAlpha; float wfAer; float wfStreak; float wfRough; float wfCasc; float wfTilt; float wfW; float wfStrandK;
 varying float vFallSh;
 // fades a pattern of period P (m) to its mean once it is finer than ~1.5 px (pf: metres per pixel)
@@ -492,6 +493,7 @@ const EMISSIVE = /* glsl */`
   // rolling white water of the cascade band (ref 7): churning foam scatters skylight and the sun glow of
   // the spray around it, so it stays bright white even where the bay is in shade
   totalEmissiveRadiance += uSunCol * diffuseColor.rgb * uFallK2.w * 0.3 * wfCasc * wfW * mix(0.6, 1.0, vFallSh);
+  totalEmissiveRadiance += uFallAmb * diffuseColor.rgb * wfW * wfAer * (1.0 - 0.6 * vFallSh);
   if (uDebug > 1.5 && uDebug < 4.5) totalEmissiveRadiance = diffuseColor.rgb * 3.0;
   if (uDebug > 4.5 && uDebug < 5.5) totalEmissiveRadiance = vec3(0.0);
   if (uDebug > 7.5) totalEmissiveRadiance = diffuseColor.rgb * 3.0;
@@ -508,9 +510,10 @@ export function createFallMaterial({ hTex = null, hBounds = [0, 0, 1, 1], unifor
     uDebug: { value: 0 },
     uFallK: { value: new THREE.Vector4(1, 1, 0.72, 1) },
     uFallK2: { value: new THREE.Vector4(0.06, 1, 0.4, 1) },
-    uFallWhite: { value: new THREE.Color(0.5, 0.58, 0.66) },
+    uFallWhite: { value: new THREE.Color(0.56, 0.63, 0.7) },
     uFallGap: { value: new THREE.Color(0.075, 0.1, 0.12) },
     uFallGlass: { value: new THREE.Color(0.035, 0.06, 0.065) },
+    uFallAmb: { value: new THREE.Color(0, 0, 0) },
   };
   const uniforms = shared || defaults;
   if (shared) for (const [k, v] of Object.entries(defaults)) if (!shared[k] || (k === 'uFallK2' && shared[k].value.w === 0)) shared[k] = v;

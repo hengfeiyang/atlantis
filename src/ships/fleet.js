@@ -139,6 +139,7 @@ export function buildHero(engine, spec) {
     g.rotation.set(0, rotYOf(spec.heading), 0, 'YXZ');
     g.rotateZ(-(spec.heel || 0) + 0.012 * Math.sin(t * 0.9));
     g.rotateX(-(spec.pitch || 0) + 0.008 * Math.sin(t * 1.3 + 1));
+    if (spec.lengthScale) g.scale.set(1, 1, spec.lengthScale);
   };
   setOars(0); place(0);
   engine.onUpdate((t) => { setOars(t); place(t); });

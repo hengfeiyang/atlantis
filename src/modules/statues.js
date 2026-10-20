@@ -66,6 +66,9 @@ function coralFrom(engine, meshObj, count, size, tag, label) {
 }
 
 // ------------------------------------------------------------------ the chariot group
+// r3 (director): the six horses read ≈ 0.7× (ref 3: they rear in front of the lower colonnade, Poseidon towers over them);
+// scaled about their hip-ground origin (hind hooves stay in the waves), drawn a little closer together
+const HORSE_K = 0.7, HORSE_SPREAD = 0.84;
 async function buildChariot(engine, reg, stats) {
   const sunken = isSunken(engine);
   const C = L.CHARIOT;
@@ -90,7 +93,7 @@ async function buildChariot(engine, reg, stats) {
     if (sunken && h.i === 4) continue; // broken off: lies on the paving (below)
     const key = sunken && h.i === 1 ? 'C-dmg' : h.variant;
     const g = await statueGeometry('stat-horse-' + key);
-    const m = add(mesh(g, body, { pos: [h.x, h.y, h.z], rotY: h.yaw, s: h.scale, mirror: h.mirror, name: 'chariot-horse-' + h.i }));
+    const m = add(mesh(g, body, { pos: [h.x * HORSE_SPREAD, h.y, h.z], rotY: h.yaw, s: h.scale * HORSE_K, mirror: h.mirror, name: 'chariot-horse-' + h.i }));
     horseInfo.push(m);
   }
   const PS = LAY.poseidon;
@@ -105,7 +108,7 @@ async function buildChariot(engine, reg, stats) {
   // sunken: the broken horse lies on its side on the paving in front of the pedestal (ref 6)
   if (sunken) {
     const g = await statueGeometry('stat-horse-A-broken');
-    const s = LAY.horses[4].scale * (LAY.groupScale ?? 1);
+    const s = LAY.horses[4].scale * HORSE_K * (LAY.groupScale ?? 1);
     const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12, -Math.PI / 2 + 0.35, Math.PI / 2 - 0.15, 'YXZ'));
     const ground = L.CITADEL.summit + 0.15;
     // rest the lowest point on the paving (sunk a little into the sand)
@@ -208,8 +211,37 @@ async function buildSunkenTrident(engine, reg, stats) {
   const lean = new THREE.Group();
   lean.position.set(T.base[0] * s, 0, T.base[2] * s);
   lean.rotation.set(0.035, 0, -0.05);
-  lean.add(mesh(tg, statueMat(engine, 'gold'), { pos: [0, T.base[1] * s - 0.6, 0], s, name: 'colossus-trident' }));
+  // r3 (citadel): encrusted gold (coral / verdigris patches, the gold glinting through; ref 9 / ref 8 trident)
+  let tmat = statueMat(engine, 'gold');
+  try { const MT = await import('../materials/metal.js'); tmat = MT.goldMaterial({ crust: 0.42, crustScale: 0.45 }); } catch (e) { console.warn('[statues] crusted gold skipped', e.message); }
+  lean.add(mesh(tg, tmat, { pos: [0, T.base[1] * s - 0.6, 0], s, name: 'colossus-trident' }));
   grp.add(lean);
+  // r3 (citadel, ref 9): the broken stump of the colossus — feet, shins and a shattered knee block, encrusted bronze —
+  // rises from the pedestal toward the surface; its top fragment just breaks the water beside the trident
+  try {
+    const { roughBlockGeometry } = await import('../arch/ruins.js');
+    const MT = await import('../materials/metal.js');
+    const bm = MT.bronzeMaterial({ crust: 0.62, crustScale: 0.6 });
+    const rise = L.SUNKEN.surface - top;   // ≈ 12 m of water over the pedestal
+    const parts = [
+      { size: [7.2, 2.4, 8.4], pos: [0, -0.3, 0.4], rot: [0, 0.1, 0] },                                   // the feet / plinth of the figure
+      { size: [2.7, rise * 0.42, 3.0], pos: [-1.7, 2.0, 0.6], rot: [0.04, 0.2, 0.06] },                   // left shin
+      { size: [2.5, rise * 0.36, 2.8], pos: [1.6, 2.0, -0.2], rot: [-0.05, -0.3, -0.08] },               // right shin (shorter)
+      { size: [4.6, rise * 0.22, 3.6], pos: [-0.9, 2.0 + rise * 0.42 - 0.3, 0.4], rot: [0.08, 0.5, 0.12] },  // shattered knee block
+      { size: [4.2, rise * 0.82, 3.8], pos: [T.base[0] * s * 0.7, 0.4, T.base[2] * s * 0.7 + 0.3], rot: [0.06, 0.7, -0.05] },   // fallen thigh block heaped against the shaft
+      { size: [2.6, rise - (2.0 + rise * 0.64) + 2.4, 2.3], pos: [T.base[0] * s * 0.62 - 1.2, 2.0 + rise * 0.64 - 0.6, T.base[2] * s * 0.62 + 0.9], rot: [0.15, 1.1, -0.1] },  // top shard, breaks the surface (≈ 1.5 m)
+      { size: [2.0, rise - (2.0 + rise * 0.6) + 1.2, 1.7], pos: [T.base[0] * s * 0.8 + 1.6, 2.0 + rise * 0.6 - 0.4, T.base[2] * s * 0.8 - 0.8], rot: [-0.2, 0.4, 0.18] },   // second shard, awash
+    ];
+    parts.forEach((P, i) => {
+      const g = roughBlockGeometry({ size: P.size, seed: 70 + i, chip: 0.18, broken: { py: 0.6, nz: 0.4, px: 0.3 }, detail: 0.7 });
+      const m = new THREE.Mesh(g, bm);
+      m.position.set(...P.pos); m.rotation.set(...P.rot);
+      m.name = 'colossus-stump-' + i;
+      grp.add(m);
+      stats.tris += tris(g);
+    });
+    for (let i = 0; i < 6; i++) engine.slots.coral.push({ pos: [Cl.pos[0] + (ruinRand('stumpc' + i) - 0.5) * 6, top + 2.2 + i * 0.6, Cl.pos[2] + (ruinRand('stumpc' + i, 1) - 0.5) * 6], normal: [0, 1, 0], size: 0.9, tag: 'colossus-stump' });
+  } catch (e) { console.warn('[statues] colossus stump skipped', e.message); }
   // rubble of the feet around the butt
   try {
     const { roughBlockGeometry } = await import('../arch/ruins.js');

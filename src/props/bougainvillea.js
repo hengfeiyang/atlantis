@@ -178,7 +178,7 @@ export function bougainvilleaMaterial() {
     head: /* glsl */`varying float vAO; vec3 cgBougTrans = vec3(0.0); float cgBougSpec = 1.0;`,
     color: /* glsl */`
       vec3 c = diffuseColor.rgb;
-      if (vAO < 0.4) {
+      if (vAO < 0.15) {
         // opaque core between the cards: leafy cellular breakup, deep shade, a few bract specks
         vec2 vc = cgVoronoi3(cgP * 26.0);
         float cell = smoothstep(0.02, 0.3, vc.y - vc.x);
@@ -192,13 +192,15 @@ export function bougainvilleaMaterial() {
       c *= mix(0.85, 1.15, n);
       if (!gl_FrontFacing) c = mix(c, c * vec3(1.15, 1.2, 1.0), 0.5 * (1.0 - bract));
       // bracts: deep saturated magenta (refs 3, 5), not pastel
-      vec3 cb = c * vec3(0.78, 0.6, 0.82);
-      cb = max(vec3(0.0), mix(vec3(cgLuma(cb)), cb, 1.6));
+      // r3: sampled refs 3/5 — sunlit bracts ≈ sRGB (210, 7, 81), shaded (90-120, 5-20, 20-35): crimson-magenta, almost no
+      // green; lower albedo so the low sun does not push them into the desaturating shoulder (they read candy-pink)
+      vec3 cb = c * vec3(0.64, 0.19, 0.52);
+      cb = max(vec3(0.0), mix(vec3(cgLuma(cb)), cb, 1.75));
       c = mix(c, cb, bract);
       diffuseColor.rgb = c;
-      cgBougTrans = vAO < 0.4 ? vec3(0.0) : mix(vec3(0.05, 0.085, 0.015) * (0.6 + 0.6 * n), c * vec3(0.7, 0.3, 0.55), bract);`,
-    roughness: /* glsl */`float bq = smoothstep(0.02, 0.12, diffuseColor.r - diffuseColor.g); roughnessFactor = vAO < 0.4 ? 0.9 : mix(0.45, 0.8, bq); cgBougSpec = vAO < 0.4 ? 0.3 : mix(0.45, 0.2, bq);`,
-    ao: /* glsl */`cgAO = vAO;`,
+      cgBougTrans = vAO < 0.15 ? vec3(0.0) : mix(vec3(0.05, 0.085, 0.015) * (0.6 + 0.6 * n), c * vec3(0.75, 0.12, 0.4), bract);`,
+    roughness: /* glsl */`float bq = smoothstep(0.02, 0.12, diffuseColor.r - diffuseColor.g); roughnessFactor = vAO < 0.15 ? 0.9 : mix(0.45, 0.8, bq); cgBougSpec = vAO < 0.15 ? 0.3 : mix(0.45, 0.2, bq);`,
+    ao: /* glsl */`cgAO = vAO < 0.15 ? 0.35 : vAO;`,
   });
   mat.alphaToCoverage = true;
   mat.userData.sunken = 'none';
@@ -248,7 +250,7 @@ class CardBuilder {
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
       const p = grid[j][i], n = normals[j][i];
       this.pos.push(p.x, p.y, p.z); this.nor.push(n.x, n.y, n.z);
-      this.uv.push(CORE_UV[0], CORE_UV[1]); this.col.push(0.6, 0.6, 0.6); this.ao.push(0.35); this.sway.push(0);
+      this.uv.push(CORE_UV[0], CORE_UV[1]); this.col.push(0.6, 0.6, 0.6); this.ao.push(0.1); this.sway.push(0);
     }
     for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) { const a = base + j * nx + i; this.idx.push(a, a + nx, a + 1, a + 1, a + nx, a + nx + 1); }
   }
@@ -295,13 +297,15 @@ function fillMass(B, r, sample, area, o) {
     if (s.down) tip = new V(0, -1, 0).addScaledVector(s.side || new V(1, 0, 0), (r() - 0.5) * 2.2).addScaledVector(s.n, 0.3 + 0.4 * r()).normalize();
     else tip = s.n.clone().multiplyScalar(0.6).add(new V(r() - 0.5, 0.6 + r(), r() - 0.5)).normalize();
     if (Math.abs(tip.dot(nrm)) > 0.95) tip.add(new V(0.3, 0, 0.3)).normalize();
-    const ao = Math.min(1, 0.45 + 0.6 * (1 - depth / ((o.thickness ?? 0.18) + 1e-3)) * (s.light ?? 1));
+    // r3: deeper self-shading inside the mass (refs 3/5 show dark gaps between the bract clusters)
+    const ao = Math.min(1, 0.22 + 0.85 * Math.pow(1 - depth / ((o.thickness ?? 0.18) + 1e-3), 1.4) * (s.light ?? 1));
     B.card(at, tip, nrm, w, h, cell(kind), { anchor, cup: cupv, colr: tint(r, kTint), ao, sway: (o.sway ?? 0.012) * (0.4 + s.t), shadeN: s.n.clone().addScaledVector(nrm, 0.5).normalize() });
   };
   for (let i = 0; i < nSpray; i++) { const L = ls * (0.26 + 0.14 * r()); place('spray', L, L, 'base', 0.1, 0.95); }
   for (let i = 0; i < nLeaf; i++) { const L = ls * (0.08 + 0.06 * r()); place('leaf', L * 0.55, L, 'base', 0.25, 1); }
-  for (let i = 0; i < nClu; i++) { const L = ls * (0.15 + 0.1 * r()); place('cluster', L, L, 'centre', 0.12, 1.0); }
-  for (let i = 0; i < nTri; i++) { const L = ls * (0.05 + 0.035 * r()); place('triplet', L, L, 'centre', 0.2, 1.0); }
+  // r3: smaller, more numerous bract clusters (at 2-5 m the big cards read as flat 4-petal flowers)
+  for (let i = 0; i < Math.round(nClu * 1.35); i++) { const L = ls * (0.12 + 0.09 * r()); place('cluster', L, L, 'centre', 0.12, 0.92 + 0.16 * r()); }
+  for (let i = 0; i < nTri; i++) { const L = ls * (0.035 + 0.03 * r()); place('triplet', L, L, 'centre', 0.2, 1.0); }
   return nLeaf + nClu + nTri + nSpray;
 }
 
@@ -310,7 +314,7 @@ export class BougainvilleaSet {
   constructor(engine) {
     this.engine = engine;
     this.B = new CardBuilder();
-    this.density = Math.max(0.6, engine.quality?.density ?? 1);
+    this.density = Math.min(0.8, Math.max(0.6, engine.quality?.density ?? 1));   // r3: capped (cards are dense enough at 0.8)
     this.count = 0; this.cards = 0;
   }
 
@@ -319,7 +323,7 @@ export class BougainvilleaSet {
    * top: point on the top outer edge; facing: compass deg outward; length along the edge; drop: max hang (m);
    * depth: how far the mass spreads back over the top (m); ground(x,z) optional floor clamp.
    */
-  curtain({ top, facing = 180, length = 2, drop = 1.4, depth = 0.5, mound = 0.35, seed, density = 1, family, ground, flower = 1 }) {
+  curtain({ top, facing = 180, length = 2, drop = 1.4, depth = 0.5, mound = 0.35, seed, density = 1, family, ground, flower = 1, slope = 0, leafScale = 1 }) {
     const r = rng(seed ?? hashString('bc' + top.map((v) => v.toFixed(2)).join(',')));
     const f = (facing * Math.PI) / 180;
     const out = new V(Math.sin(f), 0, -Math.cos(f)), along = new V(Math.cos(f), 0, Math.sin(f));
@@ -335,7 +339,8 @@ export class BougainvilleaSet {
     const moundH = (u, v) => mound * Math.sin(Math.PI * v) * (0.6 + 0.4 * Math.sin(u * length * 3.1 + ph[1])) * Math.pow(Math.sin(Math.PI * u), 0.4);
     // envelope point for (u along 0..1, w: -1 back on top → 0 edge → 1 bottom of the hang)
     const env = (u, w) => {
-      const base = P0.clone().addScaledVector(along, (u - 0.5) * length);
+      // slope: rise (m per m) of the edge along `along` (sloping stair copings, r3)
+      const base = P0.clone().addScaledVector(along, (u - 0.5) * length).addScaledVector(UP, (u - 0.5) * length * slope);
       if (w <= 0) {
         const v = -w; // 0 at the edge → 1 at the back
         const p = base.addScaledVector(out, -v * depth + 0.04).addScaledVector(UP, 0.03 + moundH(u, 1 - v * 0.9));
@@ -355,7 +360,7 @@ export class BougainvilleaSet {
       if (rr() < fracTop) return env(u, -rr());
       const s = Math.pow(rr(), 0.8);
       const e = env(u, s); e.light = 1 - 0.4 * s; return e;
-    }, area, { density: density * this.density, thickness: 0.2, family, flower });
+    }, area, { density: density * this.density, thickness: 0.2, family, flower, leafScale });
     // dark core under the cards
     const nx = Math.max(3, Math.round(length * 4)), grid = [], nor = [];
     for (let j = 0; j <= 6; j++) {
@@ -370,7 +375,7 @@ export class BougainvilleaSet {
   }
 
   /** dome mound (pots, planters, beds): base centre pos, radius, height; spill = how far strands hang over (m) */
-  bush({ pos, radius = 0.6, height = 0.7, spill = 0.3, seed, density = 1, family, flower = 1 }) {
+  bush({ pos, radius = 0.6, height = 0.7, spill = 0.3, seed, density = 1, family, flower = 1, leafScale = 1 }) {
     const r = rng(seed ?? hashString('bb' + pos.map((v) => v.toFixed(2)).join(',')));
     const P0 = new V(...pos);
     const lumps = Array.from({ length: 6 }, () => [r() * 6.283, 0.2 + 0.6 * r(), 0.1 + 0.12 * r()]);
@@ -394,7 +399,7 @@ export class BougainvilleaSet {
       const q = shell(a, e);
       const n = new V(q.x / radius, q.y / height, q.z / radius).normalize();
       return { p: P0.clone().add(q), n, t: 0.2, down: false, light: 0.7 + 0.3 * e };
-    }, area, { density: density * this.density, thickness: 0.22, family, flower });
+    }, area, { density: density * this.density, thickness: 0.22 * Math.sqrt(leafScale), family, flower, leafScale });
     // core
     const grid = [], nor = [];
     for (let j = 0; j <= 5; j++) {
@@ -408,7 +413,7 @@ export class BougainvilleaSet {
   }
 
   /** vine climbing a column / pier: base on the axis, radius of the column, height; densest toward `side` (deg) */
-  climb({ pos, radius = 0.45, height = 4, side = 180, coverage = 0.55, crown = 0.8, seed, density = 1, family, flower = 1 }) {
+  climb({ pos, radius = 0.45, height = 4, side = 180, coverage = 0.55, crown = 0.8, seed, density = 1, family, flower = 1, leafScale = 1 }) {
     const r = rng(seed ?? hashString('bk' + pos.map((v) => v.toFixed(2)).join(',')));
     const P0 = new V(...pos);
     const sideA = Math.atan2(-Math.cos((side * Math.PI) / 180), Math.sin((side * Math.PI) / 180));
@@ -437,7 +442,7 @@ export class BougainvilleaSet {
       const rad = new V(Math.cos(a), 0, Math.sin(a));
       const p = P0.clone().addScaledVector(rad, radius + 0.06 + 0.1 * rr()).addScaledVector(UP, y);
       return { p, n: rad.clone(), t: 0.3, down: rr() < 0.6, side: new V(-rad.z, 0, rad.x), light: 0.85 };
-    }, area, { density: density * this.density * 0.8, thickness: 0.12, family, flower: flower * 0.9 });
+    }, area, { density: density * this.density * 0.8, thickness: 0.12, family, flower: flower * 0.9, leafScale });
     this.count++;
     return this;
   }

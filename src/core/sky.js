@@ -61,9 +61,20 @@ export const SKY = {
   uCloudLight: { value: new THREE.Vector2(999, 1) }, // x: elevation (deg) the cumulus are lit from (999 = the sun's), y: light optical-depth scale
   uCloudGlowAmb: { value: 0 },  // 0..1+: cloud ambient tinted toward the sky-glow colour inside the glow region
   uCloudFar: { value: new THREE.Vector2(9000, 38000) }, // far-field thinning of the cumulus (start, end m)
-  uCloudFarMin: { value: 0.35 },   // r2 (look-golden): density multiplier reached at uCloudFar.y (0 = clear low sky: the low sun shows)
+  uCloudFarMin: { value: 0.35 },
+  // r3 (look-golden): density exponent (> 1 = thinner, softer edges, the cores unchanged: the r2 cumulus read as paper cut-outs
+  // with a bright outline when lit from a low sun)
+  uCloudEdge: { value: 1.0 },
+  uCloudStep: { value: new THREE.Vector2(30, 0.01) }, // r3: coarse march step = x + y·t (m)   // r2 (look-golden): density multiplier reached at uCloudFar.y (0 = clear low sky: the low sun shows)
   // ---- high cirrus / altocumulus streaks (refs 1, 3, 7): x amount, y altitude (m), z streak direction (rad)
   uCirrus: { value: new THREE.Vector3(0.25, 7500, 0.6) },
+  // ---- r3 (look-golden): sunset streaks — thin stratocumulus / altostratus bands low over the horizon (refs 1, 3, 5:
+  // dark orange-brown bars across the glow beside the low sun with bright rims, peach / lavender farther from it).
+  // x amount (0 = off), y altitude (m), z elevation (deg) where they fade out, w coverage threshold (0..1, higher = fewer)
+  uStreak: { value: new THREE.Vector4(0, 2600, 9, 0.55) },
+  uStreakCol: { value: new THREE.Vector3(0.62, 0.42, 0.3) },  // body = sky colour × this near the sun (backlit, darker)
+  uStreakFar: { value: new THREE.Vector3(1.05, 0.92, 0.95) }, // body = haze colour × this away from the sun (front-lit)
+  uStreakRim: { value: 2.0 },                                  // silver-gold rim brightness near the sun
   uEnvPass: { value: 0 },
   uEnvScale: { value: 0.21 },       // IBL fill relative to the visible sky (art-directed contrast: deep shadows)
   uEnvBlue: { value: 0.1 },         // IBL bias toward the zenith blue (0 = neutral sky fill, higher = cooler shadows)
@@ -200,9 +211,15 @@ uniform float uCloudPowder;
 uniform float uCloudErode;
 uniform vec2 uCloudFar;
 uniform float uCloudFarMin;
+uniform float uCloudEdge;
+uniform vec2 uCloudStep;
 uniform float uCloudGlowAmb;
 uniform vec2 uCloudLight;
 uniform vec3 uCirrus;
+uniform vec4 uStreak;
+uniform vec3 uStreakCol;
+uniform vec3 uStreakFar;
+uniform float uStreakRim;
 uniform float uEnvPass;
 uniform float uEnvScale;
 uniform float uEnvBlue;
@@ -256,7 +273,7 @@ float skyDensity(vec3 p, float hf, float detail){
     // r2 (look-golden): erosion fades out with distance (was a hard on/off at 16 km → seam + blocky far puffs)
     base = cgRemapU(base, mod_ * uCloudErode * detail, 1.0, 0.0, 1.0);
   }
-  return clamp(base, 0.0, 1.0);
+  return pow(clamp(base, 0.0, 1.0), uCloudEdge);
 }
 
 // direction the cumulus are lit from: the (visible) sun, optionally re-aimed in elevation (uCloudLight.x deg, art
@@ -297,7 +314,7 @@ vec4 skyClouds(vec3 cam, vec3 rd, float steps, float jit, out float dist){
   // ray → hard cut-out edges, terraced "pixel" blobs, specks (worse with more cumulus thickness). Now both steps are
   // bounded in metres and grow with distance (≈ constant screen-space footprint), with a larger iteration budget.
   float dt0 = len / steps;
-  float t = tIn + min(dt0, 60.0 + 0.02 * tIn) * jit;
+  float t = tIn + min(dt0, uCloudStep.x + uCloudStep.y * tIn) * jit;
   float mu = dot(rd, uSunDir);
   // ambient: sky dome above (blue), ground + lower sky below (warm grey)
   vec3 ambTop = cgCloudAmbTop();
@@ -313,10 +330,12 @@ vec4 skyClouds(vec3 cam, vec3 rd, float steps, float jit, out float dist){
   // adaptive march: coarse steps through clear air, fine steps inside cloud
   bool fine = false;
   float zeros = 0.0;
-  float iters = steps * 10.0;
+  // r3 (look-golden): iteration budget independent of the quality preset in the visible sky (preview 16 steps → 160
+  // iterations ran out on grazing rays: clouds cut off flat near the horizon at --quality preview / video)
+  float iters = uEnvPass > 0.5 ? steps * 10.0 : max(steps * 10.0, 400.0);
   for (int i = 0; i < 480; i++) {
     if (float(i) >= iters || T < 0.012 || t > tOut) break;
-    float dtC = min(dt0, 60.0 + 0.02 * t);            // coarse: 60 m near … 660 m at 30 km
+    float dtC = min(dt0, uCloudStep.x + uCloudStep.y * t); // coarse (r3: uniform; r2 60 m + 0.02·t → hit-or-miss dither on thin edges at 1 spp)
     float dtF = clamp(dtC * 0.3, 10.0, 18.0 + 0.004 * t); // fine: ≤ 18 m near … 140 m at 30 km
     vec3 rp = ro + rd * t;
     float alt = length(rp) - RE;
@@ -371,6 +390,31 @@ void main() {
     vec3 cir = atmoHazeInscatter(d) * 0.85 + uSunColor * (0.5 + 3.0 * pow(muC, 10.0));
     col = mix(col, cir, clamp(a, 0.0, 0.85));
   }
+  // ---- r3 sunset streaks (behind the cumulus, in front of the cirrus): long horizontal bars near the horizon
+  if (uStreak.x > 0.0 && uCloudReady > 0.5 && uEnvPass < 0.5 && d.y > -0.004) {
+    float tc = (uStreak.y - cameraPosition.y) / max(d.y, 0.006);
+    vec2 q = cameraPosition.xz + d.xz * tc + uCloudOffset * 1000.0 + uCloudWind * uSkyTime;
+    vec4 s1 = textureLod(tCloudShape, vec3(q.x / 52000.0, q.y / 9000.0, 0.53), 0.0);
+    vec4 s2 = textureLod(tCloudShape, vec3(q.x / 17000.0 + 0.21, q.y / 3600.0, 0.17), 0.0);
+    vec4 s3 = textureLod(tCloudShape, vec3(q / 90000.0 + 0.6, 0.81), 0.0);
+    float band = clamp((s1.g * 0.55 + s2.b * 0.3 + s2.a * 0.15 - 0.6) / 0.32, 0.0, 1.0);
+    float patchy = smoothstep(0.55, 0.85, s3.r);
+    float el = degrees(asin(clamp(d.y, -1.0, 1.0)));
+    float a = smoothstep(uStreak.w, uStreak.w + 0.22, band * (0.65 + 0.35 * patchy)) * uStreak.x;
+    a *= (1.0 - smoothstep(uStreak.z * 0.45, uStreak.z, el)) * smoothstep(-0.25, 0.4, el) * (1.0 - smoothstep(60000.0, 220000.0, tc));
+    if (a > 0.0) {
+      vec3 vs = cgVisibleSunDir();
+      float muS = max(dot(d, vs), 0.0);
+      float gw = clamp(cgGlowW(d) * 1.4, 0.0, 1.0);
+      vec3 near = col * uStreakCol;                          // backlit bodies inside the glow
+      vec3 far = atmoHazeInscatter(d) * uSkyHorizonTint * uStreakFar; // front / side-lit bars away from the sun
+      vec3 body = mix(far, near, gw);
+      // thin edges glow (forward scattering) close to the sun
+      float edge = 1.0 - smoothstep(0.0, 0.6, a / max(uStreak.x, 1e-3));
+      vec3 rim = uSunColor * uStreakRim * (pow(muS, 2500.0) * 2.0 + pow(muS, 80.0) * 0.25 + pow(muS, 8.0) * 0.08) * (0.4 + edge);
+      col = mix(col, body + rim, clamp(a, 0.0, 0.92));
+    }
+  }
   float Tc = 1.0;
   if (uCloudReady > 0.5 && d.y > -0.02) {
     float steps = uEnvPass > 0.5 ? max(8.0, floor(uCloudSteps * 0.5)) : uCloudSteps;
@@ -400,7 +444,8 @@ void main() {
     float mu = dot(d, cgVisibleSunDir());
     float cosR = cos(uSunSize);
     float disk = smoothstep(cosR - 0.00002, cosR + 0.00001, mu);
-    col += uSunColor * uSunDisk * disk * (0.6 + 0.4 * smoothstep(cosR, 1.0, mu)) * Tc;
+    // r3 (look-golden): the low sun's disk keeps a little of the sunset tint (r2 white disk read grey-blue inside the gold glow)
+    col += uSunColor * mix(vec3(1.0), uSkySunTint, 0.35) * uSunDisk * disk * (0.6 + 0.4 * smoothstep(cosR, 1.0, mu)) * Tc;
   }
   // r5: alpha 0 = sky in the HDR target (the grade uses the accumulated alpha as a sky mask: no local
   // contrast boost on clouds); the env pass ignores alpha

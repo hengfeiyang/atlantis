@@ -165,3 +165,18 @@ export const SHIPS = {
   // ref 7 wreck pose (overrides WRECKS[0] pos/heading for the ships module): bow to the left, away from the shot-7 camera
   wreck: { pos: [-15, 790], heading: 198, roll: -0.15, pitch: 0.14, lift: 0.5 },   // r2 (director): shot-7 solve — bow near-left, stern toward the left pier (ref 7)
 };
+
+// ------------------------------------------------------------------ rings / bridges (arch-a, r3; additive)
+// Shed mole (ref 4 / shot 4): a rock-cut harbour mole in water ring 1, rooted in land ring 1 at bearing ≈ 152-160 and
+// running north along the right of the shot-4 frame (14-34 m from the camera): ship-sheds in its west face (triremes:
+// ships module, registry.rings.sheds), the tin curtain + pylons above; its head carries a water tunnel and an arched
+// bridge to the citadel quay straight ahead of the camera (ref 4: bridge + tunnel at the end of the shed row).
+// Frame: `head` = point of the shed-front line (west face, water level) on the bridge axis; s = metres along `heading`
+// (north +), lat = metres east of the shed-front line. Built by src/rings/mole.js + src/bridges/mole.js.
+export const SHED_MOLE = {
+  head: [118.9, 222.8], heading: 359, back: 112, front: 12, depth: 4, shedBack: 32, width: 34, landY: 14, wallH: 12,   // depth: shed fronts project 4 m (the curtain stays visible from the low shot-4 eye)
+  sheds: [-97, -18], pitch: 13.2,
+  tunnel: { s: [-18, 8], width: 13, clear: 10 },        // tunnel block in front of the head (lat -13..0), passage along s
+  bridge: { s: -10, heading: 285, deck: 15.5, halfWidth: 5.2, gateHalf: 9 },   // axis at s = -10; lands at bearing ≈ 165, west of the citadel spout at 158 (its fall lands ≈ 6 m behind the bridge: seen through the arches)
+  shipClear: { from: [98.24, 321.32], r: 27 },           // no moored ship within this of the shot-4 camera (director)
+};

@@ -28,7 +28,9 @@ function params(rng, style) {
     dates: rng.chance(0.6) ? rng.int(2, 4) : 0, vAng: rng.range(20, 30), lmax: rng.range(0.17, 0.2),
   };
   if (style === 'medium') Object.assign(P, { trunkH: rng.range(5, 8), nFr: rng.int(42, 50), frL: rng.range(4.3, 5.1), dry: rng.int(1, 3) });
-  if (style === 'young') Object.assign(P, { trunkH: rng.range(0.6, 2.2), r0: rng.range(0.34, 0.42), nFr: rng.int(36, 44), frL: rng.range(3.2, 4.2), elevTop: 82, elevBot: -14, droop: [0.3, 1.1], dry: rng.int(0, 2), dates: 0, lean: rng.range(0, 0.03) });
+  // r3: young palms read like agaves (stiff upright rosette on the ground) → a short but visible trunk, fewer, longer,
+  //     arching fronds (open fountain crown)
+  if (style === 'young') Object.assign(P, { trunkH: rng.range(2.6, 4.0), r0: rng.range(0.33, 0.4), nFr: rng.int(28, 34), frL: rng.range(3.8, 4.6), elevTop: 66, elevBot: -24, droop: [0.5, 1.4], dry: rng.int(0, 2), dates: 0, lean: rng.range(0.01, 0.05) });
   if (style === 'leaning') Object.assign(P, { trunkH: rng.range(7.5, 12), lean: rng.range(0.16, 0.3), bow: rng.range(0.5, 0.8), nFr: rng.int(40, 48), dry: rng.int(2, 6) });
   if (style === 'garden') Object.assign(P, { trunkH: rng.range(3.5, 6.5), nFr: rng.int(46, 54), frL: rng.range(4.2, 4.9), dry: 0, lean: rng.range(0, 0.025), droop: [0.35, 1.2], elevBot: -26 });
   return P;

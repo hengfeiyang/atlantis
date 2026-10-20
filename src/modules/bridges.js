@@ -14,6 +14,7 @@ import { bridgePlan, GATE } from '../bridges/plan.js';
 import { buildGateBridge } from '../bridges/gate.js';
 import { buildRingBridge } from '../bridges/ring.js';
 import { buildCitadelTowers } from '../bridges/pinnacles.js';
+import { buildMoleHead, buildMoleTowers } from '../bridges/mole.js';
 
 let MATS = null;
 export function bridgeMaterials() {
@@ -54,10 +55,20 @@ export async function build(engine) {
   const plan = bridgePlan();
   const ring = plan.map((P) => buildRingBridge(kitR, P));
   const citadelTowers = buildCitadelTowers(kitR);   // r3 (director): L.CITADEL_TOWERS, refs 4 / 5 / 9
+  let moleHead = null;
+  // r3 (arch-a): shot 4 tunnel + bridge (own kit: kept out of the water module's cascade height capture — the citadel
+  // spout at bearing 158 falls just behind this bridge and must not be traced over its deck)
+  const kitM = new Kit(engine, { detail: Math.max(0.75, q.detail), sunken, label: 'mole' });
+  const groupM = new THREE.Group(); groupM.name = 'bridges-mole-head';
+  try { moleHead = buildMoleHead(kitM); tris += finalizeKit(kitM, mats, groupM, 'mole-head'); } catch (e) { console.error('[bridges] mole head failed:', e && (e.stack || e)); }
+  groupM.traverse((o) => { o.userData.noHeightCapture = true; });
+  group.add(groupM);
+  let moleTowers = [];
+  try { moleTowers = buildMoleTowers(kitR); } catch (e) { console.error('[bridges] mole towers failed:', e && (e.stack || e)); }   // r3: ref 1 towers along the sea moles
   tris += finalizeKit(kitR, mats, group, 'ring-bridges');
   engine.add(group);
-  publish(engine, [kitG, kitR]);
-  engine.registry.bridges = { gate: { ...GATE, towers: gate.towers }, ring, plan, citadelTowers };
+  publish(engine, [kitG, kitR, kitM]);
+  engine.registry.bridges = { gate: { ...GATE, towers: gate.towers }, ring, plan, citadelTowers, moleHead, moleTowers };
   const ms = Math.round(performance.now() - t0);
   console.log(`[bridges] ${sunken ? 'sunken' : 'golden'}: gate + ${plan.length} ring bridges, ${(tris / 1e6).toFixed(2)} M tris, ${group.children.length} meshes, gate tower tips ${gate.towers.map((t) => t.tip.toFixed(1)).join('/')} m, citadel towers ${citadelTowers.map((t) => t.tip.toFixed(1)).join('/')} m, coral ${kitG.coral.length + kitR.coral.length}, kelp ${kitG.kelp.length + kitR.kelp.length}, ${ms} ms`);
   engine.stats.bridges = { tris, ms };

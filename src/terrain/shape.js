@@ -252,10 +252,35 @@ export function islandShape(x, z) {
 // benches between them (ref 4, 6). The ledges, the plateau, the quay band and the grand-stair corridor stay
 // exact. Returns the height to ADD to the smooth radial profile.
 const STAIR_HALF = (L.CITADEL_STAIR?.width ?? 34) / 2 + 6;
+// r3: the grand stair (6 landings + flights, temple.js grandStairPlan) with planted cheek beds out to |x| ≈ 23:
+// the hillside stays ≥ 2.5 m under the mean stair line inside that corridor (rock / ledges never poke through)
+function stairClamp(x, z, h) {
+  const S = L.CITADEL_STAIR; if (!S) return h;
+  const z0 = S.from[2], z1 = S.to[2];
+  if (z < z0 - 2 || z > z1 + 2) return h;
+  const ax = Math.abs(x - S.x), hw = S.width / 2 + 8;
+  if (ax > hw + 6) return h;
+  const zl = L.STAIR_HEAD ? Math.max(z0, L.STAIR_HEAD.landing[1]) : z0;
+  const t = clamp((z - zl) / (z1 - zl), 0, 1);
+  const line = lerp(S.from[1], S.to[1], t) - 2.5;
+  const w = smoothstep(hw + 6, hw, ax) * smoothstep(z0 - 2, z0 + 3, z);
+  return Math.min(h, lerp(h, line, w));
+}
 export function citadelSlopeDetail(x, z, r, base) {
+  const d = slopeDetail0(x, z, r, base);
+  return stairClamp(x, z, base + d) - base;
+}
+function slopeDetail0(x, z, r, base) {
   const C = L.CITADEL, [t1, t2] = C.terraces;
   let r0, r1, y0, y1;
-  if (r > C.plateau && r < t1.r0) { r0 = C.plateau; r1 = t1.r0; y0 = C.summit; y1 = t1.y; }
+  if (r > C.plateau && r < t1.r0) {
+    // r3: the plateau rim (20 m over 4 m) is a built retaining wall (the red rampart of refs 4/5 stands in front
+    // of it): a clean, slightly battered face with crisp top / foot edges instead of rock steps
+    const a = C.plateau + 0.3, b = t1.r0 - 0.55;
+    const wall = r <= a ? C.summit : r >= b ? t1.y : lerp(C.summit, t1.y, (r - a) / (b - a));
+    const stair = z > 0 ? smoothstep(STAIR_HALF, STAIR_HALF + 10, Math.abs(x - (L.CITADEL_STAIR?.x ?? 0))) : 1;
+    return (wall - base) * stair;
+  }
   else if (r > t1.r1 && r < t2.r0) { r0 = t1.r1; r1 = t2.r0; y0 = t1.y; y1 = t2.y; }
   else if (r > t2.r1 && r < 214) { r0 = t2.r1; r1 = 214; y0 = t2.y; y1 = C.quayY; }
   else return 0;

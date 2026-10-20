@@ -43,7 +43,7 @@ const ROCK_COLOR = /* glsl */ `
   float up = clamp(n.y, 0.0, 1.0);
   float m1 = cgFbm3(p * 0.028 + 1.7, 3);
   float m2 = cgFbm3(p * 0.095 + vec3(11.0, 3.0, 7.0), 3);
-  vec3 cream = vec3(0.600, 0.565, 0.500), bone = vec3(0.680, 0.660, 0.620), grey = vec3(0.400, 0.400, 0.400), buff = vec3(0.580, 0.450, 0.300);
+  vec3 cream = vec3(0.360, 0.310, 0.250), bone = vec3(0.420, 0.372, 0.310), grey = vec3(0.300, 0.282, 0.262), buff = vec3(0.385, 0.300, 0.215);   // r3: = terrain citadel limestone (warm grey-tan, mid contrast)   // r3: warmer tan / ochre, darker (ref 4 crags ≈ rgb 130-160 / 95-120 / 70-90 lit)
   vec3 c = mix(cream, bone, smoothstep(0.1, 0.55, -m1 + 0.5 * m2) * 0.7);
   c = mix(c, grey, smoothstep(0.25, 0.75, m1 + 0.35 * m2) * 0.42);
   c = mix(c, buff, smoothstep(0.15, 0.65, m2 + 0.35 * m1) * 0.55 * (0.4 + 0.6 * vert));
@@ -69,7 +69,7 @@ const ROCK_COLOR = /* glsl */ `
   // crevices (vertex cavity, sharpened + broken edges) and fractures: dark and damp
   float cavN = vRkAux.x + 0.2 * cgSnoise(p * vec3(1.3, 0.6, 1.3) + 4.0) * (1.0 - smoothstep(0.3, 1.2, fp));
   float cv = clamp(max(0.9 * smoothstep(0.35, 0.75, cavN), crk), 0.0, 1.0);
-  c *= 1.0 - 0.68 * cv * cv - 0.1 * cv;
+  c = mix(c, c * vec3(0.72, 0.76, 0.66), cv);   // r3: damp crevices, not black (terrain palette)
   // lichen: yellow + white patches
   float lm = smoothstep(0.0, 0.6, cgFbm3(p * 0.3 + 4.0, 3) + 0.3 * up);
   c = mix(c, vec3(0.56, 0.51, 0.31), smoothstep(0.55, 0.8, cgSnoise(p * 1.9 + 9.0)) * lm * 0.3);
@@ -94,7 +94,10 @@ const ROCK_NORMAL = /* glsl */ `
     vec3 g = vec3(cgSnoise(q + vec3(e,0,0)) - c0, cgSnoise(q + vec3(0,e,0)) - c0, cgSnoise(q + vec3(0,0,e)) - c0) / e;
     vec3 q2 = cgP * 3.0; float c2 = cgVnoise3(q2);
     vec3 g2 = vec3(cgVnoise3(q2 + vec3(e,0,0)) - c2, cgVnoise3(q2 + vec3(0,e,0)) - c2, cgVnoise3(q2 + vec3(0,0,e)) - c2) / e;
-    vec3 b = (g * vec3(0.9, 0.12, 0.9) * 0.10 + g2 * 0.035) * fN;
+    // r3: mid-scale facets / fractures (breaks the smooth crag lumps when front-lit, shot 4)
+    vec3 q3 = cgP * vec3(0.62, 0.34, 0.62) + 5.0; float c3 = cgSnoise(q3) + 0.5 * cgSnoise(q3 * 2.3);
+    vec3 g3 = vec3(cgSnoise(q3 + vec3(e,0,0)) + 0.5 * cgSnoise((q3 + vec3(e,0,0)) * 2.3) - c3, cgSnoise(q3 + vec3(0,e,0)) + 0.5 * cgSnoise((q3 + vec3(0,e,0)) * 2.3) - c3, cgSnoise(q3 + vec3(0,0,e)) + 0.5 * cgSnoise((q3 + vec3(0,0,e)) * 2.3) - c3) / e;
+    vec3 b = (g * vec3(0.9, 0.12, 0.9) * 0.14 + g2 * 0.05 + g3 * vec3(0.62, 0.34, 0.62) * 0.2) * fN;
     cgBump = b - cgN * dot(b, cgN);
   }
 `;
@@ -104,7 +107,7 @@ function rockMaterial(green = 1) {
     uniforms: { uRkGreen: { value: green } },
     vertexHead: ROCK_HEAD + 'varying vec4 vRkAux;', vertexPre: 'vRkAux = aux;',
     head: ROCK_FHEAD, color: ROCK_COLOR, normal: ROCK_NORMAL,
-    ao: `cgAO = 1.0 - 0.65 * smoothstep(0.2, 0.9, vRkAux.x);`,
+    ao: `cgAO = 1.0 - 0.3 * smoothstep(0.2, 0.9, vRkAux.x);`,
   });
   m.defaultAttributeValues = { ...(m.defaultAttributeValues || {}), aux: [0, 0, 0, 0] };
   m.userData.sunken = 'stone';

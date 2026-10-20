@@ -24,6 +24,9 @@
 //   uSkGold        vec4  x roughness added, y crevice darkening, z crust amount, w albedo scale
 //   uSkStone       vec4  x greening, y crevice darkening, z overall darkening, w roughness added
 //   uSkWood        vec4  x darkening, y greying, z algae boost, w
+//   tSkDrift / uSkDrift  r3: world-space drift mask (R8, 1 = sand piles up: wall feet, steps, basin sides; 0 = open
+//                  paving swept clean), baked by the marine module from its top-down surface map of the plateau.
+//                  uSkDrift = (x0, z0, 1/size, on); uSkDrift2 = (coverage multiplier on open ground, at full mask, film on open, -)
 // GLSL: void skApply(inout vec3 alb, inout float rough, inout float metal, inout vec3 bumpW, vec3 P, vec3 N)
 import * as THREE from 'three';
 
@@ -40,10 +43,13 @@ export const SK = {
   uSkCrustColor2: { value: c3('#9a6a8a') },
   uSkVerdigris: { value: c3('#3f8c7a') },
   uSkVerdigris2: { value: c3('#6fb3a2') },
-  uSkMetal: { value: new THREE.Vector4(0.62, 0.5, 0.6, 0.82) },  // r2 (look-sunken): less verdigris, brighter bronze showing through (refs 6, 8)
+  uSkMetal: { value: new THREE.Vector4(0.7, 0.5, 0.9, 0.8) },  // r3 (look-sunken): more verdigris + brighter bronze between (r2 0.62 / 0.6: the shot-6 chariot / Nereids read as navy silhouettes)
   uSkGold: { value: new THREE.Vector4(0.12, 0.4, 0.3, 0.9) },  // r2 (look-sunken): less dulled — gold glints at 30-50 m (refs 6, 8)
   uSkStone: { value: new THREE.Vector4(0.3, 0.45, 0.08, 0.2) },
   uSkWood: { value: new THREE.Vector4(0.3, 0.4, 0.3, 0) },
+  tSkDrift: { value: null },
+  uSkDrift: { value: new THREE.Vector4(0, 0, 1, 0) },
+  uSkDrift2: { value: new THREE.Vector4(0.3, 1.9, 0.5, 0) },
 };
 
 const KIND = { none: 0, stone: 1, metal: 2, gold: 3, wood: 4 };
@@ -64,6 +70,7 @@ uniform vec4 uSkAlgae; uniform vec3 uSkAlgaeColor; uniform vec3 uSkAlgaeColor2;
 uniform vec4 uSkCrust; uniform vec3 uSkCrustColor; uniform vec3 uSkCrustColor2;
 uniform vec3 uSkVerdigris; uniform vec3 uSkVerdigris2;
 uniform vec4 uSkMetal; uniform vec4 uSkGold; uniform vec4 uSkStone; uniform vec4 uSkWood;
+uniform sampler2D tSkDrift; uniform vec4 uSkDrift; uniform vec4 uSkDrift2;
 
 float skH(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 vec3 skG(vec3 i){ return normalize(vec3(skH(i), skH(i + 19.19), skH(i + 47.53)) * 2.0 - 1.0 + 1e-4); }
@@ -137,6 +144,16 @@ void skApply(inout vec3 alb, inout float rough, inout float metal, inout vec3 bu
   float s = upM * smoothstep(1.0 - uSkSand.x - 0.1, 1.0 - uSkSand.x + 0.1, drift + 0.06 * (n3 - 0.5));
   s *= amt * (kind == 3 ? 0.55 : 1.0);
   float film = upM * 0.12 * amt;
+  if (uSkDrift.w > 0.5) {
+    // r3: drifts gather against walls / steps / basins, open paving stays readable (ref 6)
+    vec2 duv = (P.xz - uSkDrift.xy) * uSkDrift.z;
+    if (all(greaterThan(duv, vec2(0.0))) && all(lessThan(duv, vec2(1.0)))) {
+      float dm = texture(tSkDrift, duv).r;
+      dm = smoothstep(0.0, 1.0, dm + 0.25 * (n2 - 0.5));
+      s = min(1.0, s * mix(uSkDrift2.x, uSkDrift2.y, dm) + upM * amt * smoothstep(0.55, 0.95, dm) * 0.6);
+      film *= mix(uSkDrift2.z, 1.0, dm);
+    }
+  }
   vec3 sandC = uSkSandColor * (0.88 + 0.22 * n3);
   alb = mix(alb, sandC, film);
   alb = mix(alb, sandC, s);

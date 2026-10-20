@@ -51,7 +51,7 @@ export class ReefLibrary {
     const c = new THREE.Color(a[0], a[1], a[2]).lerp(new THREE.Color(b[0], b[1], b[2]), rng.random() < 0.3 ? rng.range(0.2, 0.5) : 0);
     const hsl = {}; c.getHSL(hsl);
     hsl.h = (hsl.h + rng.range(-0.03, 0.03) + 1) % 1;
-    hsl.s *= rng.range(0.62, 0.92);
+    hsl.s = Math.min(1, hsl.s * rng.range(0.78, 1.02)); // r3 (look-sunken): richer reef colours (ref 6 / 8)
     hsl.l *= rng.range(0.72, 1.06);
     c.setHSL(hsl.h, hsl.s, hsl.l);
     return [c.r, c.g, c.b];

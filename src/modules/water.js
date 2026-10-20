@@ -36,8 +36,20 @@ import { waveUniforms, swellFromUniforms, swellHeight, WAVES_GLSL } from '../wat
 import { makeGround } from '../water/trace.js';
 import { planCascades, traceCascades, cascadeFootprints, buildCascadeMeshes, SPOUT_R, SPOUT_Y } from '../water/cascades.js';
 import { buildFountains } from '../water/fountains.js';
+import { buildBowSpray } from '../water/bowSpray.js';
 import { LOOKS } from '../world/looks.js';
 import { UW } from '../core/underwater.js';
+
+// r3: per-shot surface tuning (water-level shots: calmer rings so the lit buildings mirror, broad gold glitter)
+export const SHOT_TUNE = {
+  // shot 4 (eye 2.5 m in w1, sun 60° left of the view): calm mirror, a wide glitter field of small facets
+  // across the left half (ref 4), deeper teal body (ref ≈ rgb 46,105,126)
+  // shot 9 (split level at dusk): a livelier sea, ripples catching the sunset (ref 9)
+  9: { uWaveAmp: [0.13, 0.12, 0.055, 0.006] },
+  4: { uRingCalm: 0.3, uGlintVar: 1.0, uGlintR: 0.45, uGlint: [0.6, 0.5, 1.0, 1.0], uBodyLight: [0.6, 0.65, 0.5], uScatter: [0.008, 0.11, 0.16] },
+};
+const tuneDefaults = {};
+const HERO_FOAM = 1.0;
 
 export const NEAR_BOUNDS = [-1100, -1000, 1100, 1400];
 export const FAR_BOUNDS = [-7000, -7000, 7000, 7000];
@@ -130,11 +142,20 @@ export async function build(engine) {
       water.setImpacts([...imps, ...extraImpacts]);
       const fn = buildFountains(engine, { maps, basins: engine.registry.fountains });
       if (fn) { engine.add(fn.group, { castShadow: false, receiveShadow: true }); late.groups.push(fn.group); }
-      late.update = (t) => { cm.update(t); fn?.update(t); };
-      late.sync = cm.sync;
+      // r3: hero trireme (shot 2, ref 2): breaking bow wave and oar churn (the ships module registers the wake)
+      for (const w of water.wakes) if (w.id === 'hero' && !w.foam) w.foam = HERO_FOAM;
+      water.syncWakes();
+      const bow = buildBowSpray(engine, maps, water.wakes, level);
+      if (bow) { engine.add(bow.mesh, { castShadow: false, receiveShadow: false }); late.groups.push(bow.mesh); }
+      late.update = (t) => { cm.update(t); fn?.update(t); if (bow) bow.uniforms.uTime.value = t; };
+      late.sync = () => {
+        cm.sync();
+        if (bow && cm.mistUniforms) { bow.uniforms.uSunCol.value.copy(cm.mistUniforms.uSunCol.value); bow.uniforms.uSkyAmb.value.copy(cm.mistUniforms.uSkyAmb.value); }
+      };
       late.update(engine.time);
       reg.cascades = falls.map((f) => ({ id: f.id, kind: f.kind, lip: f.lip, impact: f.impact, width: f.width, drop: f.drop }));
       reg.fountains = fn?.basins || [];
+      reg.traced = falls;   // (look-dev: the traced streams)
       console.log(`[water] late build ${Math.round(performance.now() - tl)} ms: ${falls.length} cascades (${imps.length} impacts, ${Math.round(cm.tris)} sheet tris, ${cm.puffs} mist puffs${archMap ? ', arch capture ' + archMap.ms + ' ms / ' + archMap.meshes + ' meshes' : ''}), ${fn ? fn.basins.length + ' fountains' : 'no fountains'}`);
     } catch (e) { console.error('[water] late build failed:', e.stack || e); }
     return late;
@@ -149,6 +170,10 @@ export async function build(engine) {
     late?.sync();
     const U = water.uniforms;
     U.uDebug.value = shot.waterDebug ?? debug0;
+    // r3: per-shot water look (restore the defaults of every tuned key first)
+    for (const t of Object.values(SHOT_TUNE)) for (const k of Object.keys(t)) if (U[k] && !(k in tuneDefaults)) tuneDefaults[k] = U[k].value?.clone ? U[k].value.clone() : U[k].value;
+    for (const [k, v] of Object.entries(tuneDefaults)) { if (U[k].value?.copy) U[k].value.copy(v); else U[k].value = v; }
+    for (const [k, v] of Object.entries(SHOT_TUNE[shot.id] || {})) setU(U, k, v);
     for (const [k, v] of Object.entries({ ...ptune, ...(shot.waterTune || {}) })) setU(U, k, v);
     if (underside) for (const [k, v] of Object.entries(shot.underTune || {})) setU(underside.uniforms, k, v);
     const sky = engine.registry.skyEnvScale;

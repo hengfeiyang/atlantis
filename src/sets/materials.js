@@ -98,6 +98,12 @@ export function setGoldMaterial(sunken) {
   });
 }
 
+/** r3 (look-sunken): the fallen trident of shot 8 — gold under patchy turquoise verdigris / coral crust (ref 8:
+ *  bright gold on the prong faces and the collar, crust in the cavities and on the upper faces) */
+export function setTridentGoldMaterial() {
+  return cached('sets:tridentGold', () => goldMaterial({ wear: 0.55, roughness: 0.32, crust: 0.52, crustScale: 0.3, crustUp: 1.4, crustColor: new THREE.Color(0.06, 0.28, 0.22) }));
+}
+
 /**
  * Navy enamel band with a gold Greek-key (meander) and gold bead rims, wrapped around a column axis
  * (object space: axis y, band from y = 0 to uBand.x, angle → u). Used on the banded columns (ref 8).
