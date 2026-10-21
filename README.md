@@ -10,6 +10,12 @@ The method and the engine core come from [Athenaion](https://github.com/Leonxlnx
 source is kept for reference in [`third_party/athenaion/`](third_party/athenaion). The world modules,
 both eras, the underwater renderer and the film are new.
 
+![teaser](media/teaser.gif)
+
+The teaser above is a 10 s excerpt at 560 px. The film itself (3840×2160, 59 s, about 1.3 GB) is not stored in
+this repository. Render it with the commands in [docs/RENDER.md](docs/RENDER.md). The contact sheet below has
+one frame per second of the film:
+
 ![film contact sheet](media/film_sheet.jpg)
 
 ## What's in it
