@@ -101,3 +101,5 @@ adapted from [Athenaion](https://github.com/Leonxlnx/athenaion) by Leon Lin (MIT
 Music in the film: "Long Road Ahead" by Kevin MacLeod (incompetech.com), licensed under
 [Creative Commons: By Attribution 4.0](http://creativecommons.org/licenses/by/4.0/). The music is not part of
 this repository.
+
+MIT licensed, see [LICENSE](LICENSE).
